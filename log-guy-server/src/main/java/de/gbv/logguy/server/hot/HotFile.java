@@ -113,6 +113,10 @@ public final class HotFile {
         Path dir = root.resolve(relativeDir);
         Files.createDirectories(dir);
         HotFile file = new HotFile(dir, created + "-" + fingerprint, relativeDir, settings, json);
+        // left over by a crash during delete
+        Files.deleteIfExists(file.zstPath);
+        Files.deleteIfExists(file.idxPath);
+        Files.deleteIfExists(file.tailPath);
         file.meta = new FileMeta(fingerprint, host, app, created, List.of(), now, now, 0, false);
         file.writeMeta();
         syncDirectory(dir);
@@ -504,6 +508,26 @@ public final class HotFile {
             channel.force(true);
         } catch (IOException e) {
             LOGGER.debug("cannot sync directory {}", dir, e);
+        }
+    }
+
+    /**
+     * Deletes the file from disk. The meta data go first, so a crash leaves only data that is never loaded.
+     *
+     * @throws IOException if deleting fails
+     */
+    void delete() throws IOException {
+        lock.lock();
+        try {
+            closeChannel();
+            Files.deleteIfExists(metaPath);
+            syncDirectory(metaPath.getParent());
+            Files.deleteIfExists(zstPath);
+            Files.deleteIfExists(idxPath);
+            Files.deleteIfExists(tailPath);
+            Files.deleteIfExists(metaPath.resolveSibling(metaPath.getFileName() + TMP_SUFFIX));
+        } finally {
+            lock.unlock();
         }
     }
 

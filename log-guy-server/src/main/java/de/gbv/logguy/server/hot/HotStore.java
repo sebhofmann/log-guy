@@ -108,6 +108,18 @@ public class HotStore implements AutoCloseable {
     }
 
     /**
+     * Deletes a file, e.g. after it was archived and its days left {@code hot/}.
+     *
+     * @param file the file
+     * @throws IOException if deleting fails
+     */
+    public void delete(HotFile file) throws IOException {
+        files.remove(file.fingerprint(), file);
+        file.delete();
+        LOGGER.info("deleted {}", file.relativePath());
+    }
+
+    /**
      * Writes frames for pending bytes that are older than {@code frame-max-age}.
      */
     public void flushAged() {

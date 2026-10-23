@@ -66,7 +66,7 @@ class RetentionServiceIT {
             new SearchProperties(Duration.ofHours(24), 100, 1000, 300, 8, 10, 100, 20, 500,
                 DataSize.ofKilobytes(512)),
             new RetentionProperties("0 30 2 * * *", true), null, null, null);
-        retention = new RetentionService(properties, service, null, Clock.fixed(NOW, ZoneOffset.UTC));
+        retention = new RetentionService(properties, service, null, Clock.fixed(NOW, ZoneOffset.UTC), null);
     }
 
     @AfterAll

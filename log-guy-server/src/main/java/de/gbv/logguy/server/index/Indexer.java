@@ -154,6 +154,11 @@ public class Indexer implements AutoCloseable {
     void scan() {
         for (HotFile file : store.files()) {
             Cursor cursor = cursors.computeIfAbsent(file.fingerprint(), fp -> new Cursor(file, loadState(fp, file)));
+            if (cursor.file != file || store.find(file.fingerprint()).isEmpty()) {
+                // deleted from hot/ while this scan ran
+                cursors.remove(file.fingerprint(), cursor);
+                continue;
+            }
             if (cursor.done || cursor.busy || !cursor.hasWork()) {
                 continue;
             }
@@ -169,6 +174,32 @@ public class Indexer implements AutoCloseable {
                 }
             });
         }
+    }
+
+    /**
+     * Whether a file is completely indexed.
+     *
+     * @param fingerprint fingerprint of the file
+     * @return true if its last event was sent to Solr
+     */
+    public boolean isIndexed(String fingerprint) {
+        Cursor cursor = cursors.get(fingerprint);
+        if (cursor != null) {
+            return cursor.done;
+        }
+        HotFile file = store.find(fingerprint).orElse(null);
+        return file != null && loadState(fingerprint, file).done();
+    }
+
+    /**
+     * Forgets a file deleted from {@code hot/}: its progress and its state file.
+     *
+     * @param fingerprint fingerprint of the file
+     * @throws IOException if the state file cannot be deleted
+     */
+    public void forget(String fingerprint) throws IOException {
+        cursors.remove(fingerprint);
+        Files.deleteIfExists(stateDir.resolve(fingerprint));
     }
 
     /**

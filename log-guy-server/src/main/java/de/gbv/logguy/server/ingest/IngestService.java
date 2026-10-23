@@ -3,6 +3,7 @@ package de.gbv.logguy.server.ingest;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
@@ -12,6 +13,9 @@ import org.springframework.http.HttpStatus;
 
 import de.gbv.logguy.common.Fingerprint;
 import de.gbv.logguy.common.StreamStatus;
+import de.gbv.logguy.server.archive.ArchiveFile;
+import de.gbv.logguy.server.archive.ArchiveMeta;
+import de.gbv.logguy.server.archive.ArchiveStore;
 import de.gbv.logguy.server.hot.FileMeta;
 import de.gbv.logguy.server.hot.GapException;
 import de.gbv.logguy.server.hot.HotFile;
@@ -29,15 +33,19 @@ public class IngestService {
 
     private final HotStore store;
 
+    private final ArchiveStore archive;
+
     private final Map<String, Instant> lastSeen = new ConcurrentHashMap<>();
 
     /**
      * Creates the service.
      *
      * @param store the hot storage
+     * @param archive the archive, it knows the files already deleted from {@code hot/}
      */
-    public IngestService(HotStore store) {
+    public IngestService(HotStore store, ArchiveStore archive) {
         this.store = store;
+        this.archive = archive;
     }
 
     /**
@@ -64,8 +72,15 @@ public class IngestService {
     public StreamStatus status(IngestPrincipal principal, String fingerprint) {
         seen(principal);
         checkFingerprint(fingerprint);
-        HotFile file = store.find(fingerprint)
-            .orElseThrow(() -> new IngestException(HttpStatus.NOT_FOUND, "unknown stream", null));
+        HotFile file = store.find(fingerprint).orElse(null);
+        if (file == null) {
+            ArchiveMeta archived = archivedOnly(fingerprint)
+                .orElseThrow(() -> new IngestException(HttpStatus.NOT_FOUND, "unknown stream", null));
+            if (!principal.mayWrite(archived.host(), archived.app())) {
+                throw new IngestException(HttpStatus.NOT_FOUND, "unknown stream", null);
+            }
+            return status(archived);
+        }
         FileMeta meta = file.meta();
         if (!principal.mayWrite(meta.host(), meta.app())) {
             throw new IngestException(HttpStatus.NOT_FOUND, "unknown stream", null);
@@ -97,6 +112,10 @@ public class IngestService {
         }
         HotFile file = store.find(fingerprint).orElse(null);
         if (file == null) {
+            Optional<ArchiveMeta> archived = archivedOnly(fingerprint);
+            if (archived.isPresent()) {
+                return appendArchived(archived.get(), offset, length, host, app);
+            }
             if (offset != 0) {
                 throw new IngestException(HttpStatus.CONFLICT, "unknown stream, start at 0",
                     new StreamStatus(fingerprint, 0, false));
@@ -137,8 +156,17 @@ public class IngestService {
         seen(principal);
         checkFingerprint(fingerprint);
         checkAccess(principal, host, app);
-        HotFile file = store.find(fingerprint)
-            .orElseThrow(() -> new IngestException(HttpStatus.NOT_FOUND, "unknown stream", null));
+        HotFile file = store.find(fingerprint).orElse(null);
+        if (file == null) {
+            ArchiveMeta archived = archivedOnly(fingerprint)
+                .orElseThrow(() -> new IngestException(HttpStatus.NOT_FOUND, "unknown stream", null));
+            checkOwner(archived.host(), archived.app(), host, app);
+            if (length != archived.sourceLength()) {
+                throw new IngestException(HttpStatus.CONFLICT, "stream is closed at " + archived.sourceLength(),
+                    status(archived));
+            }
+            return status(archived);
+        }
         checkOwner(file, host, app);
         try {
             return file.close(length, path, store.now());
@@ -168,9 +196,41 @@ public class IngestService {
 
     private static void checkOwner(HotFile file, String host, String app) {
         FileMeta meta = file.meta();
-        if (!meta.host().equals(host) || !meta.app().equals(app)) {
-            throw new IngestException(HttpStatus.FORBIDDEN,
-                "stream belongs to " + meta.host() + "/" + meta.app(), null);
+        checkOwner(meta.host(), meta.app(), host, app);
+    }
+
+    private static void checkOwner(String ownerHost, String ownerApp, String host, String app) {
+        if (!ownerHost.equals(host) || !ownerApp.equals(app)) {
+            throw new IngestException(HttpStatus.FORBIDDEN, "stream belongs to " + ownerHost + "/" + ownerApp,
+                null);
         }
+    }
+
+    /**
+     * A file that was archived completely and then deleted from {@code hot/}. It stays a closed stream, so an agent
+     * that sends it again, e.g. after losing its state, does not create a duplicate.
+     */
+    private Optional<ArchiveMeta> archivedOnly(String fingerprint) {
+        return archive.find(fingerprint).map(ArchiveFile::meta).filter(ArchiveMeta::closed);
+    }
+
+    private static StreamStatus status(ArchiveMeta archived) {
+        return new StreamStatus(archived.fingerprint(), archived.sourceLength(), true);
+    }
+
+    /**
+     * Same answers as {@link HotFile#append} gives for a closed file.
+     */
+    private static StreamStatus appendArchived(ArchiveMeta archived, long offset, int length, String host,
+        String app) {
+        checkOwner(archived.host(), archived.app(), host, app);
+        if (offset > archived.sourceLength()) {
+            throw new IngestException(HttpStatus.CONFLICT, "chunk starts at " + offset + " but stream ends at "
+                + archived.sourceLength(), status(archived));
+        }
+        if (offset + length > archived.sourceLength()) {
+            throw new IngestException(HttpStatus.CONFLICT, "stream is closed", status(archived));
+        }
+        return status(archived);
     }
 }

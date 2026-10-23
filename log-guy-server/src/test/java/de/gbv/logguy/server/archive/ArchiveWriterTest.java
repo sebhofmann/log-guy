@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.BooleanSupplier;
 
 import org.junit.jupiter.api.AfterAll;
@@ -26,9 +27,11 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.http.HttpStatus;
 import org.springframework.util.unit.DataSize;
 
 import de.gbv.logguy.common.Fingerprint;
+import de.gbv.logguy.common.StreamStatus;
 import de.gbv.logguy.common.TestLogs;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.AppProperties;
@@ -37,6 +40,9 @@ import de.gbv.logguy.server.config.LogGuyProperties.HotProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.ScriptProperties;
 import de.gbv.logguy.server.hot.HotFile;
 import de.gbv.logguy.server.hot.HotStore;
+import de.gbv.logguy.server.ingest.IngestException;
+import de.gbv.logguy.server.ingest.IngestService;
+import de.gbv.logguy.server.retention.HotCleaner;
 import de.gbv.logguy.server.script.ParsedEvent;
 import de.gbv.logguy.server.script.Parser;
 import de.gbv.logguy.server.script.ParserRegistry;
@@ -44,6 +50,7 @@ import de.gbv.logguy.server.script.ParserScript;
 import de.gbv.logguy.server.script.ScriptRuntime;
 import de.gbv.logguy.server.script.ScriptStore;
 import de.gbv.logguy.server.script.TextFunctions;
+import de.gbv.logguy.server.security.IngestPrincipal;
 import tools.jackson.databind.json.JsonMapper;
 
 class ArchiveWriterTest {
@@ -275,6 +282,45 @@ class ArchiveWriterTest {
             assertEquals(content, new String(readAll(reloaded.find(file.fingerprint()).orElseThrow()),
                 StandardCharsets.UTF_8));
             assertFalse(Files.exists(properties.archiveDir().resolve(".refilter")));
+        }
+    }
+
+    @Test
+    void hotCleanerDeletesArchivedFilesAndIngestKeepsThemClosed() throws Exception {
+        byte[] live = "2026-10-02T10:00:00,000 INFO  guest MCRStartup: läuft noch\n".getBytes(StandardCharsets.UTF_8);
+        try (HotStore hot = new HotStore(properties, JSON, Clock.systemUTC())) {
+            HotFile file = fill(hot, sample, true);
+            HotFile open = fill(hot, live, false);
+            ArchiveStore archive = new ArchiveStore(properties, JSON);
+            LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON);
+            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, parsers(), runtime)) {
+                await(() -> archive.find(file.fingerprint()).map(a -> a.meta().closed()).orElse(false));
+            }
+            Instant to = archive.find(file.fingerprint()).orElseThrow().meta().to();
+            // today and the seven days before stay
+            Clock early = Clock.fixed(to.plus(Duration.ofDays(7)), ZoneId.of("UTC"));
+            assertEquals(List.of(), new HotCleaner(properties, hot, archive, null, parsers(), early).run());
+            Clock late = Clock.fixed(to.plus(Duration.ofDays(9)), ZoneId.of("UTC"));
+            HotCleaner cleaner = new HotCleaner(properties, hot, archive, null, parsers(), late);
+            assertEquals(List.of(file.relativePath()), cleaner.run());
+            assertTrue(hot.find(file.fingerprint()).isEmpty());
+            assertTrue(hot.find(open.fingerprint()).isPresent());
+            try (HotStore reloaded = new HotStore(properties, JSON, Clock.systemUTC())) {
+                assertTrue(reloaded.find(file.fingerprint()).isEmpty());
+            }
+
+            // an agent sending the file again gets the closed stream, nothing new is stored
+            IngestService ingest = new IngestService(hot, archive);
+            IngestPrincipal agent = new IngestPrincipal("agent", "app1", Set.of("digibib"));
+            StreamStatus closed = new StreamStatus(file.fingerprint(), sample.length, true);
+            assertEquals(closed, ingest.status(agent, file.fingerprint()));
+            assertEquals(closed, ingest.append(agent, file.fingerprint(), 0, "app1", "digibib", "/logs/x.log",
+                Arrays.copyOf(sample, 100), 100));
+            IngestException more = assertThrows(IngestException.class, () -> ingest.append(agent,
+                file.fingerprint(), sample.length, "app1", "digibib", null, new byte[] { 'x' }, 1));
+            assertEquals(HttpStatus.CONFLICT, more.getStatus());
+            assertEquals(closed, ingest.close(agent, file.fingerprint(), sample.length, "app1", "digibib", null));
+            assertTrue(hot.find(file.fingerprint()).isEmpty());
         }
     }
 

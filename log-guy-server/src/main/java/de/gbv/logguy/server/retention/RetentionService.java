@@ -25,8 +25,8 @@ import de.gbv.logguy.server.solr.SolrService;
 
 /**
  * The nightly cleanup: deletes events older than {@code index-days} from Solr, per application where configured,
- * then lets Solr remove the deleted documents physically with {@code expungeDeletes}. Also deletes old files of the
- * own log.
+ * then lets Solr remove the deleted documents physically with {@code expungeDeletes}. Also deletes originals from
+ * {@code hot/} whose days are over and old files of the own log.
  */
 public class RetentionService {
 
@@ -40,6 +40,8 @@ public class RetentionService {
 
     private final Clock clock;
 
+    private final HotCleaner hotCleaner;
+
     /**
      * Creates the service.
      *
@@ -47,12 +49,15 @@ public class RetentionService {
      * @param solr connection to Solr
      * @param serverLog the own log, {@code null} if there is none
      * @param clock clock for the limits
+     * @param hotCleaner deletes old originals from {@code hot/}, {@code null} if the archive is disabled
      */
-    public RetentionService(LogGuyProperties properties, SolrService solr, ServerLog serverLog, Clock clock) {
+    public RetentionService(LogGuyProperties properties, SolrService solr, ServerLog serverLog, Clock clock,
+        HotCleaner hotCleaner) {
         this.properties = properties;
         this.solr = solr;
         this.serverLog = serverLog;
         this.clock = clock;
+        this.hotCleaner = hotCleaner;
     }
 
     /**
@@ -115,6 +120,13 @@ public class RetentionService {
             }
         } catch (IOException | SolrServerException | RuntimeException e) {
             LOGGER.error("retention failed", e);
+        }
+        if (hotCleaner != null) {
+            try {
+                hotCleaner.run();
+            } catch (RuntimeException e) {
+                LOGGER.error("cleanup of hot/ failed", e);
+            }
         }
         if (serverLog != null) {
             try {

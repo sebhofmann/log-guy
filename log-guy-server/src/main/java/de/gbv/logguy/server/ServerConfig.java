@@ -28,6 +28,7 @@ import de.gbv.logguy.server.hot.HotStore;
 import de.gbv.logguy.server.index.Indexer;
 import de.gbv.logguy.server.ingest.IngestService;
 import de.gbv.logguy.server.pseudonym.PseudonymService;
+import de.gbv.logguy.server.retention.HotCleaner;
 import de.gbv.logguy.server.retention.RetentionService;
 import de.gbv.logguy.server.script.ParserRegistry;
 import de.gbv.logguy.server.script.ScriptListener;
@@ -250,11 +251,12 @@ public class ServerConfig {
      * The logic of the stream API.
      *
      * @param store the hot storage
+     * @param archive the archive, for files already deleted from {@code hot/}
      * @return the service
      */
     @Bean
-    public IngestService ingestService(HotStore store) {
-        return new IngestService(store);
+    public IngestService ingestService(HotStore store, ArchiveStore archive) {
+        return new IngestService(store, archive);
     }
 
     /**
@@ -271,18 +273,25 @@ public class ServerConfig {
     }
 
     /**
-     * The nightly cleanup of the index and the own log.
+     * The nightly cleanup of the index, of {@code hot/} and of the own log.
      *
      * @param properties configuration
      * @param solr connection to Solr
      * @param serverLog the own log
      * @param clock clock for the limits
+     * @param hot the originals
+     * @param archive the archive
+     * @param indexer the indexer, missing if indexing is disabled
+     * @param parsers the parsers
      * @return the service
      */
     @Bean
     public RetentionService retentionService(LogGuyProperties properties, SolrService solr, ServerLog serverLog,
-        Clock clock) {
-        return new RetentionService(properties, solr, serverLog, clock);
+        Clock clock, HotStore hot, ArchiveStore archive, ObjectProvider<Indexer> indexer, ParserRegistry parsers) {
+        HotCleaner cleaner = properties.archive().enabled()
+            ? new HotCleaner(properties, hot, archive, indexer.getIfAvailable(), parsers, clock)
+            : null;
+        return new RetentionService(properties, solr, serverLog, clock, cleaner);
     }
 
     /**
