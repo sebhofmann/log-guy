@@ -199,9 +199,28 @@ public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppPropert
      * @param hotDays days a file stays in {@code hot/} after its last event
      * @param placeholder written instead of a line whose filter failed, {@code {filter}} and {@code {offset}} are
      *     replaced
+     * @param search limits of the archive search
      */
     public record ArchiveProperties(boolean enabled, int threads, Duration pollInterval, int compressionLevel,
-        int hotDays, String placeholder) {
+        int hotDays, String placeholder, ArchiveSearchProperties search) {
+    }
+
+    /**
+     * Limits of the archive search.
+     *
+     * @param threads threads that decompress and search frames, shared by all jobs
+     * @param maxJobs running jobs per user
+     * @param defaultRange time range searched if the request has no {@code from}
+     * @param maxRange largest time range of a job
+     * @param maxHits a job stops when it has found this many lines
+     * @param maxRuntime a job stops after this time
+     * @param contextLines lines before and after a hit if the request does not say
+     * @param maxContextLines largest number of context lines in each direction
+     * @param maxLineLength longer lines of a hit are cut
+     * @param keep how long a finished job and its hits stay available
+     */
+    public record ArchiveSearchProperties(int threads, int maxJobs, Duration defaultRange, Duration maxRange,
+        int maxHits, Duration maxRuntime, int contextLines, int maxContextLines, int maxLineLength, Duration keep) {
     }
 
     /**

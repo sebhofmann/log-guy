@@ -10,7 +10,7 @@ log-guy ist ein Maven-Projekt mit Java 25 und Spring Boot 4. Es besteht aus drei
 | Solr | SolrJ 9.10.1, `CloudHttp2SolrClient`, Collections- und Configset-API |
 | Skripte | GraalJS 25.4.4.1.1 über die Polyglot-API `org.graalvm.polyglot`, Community-Fassung |
 | Archiv | `zstd-jni` 1.5.7, `java.util.zip` für eingehende `.gz` |
-| Archivsuche | RE2/J für reguläre Ausdrücke in linearer Zeit, Virtual Threads |
+| Archivsuche | RE2/J für reguläre Ausdrücke in linearer Zeit, fester Thread-Pool, weil die Arbeit reine CPU ist |
 | Agent: Dateien verfolgen | `WatchService` (unter Linux inotify), Inode über das Attribut `unix:ino`, `FileChannel` |
 | Fingerabdruck, Prüfsummen | `MessageDigest` mit SHA-256 |
 | MCP-Server | Spring AI 2.0.2 (`spring-ai-starter-mcp-server-webmvc`) auf Basis des offiziellen MCP-Java-SDK 2.1.0, Streamable HTTP, synchron. Die Tools beschreibt log-guy selbst mit JSON-Schema, ohne die Annotationen von Spring AI, damit jede Antwort sicher durch die Pseudonymisierung läuft. |

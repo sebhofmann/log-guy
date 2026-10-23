@@ -15,7 +15,7 @@ Die Hauptansicht besteht aus einer Filterleiste oben, links den Facetten und rec
 
 | Seite | Inhalt |
 | --- | --- |
-| Archivsuche | Ausdruck, Zeitraum, Anwendungen. Fortschrittsbalken, Treffer laufen live ein, Abbrechen jederzeit. |
+| Archivsuche | Seite `/archive` für Nutzer mit Recht `archive`. Ausdruck, regulärer Ausdruck ja oder nein, Groß/Klein, Anwendungen, Zeitraum und Kontextzeilen. Fortschrittsbalken nach gelesenen Bytes, Treffer laufen während der Suche ein, Abbrechen jederzeit. Darunter die letzten eigenen Suchen. |
 | Status | Übersicht wie im Dashboard der Solr-Admin-Oberfläche. System: Version, Laufzeit, CPU, Speicher, Platz in hot/ und archive/. Pro Agent: zuletzt gesehen, Rückstand. Archiv: archivierte, weggelassene und durch Platzhalter ersetzte Zeilen, Rückstand, Größe, ein angehaltener Archiv-Schreiber mit dem Filterfehler. Pro Anwendung: letztes Event, Events pro Stunde, Indexer-Rückstand, Parser- und Filterfehler. Solr: erreichbar, Größe der Collection, Anzahl Dokumente. |
 | Server-Log | das eigene Log von log-guy, live mitlaufend, filterbar nach Level und Komponente. Das Log-Level einzelner Komponenten lässt sich zur Laufzeit ändern, wie im Logging-Bereich von Solr. Nur mit Recht admin. |
 | Anmeldung | Name und Passwort |

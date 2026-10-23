@@ -22,6 +22,9 @@
   <a class="brand" href="/">log-guy</a>
   <nav>
     <a href="/" class="${"search".equals(page.active()) ? "active" : null}">Suche</a>
+    @if(page.user().hasRight(de.gbv.logguy.server.config.LogGuyProperties.Right.ARCHIVE))
+    <a href="/archive" class="${"archive".equals(page.active()) ? "active" : null}">Archiv</a>
+    @endif
     @if(page.user().hasRight(de.gbv.logguy.server.config.LogGuyProperties.Right.SCRIPTS))
     <a href="/scripts" class="${"scripts".equals(page.active()) ? "active" : null}">Skripte</a>
     @endif

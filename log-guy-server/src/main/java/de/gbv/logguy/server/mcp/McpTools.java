@@ -23,6 +23,11 @@ import org.apache.logging.log4j.Logger;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 
+import de.gbv.logguy.server.archive.search.ArchiveHit;
+import de.gbv.logguy.server.archive.search.ArchiveSearch;
+import de.gbv.logguy.server.archive.search.ArchiveSearchJob;
+import de.gbv.logguy.server.archive.search.ArchiveSearchJob.Owner;
+import de.gbv.logguy.server.archive.search.ArchiveSearchRequest;
 import de.gbv.logguy.server.audit.Actor;
 import de.gbv.logguy.server.audit.Actor.Via;
 import de.gbv.logguy.server.audit.AuditLog;
@@ -124,6 +129,8 @@ public class McpTools {
 
     private final AuditLog audit;
 
+    private final ArchiveSearch archiveSearch;
+
     private final JsonMapper json;
 
     private final McpJsonMapper mcpJson;
@@ -143,13 +150,14 @@ public class McpTools {
      * @param pseudonyms the pseudonymization
      * @param pseudonymizedSearch pseudonymizes search results
      * @param audit the audit log
+     * @param archiveSearch the archive search
      * @param json serializes the results
      * @param mcpJson parses the input schemas
      */
     public McpTools(McpProperties settings, UserRegistry users, McpSessions sessions, SearchService search,
         ContextService context, StatusService status, ServerLog serverLog, ScriptService scripts, ScriptTester tester,
-        PseudonymService pseudonyms, PseudonymizedSearch pseudonymizedSearch, AuditLog audit, JsonMapper json,
-        McpJsonMapper mcpJson) {
+        PseudonymService pseudonyms, PseudonymizedSearch pseudonymizedSearch, AuditLog audit,
+        ArchiveSearch archiveSearch, JsonMapper json, McpJsonMapper mcpJson) {
         this.settings = settings;
         this.users = users;
         this.sessions = sessions;
@@ -162,6 +170,7 @@ public class McpTools {
         this.pseudonyms = pseudonyms;
         this.pseudonymizedSearch = pseudonymizedSearch;
         this.audit = audit;
+        this.archiveSearch = archiveSearch;
         this.json = json;
         this.mcpJson = mcpJson;
     }
@@ -234,7 +243,70 @@ public class McpTools {
             ,"at": {"type": "string", "description": "Zeitpunkt der Fassung aus get_script"}
             """, false, (call, args) -> scripts.rollback(call.caller(), scriptId(args),
             instant(args, "at").orElseThrow(() -> new SearchException("at fehlt.")))));
+        tools.add(tool("archive_search_start", "Startet eine Suche im Archiv wie zgrep, auch über Monate. Läuft im "
+            + "Hintergrund, Treffer mit archive_search_result abholen. Nur mit Recht archive.", """
+                "apps": {"type": "array", "items": {"type": "string"},
+                  "description": "Anwendungen, leer für alle mit Recht archive"},
+                "hosts": {"type": "array", "items": {"type": "string"}, "description": "Hosts, leer für alle"},
+                "query": {"type": "string", "description": "Text, mit regex: true ein regulärer Ausdruck in RE2-Syntax.\
+                 Pseudonyme wie $Nutzer1 werden zurückübersetzt."},
+                "regex": {"type": "boolean"},
+                "ignoreCase": {"type": "boolean"},
+                "context": {"type": "integer", "minimum": 0, "description": "Zeilen vor und nach jedem Treffer"},
+                "from": {"type": "string", "description": "Beginn als ISO-8601-Zeitpunkt"},
+                "to": {"type": "string", "description": "Ende als ISO-8601-Zeitpunkt, Standard jetzt"},
+                "last": {"type": "string", "description": "statt from: Zeitraum bis to, z. B. 6h, 30d"}
+                """, true, this::archiveSearchStart));
+        tools.add(tool("archive_search_result", "Fortschritt und Treffer einer Archivsuche, weiter mit next. "
+            + "Mit wait wird bis zu 30 Sekunden auf neue Treffer gewartet. cancel: true bricht die Suche ab.", """
+                "id": {"type": "string", "description": "id aus archive_search_start"},
+                "offset": {"type": "integer", "minimum": 0},
+                "limit": {"type": "integer", "minimum": 1},
+                "wait": {"type": "integer", "minimum": 0, "maximum": 30, "description": "Sekunden"},
+                "cancel": {"type": "boolean"}
+                """, false, this::archiveSearchResult));
         return tools;
+    }
+
+    private Object archiveSearchStart(Call call, Map<String, Object> args) {
+        Instant to = instant(args, "to").orElse(null);
+        Instant from = instant(args, "from").orElse(null);
+        String last = string(args, "last");
+        if (last != null) {
+            from = (to == null ? Instant.now() : to).minus(duration(last));
+        }
+        ArchiveSearchJob job = archiveSearch.start(call.user(), owner(call), call.session(),
+            new ArchiveSearchRequest(strings(args, "apps"), strings(args, "hosts"), from, to, required(args, "query"),
+                bool(args, "regex"), bool(args, "ignoreCase"), integer(args, "context").orElse(null)));
+        return job.status();
+    }
+
+    private Object archiveSearchResult(Call call, Map<String, Object> args) throws InterruptedException {
+        String id = required(args, "id");
+        ArchiveSearchJob job;
+        try {
+            job = bool(args, "cancel") ? archiveSearch.cancel(owner(call), id) : archiveSearch.job(owner(call), id);
+        } catch (NoSuchElementException e) {
+            throw new SearchException(e.getMessage());
+        }
+        int offset = Math.max(0, integer(args, "offset").orElse(0));
+        int limit = Math.clamp(integer(args, "limit").orElse(settings.maxEvents()), 1, settings.maxEvents());
+        int wait = Math.clamp(integer(args, "wait").orElse(0), 0, 30);
+        if (wait > 0) {
+            job.await(offset, wait * 1000L);
+        }
+        List<ArchiveHit> hits = job.hits(offset, limit);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("status", job.status());
+        result.put("hits", hits.stream().map(hit -> new ArchiveHit(hit.app(), hit.host(), hit.file(), hit.offset(),
+            hit.before().stream().map(this::cut).toList(), cut(hit.line()),
+            hit.after().stream().map(this::cut).toList())).toList());
+        result.put("next", offset + hits.size());
+        return result;
+    }
+
+    private static Owner owner(Call call) {
+        return new Owner(call.user().name(), call.user().token(), call.session());
     }
 
     private SyncToolSpecification tool(String name, String description, String properties, boolean readOnly,

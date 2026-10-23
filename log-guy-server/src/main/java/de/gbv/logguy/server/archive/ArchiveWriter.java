@@ -49,9 +49,6 @@ public class ArchiveWriter implements AutoCloseable {
 
     private static final Logger LOGGER = LogManager.getLogger();
 
-    /** How many lines at the start and the end of a frame are tried for the time of the frame. */
-    private static final int TIME_PROBES = 50;
-
     private final ArchiveProperties settings;
 
     private final HotStore hot;
@@ -360,8 +357,11 @@ public class ArchiveWriter implements AutoCloseable {
                 firstError);
         }
         Instant received = file.received(src + length - 1);
-        Instant from = time(parser, original, true).orElse(received);
-        Instant to = time(parser, original, false).orElse(received);
+        // a frame without any time, e.g. inside a long stack trace, continues the previous frame
+        List<ArchiveFrame> before = target.frames();
+        Instant fallback = before.isEmpty() ? received : before.getLast().to();
+        Instant from = time(parser, original, true).orElse(fallback);
+        Instant to = time(parser, original, false).orElse(from);
         if (to.isBefore(from)) {
             to = from;
         }
@@ -372,14 +372,14 @@ public class ArchiveWriter implements AutoCloseable {
     }
 
     /**
-     * The time of the first or last line with a time, from the original lines.
+     * The time of the first or last line with a time, from the original lines. All lines are tried, a frame may start
+     * or end with a stack trace of thousands of lines.
      */
     private static Optional<Instant> time(Parser parser, List<String> lines, boolean first) {
         if (parser == null) {
             return Optional.empty();
         }
-        int probes = Math.min(TIME_PROBES, lines.size());
-        for (int n = 0; n < probes; n++) {
+        for (int n = 0; n < lines.size(); n++) {
             String line = lines.get(first ? n : lines.size() - 1 - n);
             if (!parser.isStart(line)) {
                 continue;

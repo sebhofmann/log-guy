@@ -89,7 +89,7 @@ class ArchiveWriterTest {
             new HotProperties(DataSize.ofKilobytes(64), Duration.ofSeconds(60), Duration.ofSeconds(5), 3),
             new ScriptProperties(scriptDir, Duration.ofMillis(200), DataSize.ofKilobytes(256), 1000, 100), null,
             null, null, null, null, null,
-            new ArchiveProperties(true, 2, Duration.ofMillis(50), 3, 7, PLACEHOLDER));
+            new ArchiveProperties(true, 2, Duration.ofMillis(50), 3, 7, PLACEHOLDER, null));
         scripts = new ScriptStore(scriptDir, Clock.systemUTC(), JSON);
         // the sample has shortened IP addresses already, two full ones show the filter
         String text = new String(TestLogs.mycoreSample(), StandardCharsets.UTF_8);
@@ -192,6 +192,40 @@ class ArchiveWriterTest {
             // reloading after a restart keeps everything
             ArchiveStore reloaded = new ArchiveStore(properties, JSON);
             assertEquals(meta, reloaded.find(file.fingerprint()).orElseThrow().meta());
+        }
+    }
+
+    @Test
+    void framesInsideLongStackTracesGetTheTimeOfTheirEvents() throws Exception {
+        StringBuilder text = new StringBuilder();
+        for (int event = 0; event < 3; event++) {
+            text.append("2025-02-13T0").append(event + 1).append(":00:00,000 ERROR guest MCRServlet: failed\n");
+            // more than one frame of stack trace
+            for (int i = 0; i < 3000; i++) {
+                text.append("\tat org.apache.xalan.templates.ElemVariable.execute(ElemVariable.java:").append(i)
+                    .append(")\n");
+            }
+        }
+        text.append("2025-02-13T04:00:00,000 INFO  guest MCRServlet: done\n");
+        byte[] data = text.toString().getBytes(StandardCharsets.UTF_8);
+        try (HotStore hot = new HotStore(properties, JSON, Clock.systemUTC())) {
+            HotFile file = fill(hot, data, true);
+            ArchiveStore archive = new ArchiveStore(properties, JSON);
+            LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON);
+            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, parsers(), runtime)) {
+                await(() -> archive.find(file.fingerprint()).map(a -> a.meta().closed()).orElse(false));
+            }
+            List<ArchiveFrame> frames = archive.find(file.fingerprint()).orElseThrow().frames();
+            assertTrue(frames.size() > 4, "frames " + frames.size());
+            Instant start = Instant.parse("2025-02-13T00:00:00Z");
+            Instant end = Instant.parse("2025-02-13T03:00:00Z");
+            Instant previous = start;
+            for (ArchiveFrame frame : frames) {
+                assertFalse(frame.from().isBefore(previous), frame.toString());
+                assertFalse(frame.to().isAfter(end), frame.toString());
+                previous = frame.to();
+            }
+            assertEquals(end, frames.getLast().to());
         }
     }
 

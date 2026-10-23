@@ -15,6 +15,9 @@ spring:
       enabled: true
   mvc:
     static-path-pattern: /static/**
+    async:
+      # the hits of an archive search are streamed until the job ends, at most log-guy.archive.search.max-runtime
+      request-timeout: 11m
   ai:
     mcp:
       server:
@@ -73,6 +76,17 @@ log-guy:
     hot-days: 7
     # written instead of a line whose lifecycle filter failed, the original stays in hot/ for archive refilter
     placeholder: "[log-guy: Zeile zurückgehalten, Filter {filter} fehlgeschlagen, Offset {offset}]"
+    search:
+      threads: 4
+      max-jobs: 2
+      default-range: 1d
+      max-range: 92d
+      max-hits: 10000
+      max-runtime: 10m
+      context-lines: 0
+      max-context-lines: 20
+      max-line-length: 4000
+      keep: 1h
   scripts:
     dir: /etc/log-guy/scripts
     event-timeout: 50ms

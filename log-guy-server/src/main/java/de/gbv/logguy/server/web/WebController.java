@@ -72,4 +72,19 @@ public class WebController {
         }
         return new ModelAndView("scripts", Map.of("page", new PageContext(user, csrf, "scripts")));
     }
+
+    /**
+     * The archive search for users with the right {@code archive} for at least one application.
+     *
+     * @param csrf the CSRF token
+     * @return the page
+     */
+    @GetMapping("/archive")
+    public ModelAndView archive(CsrfToken csrf) {
+        LogGuyUser user = currentUser.get();
+        if (!user.hasRight(Right.ARCHIVE)) {
+            throw new AccessDeniedException("no archive rights");
+        }
+        return new ModelAndView("archive", Map.of("page", new PageContext(user, csrf, "archive")));
+    }
 }

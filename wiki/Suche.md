@@ -38,7 +38,28 @@ Es gibt zwei Suchwege: Die Solr-Suche über das Index-Fenster antwortet in Milli
 - Reguläre Ausdrücke laufen über RE2/J in linearer Zeit. Ein bösartiger Ausdruck kann den Server also nicht lahmlegen. Dafür gibt es keine Rückverweise und kein Lookaround.
 - Grenzen pro Nutzer: Anzahl gleichzeitiger Jobs, maximaler Zeitraum, maximale Trefferzahl, Laufzeit.
 
-Gemessen: Entpacken und Zeilen trennen schafft 719 MB/s auf einem Kern. Ein Monat aller Anwendungen, ca. 25 bis 35 GB roh, wäre mit 8 Kernen also in grob einer Minute gelesen, die Prüfung des Ausdrucks kommt dazu. Das ist hochgerechnet.
+Umsetzung:
+
+- `POST` erwartet `apps`, `hosts`, `query`, `regex`, `ignoreCase`, `from`, `to` und `context`. Ohne `apps` werden alle Anwendungen durchsucht, für die der Nutzer das Recht `archive` hat und die er mindestens pseudonymisiert lesen darf. Ohne `from` gilt `default-range` vor `to`, ohne `to` jetzt. `GET /api/v1/archive-search` liefert die erlaubten Anwendungen, ihre Hosts und die eigenen Jobs.
+- Einfache Wörter werden mit `indexOf` gesucht, reguläre Ausdrücke mit RE2/J. `^` und `$` stehen für Anfang und Ende jeder Zeile. Ein Treffer zählt wie bei `grep` nur, wenn der Ausdruck innerhalb einer Zeile passt.
+- Gesucht wird in den Frames, ein Frame ist eine Aufgabe für einen festen Pool von `threads` Threads. Die Arbeit ist reine CPU, deshalb keine Virtual Threads. Kontextzeilen am Rand eines Frames kommen aus dem Nachbar-Frame. Treffer kommen in der Reihenfolge, in der die Frames fertig werden, nicht nach Zeit sortiert. ANSI-Farben werden entfernt, sehr lange Zeilen auf `max-line-length` gekürzt.
+- Ein Job gehört dem Nutzer und Token, die ihn gestartet haben, beim MCP-Endpunkt der Session. Fremde Jobs antworten mit 404. Fertige Jobs bleiben `keep` lang abrufbar. Start und Abbruch stehen im Audit-Log.
+- `results` streamt NDJSON oder mit `Accept: text/event-stream` Server-Sent Events, mit `offset` ab einem Treffer. Mit `follow=false` kommen nur die bisherigen Treffer, so pollt die GUI.
+- Pseudonymisiert: Wer nur `read_pseudonymized` hat oder pseudonymisiert arbeitet, bekommt pseudonymisierte Treffer und Kontextzeilen. Pseudonyme der Session in der Anfrage werden für die Suche in die echten Werte übersetzt. Ein Treffer zählt nur, wenn die Anfrage auch auf die pseudonymisierte Zeile passt. Wer also nach einem echten Namen sucht, der pseudonymisiert wird, findet nichts und erfährt nicht, ob er vorkommt. Eine zurückgehaltene Trefferzeile fällt weg, zurückgehaltene Kontextzeilen erscheinen als `[zurückgehalten]`.
+- Die Grenzen stehen unter `log-guy.archive.search`: `threads` (4), `max-jobs` gleichzeitige Jobs pro Nutzer (2), `default-range` (1 Tag), `max-range` (92 Tage), `max-hits` (10.000), `max-runtime` (10 Minuten), `context-lines` als Vorgabe (0) und `max-context-lines` (20), `max-line-length` (4.000 Zeichen) und `keep` (1 Stunde). Bei `max-hits` und `max-runtime` endet der Job mit dem Zustand `LIMIT` oder `TIMEOUT` und einem Hinweis, dass der Zeitraum nicht vollständig durchsucht ist. Ungültige Ausdrücke wie Rückverweise lehnt der Start mit einer deutschen Meldung ab.
+- Wird eine Datei während der Suche per `archive refilter` neu geschrieben, liest die Suche die Frames aus der neuen Fassung, erkannt am selben Bereich im Original.
+
+Gemessen an einem Monat digibib (März 2025, 32 Dateien, 831 MB roh) mit 1-MB-Frames auf einem Rechner mit 32 Threads:
+
+| Suche | 1 Thread | 8 Threads |
+| --- | --- | --- |
+| Wort `MCRSolr` | 227 MB/s | 1.378 MB/s |
+| Wort `timeout`, Groß/Klein egal | 154 MB/s | 1.078 MB/s |
+| `ERROR.*Exception` | 226 MB/s | 1.431 MB/s |
+| `^\S+ ERROR` | 52 MB/s | 340 MB/s |
+| `timeout\|refused`, Groß/Klein egal | 25 MB/s | 162 MB/s |
+
+Ausdrücke mit festem Anfangswort sind so schnell wie Wörter, weil RE2/J dann nach dem Wort springt. Alternativen und Ausdrücke ohne festes Wort am Anfang laufen über die langsame Automatensimulation, etwa sechsmal langsamer. Ein Monat aller Anwendungen, ca. 25 bis 35 GB roh, dauert mit 8 Threads für ein Wort also etwa 20 bis 30 Sekunden, für eine Alternative etwa 3 Minuten. Im laufenden Server mit 8 Threads durchsuchte die Suche nach `OutOfMemoryError` drei Monate digibib, 95 Dateien und 5,4 GB entpackt, in 4,4 Sekunden. Gegen `zcat | grep -ci` über dieselben Tage stimmt die Trefferzahl pro Tag genau. Zwei Erkenntnisse aus der Messung sind umgesetzt: Einfache Wörter laufen ohne Regex, Groß/Klein ignorieren war mit RE2/J nur 100 MB/s schnell. Und jeder Frame bekommt sein eigenes kompiliertes Muster, weil RE2/J seine Automaten pro Muster teilt und 8 Threads sonst nur das 1,8-fache eines Threads schafften.
 
 ### Ältere Zeiträume nachindexieren
 

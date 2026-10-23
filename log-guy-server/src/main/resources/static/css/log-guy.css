@@ -780,3 +780,49 @@ table.data td.number {
     flex-basis: auto;
   }
 }
+
+/* Archive search */
+
+.archive-form {
+  margin-bottom: 12px;
+}
+
+.archive-form .field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.archive-query {
+  width: min(60ch, 90vw);
+  font-family: var(--mono);
+}
+
+.archive-form progress {
+  width: 200px;
+}
+
+.archive-hits {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.archive-hit {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.archive-hit pre {
+  margin: 4px 0 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+[hidden] {
+  display: none !important;
+}

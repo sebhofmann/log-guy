@@ -19,6 +19,7 @@ import org.springframework.scheduling.config.ScheduledTaskRegistrar;
 import org.springframework.scheduling.support.CronTrigger;
 
 import de.gbv.logguy.server.archive.ArchiveStore;
+import de.gbv.logguy.server.archive.search.ArchiveSearch;
 import de.gbv.logguy.server.archive.ArchiveWriter;
 import de.gbv.logguy.server.archive.LifecycleFilters;
 import de.gbv.logguy.server.audit.AuditLog;
@@ -135,6 +136,21 @@ public class ServerConfig {
         LifecycleFilters filters, ParserRegistry parsers, ScriptRuntime runtime) {
         parsers.ensureLoaded();
         return new ArchiveWriter(properties, hot, archive, filters, parsers, runtime);
+    }
+
+    /**
+     * The archive search with its worker threads.
+     *
+     * @param properties configuration
+     * @param archive the archive
+     * @param pseudonyms pseudonymizes the hits of pseudonymized jobs
+     * @param clock clock for the limits
+     * @return the search
+     */
+    @Bean(destroyMethod = "close")
+    public ArchiveSearch archiveSearch(LogGuyProperties properties, ArchiveStore archive, PseudonymService pseudonyms,
+        Clock clock) {
+        return new ArchiveSearch(properties, archive, pseudonyms, clock);
     }
 
     /**
