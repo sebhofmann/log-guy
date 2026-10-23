@@ -91,7 +91,7 @@ class WebSecurityTest {
         mvc.perform(get("/api/v1/fields").header("Authorization", "Bearer lg_api_wrong"))
             .andExpect(status().isUnauthorized());
         mvc.perform(get("/api/v1/fields").header("Authorization", "Bearer " + INGEST_TOKEN))
-            .andExpect(status().isForbidden());
+            .andExpect(status().isUnauthorized());
         mvc.perform(get("/api/v1/fields").header("Authorization", "Bearer " + API_TOKEN))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.apps[0]").value("digibib"))

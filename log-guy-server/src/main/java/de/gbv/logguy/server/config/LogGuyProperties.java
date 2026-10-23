@@ -25,12 +25,15 @@ import org.springframework.util.unit.DataSize;
  * @param solr connection to the SolrCloud
  * @param indexer settings of the indexer
  * @param search limits of the search API
+ * @param retention nightly cleanup
+ * @param serverLog the own log of log-guy
+ * @param mcp the MCP endpoint
  */
 @ConfigurationProperties("log-guy")
 public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppProperties> apps,
     List<TokenProperties> tokens, List<UserProperties> users, IngestProperties ingest, HotProperties hot,
     ScriptProperties scripts, SolrProperties solr, IndexerProperties indexer, SearchProperties search,
-    RetentionProperties retention, ServerLogProperties serverLog) {
+    RetentionProperties retention, ServerLogProperties serverLog, McpProperties mcp) {
 
     /**
      * Normalizes missing collections to empty ones.
@@ -258,5 +261,18 @@ public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppPropert
      * @param pattern Log4j pattern of the log file
      */
     public record ServerLogProperties(int ringSize, int keepDays, String pattern) {
+    }
+
+    /**
+     * The MCP endpoint.
+     *
+     * @param path path of the endpoint
+     * @param sessionIdleTimeout a session and its pseudonyms are dropped after this time without a request
+     * @param maxSessions open sessions at most, over all tokens
+     * @param maxEvents events per tool call at most
+     * @param maxText characters per text at most, longer texts are cut
+     */
+    public record McpProperties(String path, Duration sessionIdleTimeout, int maxSessions, int maxEvents,
+        int maxText) {
     }
 }

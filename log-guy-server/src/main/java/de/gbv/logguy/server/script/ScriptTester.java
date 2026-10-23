@@ -434,7 +434,7 @@ public class ScriptTester {
     }
 
     private static void requireRead(LogGuyUser user, String app) {
-        if (!user.may(Right.READ, app)) {
+        if (!user.mayRead(app)) {
             throw new AccessDeniedException("no read right for " + app);
         }
     }

@@ -15,6 +15,16 @@ spring:
       enabled: true
   mvc:
     static-path-pattern: /static/**
+  ai:
+    mcp:
+      server:
+        name: log-guy
+        protocol: STREAMABLE
+        type: SYNC
+        # the tools are defined by log-guy itself, with their own schema and pseudonymization
+        tool-callback-converter: false
+        annotation-scanner:
+          enabled: false
 
 gg:
   jte:
@@ -95,6 +105,12 @@ log-guy:
     # every night at 02:30 in the zone of log-guy, "-" switches the cleanup off
     cron: "0 30 2 * * *"
     expunge-deletes: true
+  mcp:
+    path: /mcp
+    session-idle-timeout: 2h
+    max-sessions: 100
+    max-events: 50
+    max-text: 2000
   server-log:
     ring-size: 5000
     keep-days: 30

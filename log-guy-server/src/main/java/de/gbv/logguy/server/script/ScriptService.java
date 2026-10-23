@@ -416,7 +416,7 @@ public class ScriptService {
         if (patterns.isEmpty() || patterns.stream().anyMatch(pattern -> pattern.contains("*"))) {
             return user.isAdmin();
         }
-        return patterns.stream().allMatch(app -> user.may(Right.SCRIPTS, app) && user.may(Right.READ, app));
+        return patterns.stream().allMatch(app -> user.may(Right.SCRIPTS, app) && user.mayRead(app));
     }
 
     private void require(LogGuyUser user, ScriptId id, String active, String draft) {

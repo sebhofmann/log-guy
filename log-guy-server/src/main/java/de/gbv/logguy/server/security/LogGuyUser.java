@@ -16,8 +16,11 @@ import de.gbv.logguy.server.config.LogGuyProperties.Right;
  * @param grants rights per application pattern
  * @param token name of the token used for the request, {@code null} for a GUI session
  * @param tokenApps application patterns the token is limited to, empty for no limit
+ * @param pseudonymized everything the request returns is pseudonymized, as for MCP tokens. Then
+ *     {@link Right#READ_PSEUDONYMIZED} is enough to read.
  */
-public record LogGuyUser(String name, List<GrantProperties> grants, String token, List<String> tokenApps) {
+public record LogGuyUser(String name, List<GrantProperties> grants, String token, List<String> tokenApps,
+    boolean pseudonymized) {
 
     /**
      * Normalizes a missing token limit.
@@ -34,7 +37,34 @@ public record LogGuyUser(String name, List<GrantProperties> grants, String token
      * @return the user
      */
     public static LogGuyUser of(String name, List<GrantProperties> grants) {
-        return new LogGuyUser(name, grants, null, List.of());
+        return new LogGuyUser(name, grants, null, List.of(), false);
+    }
+
+    /**
+     * Whether the user may read the events of an application: with {@link Right#READ}, or with
+     * {@link Right#READ_PSEUDONYMIZED} if the request is pseudonymized.
+     *
+     * @param app the application
+     * @return true if the user may read
+     */
+    public boolean mayRead(String app) {
+        return may(Right.READ, app) || pseudonymized && may(Right.READ_PSEUDONYMIZED, app);
+    }
+
+    /**
+     * The applications the user may read, see {@link #mayRead(String)}.
+     *
+     * @param known all configured applications
+     * @return the readable applications, sorted
+     */
+    public Set<String> readableApps(Collection<String> known) {
+        Set<String> allowed = new TreeSet<>();
+        for (String app : known) {
+            if (mayRead(app)) {
+                allowed.add(app);
+            }
+        }
+        return allowed;
     }
 
     /**

@@ -134,7 +134,7 @@ public class SearchService {
      * @throws SearchException if an application is unknown or not allowed
      */
     public Set<String> apps(LogGuyUser user, Collection<String> requested) {
-        Set<String> allowed = user.apps(Right.READ, properties.apps().keySet());
+        Set<String> allowed = user.readableApps(properties.apps().keySet());
         if (requested.isEmpty()) {
             return allowed;
         }
@@ -184,7 +184,7 @@ public class SearchService {
      * @return allowed applications and fields
      */
     public FieldsView describeFields(LogGuyUser user, Collection<String> requested) {
-        Set<String> allowed = user.apps(Right.READ, properties.apps().keySet());
+        Set<String> allowed = user.readableApps(properties.apps().keySet());
         Set<String> apps = apps(user, requested);
         parsers.ensureLoaded();
         Map<String, FieldInfo> infos = new TreeMap<>();

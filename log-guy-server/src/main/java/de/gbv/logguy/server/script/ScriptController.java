@@ -192,7 +192,15 @@ public class ScriptController {
         return new Caller(user, actor, true);
     }
 
-    private static ScriptId id(String kind, String name) {
+    /**
+     * Parses the kind and name of a script from a request.
+     *
+     * @param kind the directory of the kind, e.g. {@code parser}
+     * @param name the name
+     * @return the id
+     * @throws ScriptRequestException if the kind is unknown or the name invalid
+     */
+    public static ScriptId id(String kind, String name) {
         ScriptKind parsed;
         try {
             parsed = ScriptKind.of(kind);

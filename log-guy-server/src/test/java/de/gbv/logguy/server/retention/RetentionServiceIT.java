@@ -59,12 +59,13 @@ class RetentionServiceIT {
             List.of(), List.of(), new IngestProperties(DataSize.ofMegabytes(8), 4, Duration.ofSeconds(1)),
             new HotProperties(DataSize.ofKilobytes(64), Duration.ofSeconds(60), Duration.ofSeconds(5), 3),
             new ScriptProperties(dataDir.resolve("scripts"), Duration.ofMillis(50), DataSize.ofKilobytes(256), 10000,
-                500), solr.properties(),
+                500),
+            solr.properties(),
             new IndexerProperties(true, 2, Duration.ofMillis(100), 500, DataSize.ofKilobytes(64),
                 DataSize.ofMegabytes(64), Duration.ofSeconds(5), DataSize.ofMegabytes(1), 7, Duration.ofSeconds(10)),
             new SearchProperties(Duration.ofHours(24), 100, 1000, 300, 8, 10, 100, 20, 500,
                 DataSize.ofKilobytes(512)),
-            new RetentionProperties("0 30 2 * * *", true), null);
+            new RetentionProperties("0 30 2 * * *", true), null, null);
         retention = new RetentionService(properties, service, null, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 

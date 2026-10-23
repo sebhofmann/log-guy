@@ -33,15 +33,22 @@ public class BearerTokenFilter extends OncePerRequestFilter {
 
     private static final String BEARER = "Bearer ";
 
+    /** Authority of MCP tokens. */
+    public static final String MCP_AUTHORITY = "ROLE_MCP";
+
     private final TokenRegistry tokens;
+
+    private final TokenKind accepted;
 
     /**
      * Creates the filter.
      *
      * @param tokens the configured tokens
+     * @param accepted the only kind of token this filter accepts, so a token works only on its own endpoint
      */
-    public BearerTokenFilter(TokenRegistry tokens) {
+    public BearerTokenFilter(TokenRegistry tokens, TokenKind accepted) {
         this.tokens = tokens;
+        this.accepted = accepted;
     }
 
     @Override
@@ -52,6 +59,9 @@ public class BearerTokenFilter extends OncePerRequestFilter {
             TokenProperties token = tokens.find(header.substring(BEARER.length()).trim()).orElse(null);
             if (token == null) {
                 LOGGER.warn("unknown token from {}", request.getRemoteAddr());
+            } else if (token.kind() != accepted) {
+                LOGGER.warn("{} token {} used for {} from {}", token.kind(), token.name(), request.getRequestURI(),
+                    request.getRemoteAddr());
             } else if (token.kind() == TokenKind.INGEST) {
                 IngestPrincipal principal = new IngestPrincipal(token.name(), token.host(), Set.copyOf(token.apps()));
                 UsernamePasswordAuthenticationToken authentication = UsernamePasswordAuthenticationToken
@@ -61,7 +71,13 @@ public class BearerTokenFilter extends OncePerRequestFilter {
                 UsernamePasswordAuthenticationToken authentication = UsernamePasswordAuthenticationToken
                     .authenticated(token.user(), null,
                         List.of(new SimpleGrantedAuthority(UserRegistry.USER_AUTHORITY)));
-                authentication.setDetails(new CurrentUser.ApiTokenDetails(token.name(), token.apps()));
+                authentication.setDetails(new CurrentUser.ApiTokenDetails(token.name(), token.apps(), false, false));
+                SecurityContextHolder.getContext().setAuthentication(authentication);
+            } else if (token.kind() == TokenKind.MCP) {
+                UsernamePasswordAuthenticationToken authentication = UsernamePasswordAuthenticationToken
+                    .authenticated(token.user(), null, List.of(new SimpleGrantedAuthority(MCP_AUTHORITY)));
+                authentication.setDetails(new CurrentUser.ApiTokenDetails(token.name(), token.apps(), true,
+                    token.activate()));
                 SecurityContextHolder.getContext().setAuthentication(authentication);
             }
         }

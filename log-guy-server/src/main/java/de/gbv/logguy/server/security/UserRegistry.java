@@ -58,7 +58,7 @@ public class UserRegistry implements UserDetailsService {
             return Optional.empty();
         }
         return Optional.of(token == null ? LogGuyUser.of(user.name(), user.grants())
-            : new LogGuyUser(user.name(), user.grants(), token.token(), token.apps()));
+            : new LogGuyUser(user.name(), user.grants(), token.token(), token.apps(), token.mcp()));
     }
 
     @Override

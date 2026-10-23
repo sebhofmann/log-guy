@@ -2,3 +2,8 @@
 logging:
   level:
     de.gbv.logguy: WARN
+spring:
+  ai:
+    mcp:
+      server:
+        enabled: false

@@ -57,7 +57,7 @@ log-guy:
 | --- | --- | --- |
 | `ingest` | einem Host | nur in die Anwendungen dieses Hosts schreiben |
 | `api` | einem Nutzer | was der Nutzer darf, optional eingeschränkt |
-| `mcp` | einem Nutzer | was der Nutzer darf, immer pseudonymisiert. Skripte nur als Entwurf, aktivieren nur mit activate: true |
+| `mcp` | einem Nutzer | was der Nutzer darf, immer pseudonymisiert, `read_pseudonymized` genügt. Skripte nur als Entwurf, aktivieren nur mit activate: true |
 
 - `log-guy token create --kind ingest --name agent-app1 --host app1 --apps digibib,digibib-apache` erzeugt ein Token, zeigt es einmal an und gibt den Eintrag für `application.yml` mit dem Hash aus. Eintragen muss ihn der Mensch selbst, denn ein Programm, das die YAML-Datei umschreibt, würde Kommentare und Reihenfolge zerstören.
 - Tokens beginnen mit `lg_<art>_`, z.B. `lg_ingest_...`, danach 32 Zufallsbytes in Base64. Konfiguriert ist nur `sha256:<hex>` des ganzen Tokens.
@@ -66,6 +66,7 @@ log-guy:
 - `log-guy check` prüft auch die Nutzer: Name eindeutig, Hash im Argon2id-Format, jedes Muster einer Freigabe trifft mindestens eine Anwendung, `api`- und `mcp`-Tokens gehören zu einem konfigurierten Nutzer.
 - `admin` auf eine Anwendung schließt alle anderen Rechte für sie ein. Administrator von log-guy selbst, also Status, Server-Log und Log-Level, ist, wer `admin` mit `apps: ["*"]` hat.
 - Ein `api`-Token kann mit `apps` auf einen Teil der Anwendungen seines Nutzers eingeschränkt werden. Ohne `apps` darf es alles, was der Nutzer darf.
+- Jedes Token gilt nur auf seinem eigenen Endpunkt: `ingest` auf `/api/v1/streams`, `api` auf `/api/**` außer den Streams, `mcp` nur auf dem MCP-Pfad (`log-guy.mcp.path`). Ein Token am falschen Endpunkt behandelt log-guy wie ein unbekanntes, Antwort 401.
 - Bis M3 gibt `read_pseudonymized` keinen Zugang zur schnellen Suche, weil die Pseudonymisierung erst dort kommt.
 - Änderungen an Nutzern und Tokens übernimmt log-guy ohne Neustart nach `log-guy reload`. Alle anderen Änderungen prüft der Reload ebenfalls, sie wirken aber erst nach einem Neustart, siehe [Skripte](Skript-Verwaltung.md).
 

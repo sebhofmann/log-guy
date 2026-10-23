@@ -67,7 +67,7 @@ public class ContextService {
         HotFile file = store.find(id.substring(0, separator))
             .orElseThrow(() -> new NoSuchElementException("Die Datei des Events liegt nicht mehr in hot/."));
         FileMeta meta = file.meta();
-        if (!user.may(Right.READ, meta.app())) {
+        if (!user.mayRead(meta.app())) {
             throw new AccessDeniedException("app " + meta.app());
         }
         int linesBefore = before == null ? settings.contextLines() : Math.clamp(before, 0, settings.maxContextLines());

@@ -43,13 +43,13 @@ M2 ist erfüllt mit dem Backfill von digibib in der E2E-Umgebung: Suche, Facette
 
 ### M3 Skripte und MCP
 
-- [ ] Skriptverzeichnis mit `.history/` und `.drafts/`, `log-guy reload` über den Admin-Endpunkt
-- [ ] Skript-API: Entwurf, Test, Aktivieren, Zurückrollen, Konflikterkennung
-- [ ] Testquellen: Anwendung, Logdatei, eingefügte Zeilen
+- [x] Skriptverzeichnis mit `.history/` und `.drafts/`, `log-guy reload` über den Admin-Endpunkt
+- [x] Skript-API: Entwurf, Test, Aktivieren, Zurückrollen, Konflikterkennung
+- [x] Testquellen: Anwendung, Logdatei, eingefügte Zeilen
 - [ ] Skript-Editor in der GUI mit CodeMirror, Freigabe von Entwürfen
-- [ ] Pseudonymisierung als JavaScript, `ps()`, Rückübersetzung in Anfragen, Ausgabe zurückhalten bei Fehlern
-- [ ] MCP-Server mit Spring AI: Such-, Skript-, Status- und Log-Tools, MCP-Tokens, `activate: true`
-- [ ] Recht `scripts`, Audit-Log für alle Änderungen
+- [x] Pseudonymisierung als JavaScript, `ps()`, Rückübersetzung in Anfragen, Ausgabe zurückhalten bei Fehlern
+- [x] MCP-Server mit Spring AI: Such-, Skript-, Status- und Log-Tools, MCP-Tokens, `activate: true`
+- [x] Recht `scripts`, Audit-Log für alle Änderungen
 - [ ] Erster Parser per LLM: `apache-combined.js`
 
 Die Pseudonymisierung gehört in diesen Milestone, weil alles, was den MCP-Endpunkt verlässt, schon pseudonymisiert sein muss.

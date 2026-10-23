@@ -2,6 +2,7 @@ package de.gbv.logguy.server.pseudonym;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -125,14 +126,28 @@ public class PseudonymService implements ScriptListener, AutoCloseable {
      * @return the pseudonymized event, empty if it has to be held back
      */
     public Optional<Map<String, Object>> apply(Pseudonyms session, Map<String, Object> event) {
+        String app = event.get("app") instanceof String name ? name : "";
+        return applyFor(session, List.of(app), event);
+    }
+
+    /**
+     * Pseudonymizes a value that belongs to several applications, e.g. a facet value over all applications of a
+     * search or a line of the own log. Every script for at least one of the applications runs once.
+     *
+     * @param session the pseudonyms of the session
+     * @param apps the applications, {@code null} for all scripts
+     * @param event the event, as for {@link #apply}
+     * @return the pseudonymized event, empty if it has to be held back
+     */
+    public Optional<Map<String, Object>> applyFor(Pseudonyms session, Collection<String> apps,
+        Map<String, Object> event) {
         Modules current = modules.get();
         if (!current.errors().isEmpty()) {
             return Optional.empty();
         }
-        String app = event.get("app") instanceof String name ? name : "";
         Map<String, Object> result = event;
         for (Module module : current.modules()) {
-            if (module.appliesTo(app)) {
+            if (apps == null || apps.stream().anyMatch(module::appliesTo)) {
                 Optional<Map<String, Object>> next = module.apply(runtime, json, session, result);
                 if (next.isEmpty()) {
                     return next;

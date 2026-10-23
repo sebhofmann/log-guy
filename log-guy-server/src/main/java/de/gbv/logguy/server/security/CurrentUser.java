@@ -43,7 +43,9 @@ public class CurrentUser {
      *
      * @param token the name of the token
      * @param apps application patterns the token is limited to, empty for no limit
+     * @param mcp an MCP token: everything pseudonymized
+     * @param activate the MCP token may activate parsers and rules
      */
-    public record ApiTokenDetails(String token, List<String> apps) {
+    public record ApiTokenDetails(String token, List<String> apps, boolean mcp, boolean activate) {
     }
 }

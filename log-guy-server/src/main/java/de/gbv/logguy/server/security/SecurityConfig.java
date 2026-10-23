@@ -22,6 +22,7 @@ import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWrite
 
 import de.gbv.logguy.common.IngestProtocol;
 import de.gbv.logguy.server.config.LogGuyProperties;
+import de.gbv.logguy.server.config.LogGuyProperties.TokenKind;
 
 /**
  * Security of the web endpoints: the stream API for agents, the API for API tokens and GUI sessions, and the GUI
@@ -133,8 +134,29 @@ public class SecurityConfig {
         return http.securityMatcher(IngestProtocol.STREAMS_PATH + "/**")
             .csrf(csrf -> csrf.disable())
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-            .addFilterBefore(new BearerTokenFilter(tokens), BasicAuthenticationFilter.class)
+            .addFilterBefore(new BearerTokenFilter(tokens, TokenKind.INGEST), BasicAuthenticationFilter.class)
             .authorizeHttpRequests(auth -> auth.anyRequest().hasRole("INGEST"))
+            .exceptionHandling(ex -> ex.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
+            .build();
+    }
+
+    /**
+     * The MCP endpoint, only for MCP tokens. No session and no CSRF, every request carries its token.
+     *
+     * @param http the builder
+     * @param tokens the configured tokens
+     * @param properties configuration, for the path of the endpoint
+     * @return the filter chain
+     */
+    @Bean
+    @Order(2)
+    public SecurityFilterChain mcpChain(HttpSecurity http, TokenRegistry tokens, LogGuyProperties properties) {
+        String path = properties.mcp().path();
+        return http.securityMatcher(path, path + "/**")
+            .csrf(csrf -> csrf.disable())
+            .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .addFilterBefore(new BearerTokenFilter(tokens, TokenKind.MCP), BasicAuthenticationFilter.class)
+            .authorizeHttpRequests(auth -> auth.anyRequest().hasRole("MCP"))
             .exceptionHandling(ex -> ex.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
             .build();
     }
@@ -147,12 +169,12 @@ public class SecurityConfig {
      * @return the filter chain
      */
     @Bean
-    @Order(2)
+    @Order(3)
     public SecurityFilterChain apiChain(HttpSecurity http, TokenRegistry tokens) {
         return http.securityMatcher("/api/**")
             .csrf(csrf -> csrf.ignoringRequestMatchers(request -> request.getHeader(HttpHeaders.AUTHORIZATION) != null))
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.NEVER))
-            .addFilterBefore(new BearerTokenFilter(tokens), BasicAuthenticationFilter.class)
+            .addFilterBefore(new BearerTokenFilter(tokens, TokenKind.API), BasicAuthenticationFilter.class)
             .authorizeHttpRequests(auth -> auth.anyRequest().hasRole("USER"))
             .exceptionHandling(ex -> ex.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
             .build();
@@ -166,7 +188,7 @@ public class SecurityConfig {
      * @return the filter chain
      */
     @Bean
-    @Order(3)
+    @Order(4)
     public SecurityFilterChain webChain(HttpSecurity http, CurrentUser currentUser) {
         AuthorizationManager<RequestAuthorizationContext> admin = (authentication, context) -> {
             try {

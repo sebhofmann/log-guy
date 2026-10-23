@@ -13,7 +13,7 @@ log-guy ist ein Maven-Projekt mit Java 25 und Spring Boot 4. Es besteht aus drei
 | Archivsuche | RE2/J für reguläre Ausdrücke in linearer Zeit, Virtual Threads |
 | Agent: Dateien verfolgen | `WatchService` (unter Linux inotify), Inode über das Attribut `unix:ino`, `FileChannel` |
 | Fingerabdruck, Prüfsummen | `MessageDigest` mit SHA-256 |
-| MCP-Server | Spring AI MCP Server auf Basis des offiziellen MCP-Java-SDK |
+| MCP-Server | Spring AI 2.0.2 (`spring-ai-starter-mcp-server-webmvc`) auf Basis des offiziellen MCP-Java-SDK 2.1.0, Streamable HTTP, synchron. Die Tools beschreibt log-guy selbst mit JSON-Schema, ohne die Annotationen von Spring AI, damit jede Antwort sicher durch die Pseudonymisierung läuft. |
 | Mail für Meldungen | Spring Mail |
 | eigenes Log, Status | Log4j 2 mit eigenem Ringpuffer-Appender, Spring Boot Actuator für Health, Kennzahlen und Log-Level zur Laufzeit |
 | Kommandozeile | Spring Shell 4, nicht interaktiv: log-guy check, reload, solr init, token create, bench parser. Läuft aus demselben JAR mit dem Profil `cli` ohne Webserver |
