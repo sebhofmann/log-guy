@@ -1,6 +1,8 @@
 package de.gbv.logguy.server.web;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.hasItem;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestBuilders.formLogin;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.response.SecurityMockMvcResultMatchers.authenticated;
@@ -14,6 +16,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.nio.file.Path;
 
+import org.apache.logging.log4j.LogManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -124,5 +127,17 @@ class WebSecurityTest {
             .andReturn();
         MockHttpSession session = (MockHttpSession) login.getRequest().getSession();
         mvc.perform(get("/actuator/loggers").session(session)).andExpect(status().isOk());
+        mvc.perform(get("/admin/status").session(session))
+            .andExpect(status().isOk())
+            .andExpect(content().string(containsString("status.js")));
+        mvc.perform(get("/admin/log").session(session)).andExpect(status().isOk());
+        LogManager.getLogger("de.gbv.logguy.test").warn("marker for the ring buffer");
+        mvc.perform(get("/admin/api/log").param("level", "WARN").param("logger", "logguy.test").session(session))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.entries[-1:].message").value(hasItem("marker for the ring buffer")));
+        mvc.perform(get("/admin/api/log").param("level", "LOUD").session(session))
+            .andExpect(status().isBadRequest());
+        mvc.perform(get("/admin/api/log").header("Authorization", "Bearer " + LIMITED_TOKEN))
+            .andExpect(result -> assertNotEquals(200, result.getResponse().getStatus()));
     }
 }

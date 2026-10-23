@@ -4,23 +4,31 @@ import java.io.IOException;
 import java.time.Clock;
 import java.util.List;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.info.BuildProperties;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.scheduling.annotation.SchedulingConfigurer;
+import org.springframework.scheduling.config.ScheduledTaskRegistrar;
+import org.springframework.scheduling.support.CronTrigger;
 
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.hot.HotStore;
 import de.gbv.logguy.server.index.Indexer;
 import de.gbv.logguy.server.ingest.IngestService;
+import de.gbv.logguy.server.retention.RetentionService;
 import de.gbv.logguy.server.script.ParserRegistry;
 import de.gbv.logguy.server.script.ScriptRuntime;
 import de.gbv.logguy.server.search.ContextService;
 import de.gbv.logguy.server.search.SearchService;
+import de.gbv.logguy.server.serverlog.ServerLog;
 import de.gbv.logguy.server.solr.SolrService;
+import de.gbv.logguy.server.status.StatusService;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -117,6 +125,72 @@ public class ServerConfig {
     @Bean
     public IngestService ingestService(HotStore store) {
         return new IngestService(store);
+    }
+
+    /**
+     * The own log: a ring buffer for the server log page and a daily rotated file in {@code logs/}.
+     *
+     * @param properties configuration
+     * @param clock clock for the age of old files
+     * @return the attached log
+     * @throws IOException if {@code logs/} cannot be created
+     */
+    @Bean(destroyMethod = "close")
+    public ServerLog serverLog(LogGuyProperties properties, Clock clock) throws IOException {
+        return new ServerLog(properties, clock);
+    }
+
+    /**
+     * The nightly cleanup of the index and the own log.
+     *
+     * @param properties configuration
+     * @param solr connection to Solr
+     * @param serverLog the own log
+     * @param clock clock for the limits
+     * @return the service
+     */
+    @Bean
+    public RetentionService retentionService(LogGuyProperties properties, SolrService solr, ServerLog serverLog,
+        Clock clock) {
+        return new RetentionService(properties, solr, serverLog, clock);
+    }
+
+    /**
+     * Runs the cleanup at {@code log-guy.retention.cron} in the zone of log-guy, never if the cron is {@code -}.
+     *
+     * @param properties configuration
+     * @param retention the cleanup
+     * @return the scheduling
+     */
+    @Bean
+    public SchedulingConfigurer retentionSchedule(LogGuyProperties properties, RetentionService retention) {
+        return (ScheduledTaskRegistrar registrar) -> {
+            if (!Scheduled.CRON_DISABLED.equals(properties.retention().cron())) {
+                registrar.addTriggerTask(retention::run,
+                    new CronTrigger(properties.retention().cron(), properties.zone()));
+            }
+        };
+    }
+
+    /**
+     * Collects the numbers of the status page.
+     *
+     * @param properties configuration
+     * @param store the hot storage
+     * @param indexer the indexer if it runs
+     * @param ingest the stream API
+     * @param solr connection to Solr
+     * @param clock clock for the last hour
+     * @param json mapper for facet requests
+     * @param build build information if packaged with it
+     * @return the service
+     */
+    @Bean
+    public StatusService statusService(LogGuyProperties properties, HotStore store, ObjectProvider<Indexer> indexer,
+        IngestService ingest, SolrService solr, Clock clock, JsonMapper json, ObjectProvider<BuildProperties> build) {
+        BuildProperties info = build.getIfAvailable();
+        return new StatusService(properties, store, indexer.getIfAvailable(), ingest, solr, clock, json,
+            info == null ? null : info.getVersion());
     }
 
     /**

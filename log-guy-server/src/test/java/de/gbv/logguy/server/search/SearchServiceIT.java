@@ -96,7 +96,8 @@ class SearchServiceIT {
             new IndexerProperties(true, 2, Duration.ofMillis(100), 500, DataSize.ofKilobytes(64),
                 DataSize.ofMegabytes(64), Duration.ofSeconds(5), DataSize.ofMegabytes(1), 7, Duration.ofSeconds(10)),
             new SearchProperties(Duration.ofHours(24), 100, 1000, 300, 8, 10, 100, 20, 500,
-                DataSize.ofKilobytes(512)));
+                DataSize.ofKilobytes(512)),
+            null, null);
         store = new HotStore(properties, JSON, Clock.systemUTC());
         HotFile file = store.getOrCreate(Fingerprint.of(SAMPLE), "app1", "digibib");
         file.append(0, SAMPLE, SAMPLE.length, null, Instant.now());

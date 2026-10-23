@@ -29,7 +29,8 @@ import org.springframework.util.unit.DataSize;
 @ConfigurationProperties("log-guy")
 public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppProperties> apps,
     List<TokenProperties> tokens, List<UserProperties> users, IngestProperties ingest, HotProperties hot,
-    ScriptProperties scripts, SolrProperties solr, IndexerProperties indexer, SearchProperties search) {
+    ScriptProperties scripts, SolrProperties solr, IndexerProperties indexer, SearchProperties search,
+    RetentionProperties retention, ServerLogProperties serverLog) {
 
     /**
      * Normalizes missing collections to empty ones.
@@ -56,6 +57,15 @@ public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppPropert
      */
     public Path stateDir() {
         return dataDir.resolve("state");
+    }
+
+    /**
+     * Directory with the own log of log-guy.
+     *
+     * @return {@code <data-dir>/logs}
+     */
+    public Path logDir() {
+        return dataDir.resolve("logs");
     }
 
     /**
@@ -225,5 +235,24 @@ public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppPropert
      */
     public record SearchProperties(Duration defaultRange, int defaultRows, int maxRows, int maxBars, int splitLimit,
         int facetLimit, int maxFacetLimit, int contextLines, int maxContextLines, DataSize contextBytes) {
+    }
+
+    /**
+     * The nightly cleanup.
+     *
+     * @param cron when it runs, a Spring cron expression in the zone of log-guy
+     * @param expungeDeletes whether Solr removes deleted documents physically afterwards
+     */
+    public record RetentionProperties(String cron, boolean expungeDeletes) {
+    }
+
+    /**
+     * The own log of log-guy.
+     *
+     * @param ringSize entries kept in memory for the page Server-Log
+     * @param keepDays days the rotated log files in {@code logs/} are kept
+     * @param pattern Log4j pattern of the log file
+     */
+    public record ServerLogProperties(int ringSize, int keepDays, String pattern) {
     }
 }

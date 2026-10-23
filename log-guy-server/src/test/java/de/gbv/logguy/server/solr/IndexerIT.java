@@ -91,7 +91,7 @@ class IndexerIT {
             new ScriptProperties(dataDir.resolve("scripts"), Duration.ofMillis(50)), solr.properties(),
             new IndexerProperties(true, 2, Duration.ofMillis(100), 500, DataSize.ofKilobytes(64),
                 DataSize.ofMegabytes(64), provisionalAfter, DataSize.ofMegabytes(1), 7, Duration.ofSeconds(10)),
-            null);
+            null, null, null);
     }
 
     private int expectedEvents() throws Exception {

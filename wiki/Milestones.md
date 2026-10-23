@@ -30,14 +30,16 @@ M1 ist erfüllt mit dem Backfill von `prod-logs/` und der Live-Datei einer lokal
 
 ### M2 Suche und GUI
 
-- [ ] Nutzer mit Argon2-Passwörtern, Anmeldung, Session-Cookie
-- [ ] Rechte `read` und `admin` pro Anwendung, erzwungener Filter auf `app`
-- [ ] Such-API: `search`, `histogram`, `facets`, `fields`, `context`
-- [ ] JTE-Seiten, Logfenster mit virtuellem Scrollen und `cursorMark`
-- [ ] Zeitleiste mit uPlot, Bereich markieren grenzt die Suche ein
-- [ ] Filter aus den Feldern der Anwendungen, Zustand in der URL
-- [ ] Status-Seite wie bei Solr: System, Agents, Anwendungen, Solr. Eigenes Log mit Log4j 2 als Datei und Ringpuffer, Seite Server-Log, Log-Level zur Laufzeit über Actuator
-- [ ] Aufbewahrung: nächtliches Löschen nach 7 Tagen, `expungeDeletes`
+- [x] Nutzer mit Argon2-Passwörtern, Anmeldung, Session-Cookie
+- [x] Rechte `read` und `admin` pro Anwendung, erzwungener Filter auf `app`
+- [x] Such-API: `search`, `histogram`, `facets`, `fields`, `context`
+- [x] JTE-Seiten, Logfenster mit virtuellem Scrollen und `cursorMark`
+- [x] Zeitleiste mit uPlot, Bereich markieren grenzt die Suche ein
+- [x] Filter aus den Feldern der Anwendungen, Zustand in der URL
+- [x] Status-Seite wie bei Solr: System, Agents, Anwendungen, Solr. Eigenes Log mit Log4j 2 als Datei und Ringpuffer, Seite Server-Log, Log-Level zur Laufzeit über Actuator
+- [x] Aufbewahrung: nächtliches Löschen nach 7 Tagen, `expungeDeletes`
+
+M2 ist erfüllt mit dem Backfill von digibib in der E2E-Umgebung: Suche, Facetten, Zeitleiste, Kontext und Links laufen über 219 Millionen Events, die Status-Seite braucht dafür rund 3 Sekunden. Im E2E ist die Aufbewahrung mit `cron: "-"` aus, damit der Backfill für Messungen erhalten bleibt.
 
 ### M3 Skripte und MCP
 

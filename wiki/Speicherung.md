@@ -39,7 +39,8 @@ Was der Frame-Index bringt: Für eine Stelle mitten in der Datei sucht log-guy i
 
 - Eine Collection für alles, 1 Shard, Replikationsfaktor 2. Jedes Dokument trägt die Felder `host` und `app`.
 - Gesucht wird über den Alias `logs`, der auf `logs_v1` zeigt. So lässt sich die Collection mit einem neuen Configset im Hintergrund neu aufbauen und dann umschalten.
-- Aufbewahrung: Ein nächtlicher Job löscht per `deleteByQuery` alles, was älter als `index-days` ist. Den Wert gibt es global, festgelegt sind 7 Tage, und optional pro Anwendung. Danach läuft `expungeDeletes`, damit gelöschte Dokumente samt IP-Adressen auch physisch von der Platte verschwinden.
+- Aufbewahrung: Ein nächtlicher Job löscht per `deleteByQuery` alles, was älter als `index-days` ist. Den Wert gibt es global, festgelegt sind 7 Tage, und optional pro Anwendung. Danach läuft `expungeDeletes`, damit gelöschte Dokumente samt IP-Adressen auch physisch von der Platte verschwinden. Ein Tag zählt in der Zeitzone von log-guy: Mit `index-days: 7` bleiben heute und die sieben Tage davor, also immer mindestens sieben volle Tage. Der Zeitpunkt steht in `log-guy.retention.cron`, Vorgabe `0 30 2 * * *`, mit `-` ist der Job aus. Im selben Lauf löscht log-guy die rotierten Dateien seines eigenen Logs, die älter als `log-guy.server-log.keep-days` sind.
+- Eigenes Log: log-guy schreibt sein Log zusätzlich zur Konsole nach `logs/log-guy.log` im Datenverzeichnis, täglich rotiert als `.gz`, Vorgabe 30 Tage. Die letzten `log-guy.server-log.ring-size` Einträge, Vorgabe 5000, hält ein Ringpuffer im Speicher für die Seite Server-Log.
 - Gelöschte Dokumente sind zunächst nur markiert und werden bei Merges entfernt. Bei 0,3 bis 0,5 GB neuem Index pro Tag ist das unkritisch. `deletesPctAllowed` begrenzt den Anteil markierter Dokumente.
 - Ab etwa 50 GB Index lohnt sich ein zweiter Shard. Nach der Hochrechnung ist das bei 7 Tagen nicht nötig.
 

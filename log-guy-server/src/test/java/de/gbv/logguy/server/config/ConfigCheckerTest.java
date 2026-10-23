@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 
 import de.gbv.logguy.server.config.LogGuyProperties.AppProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.GrantProperties;
+import de.gbv.logguy.server.config.LogGuyProperties.RetentionProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.Right;
 import de.gbv.logguy.server.config.LogGuyProperties.TokenKind;
 import de.gbv.logguy.server.config.LogGuyProperties.TokenProperties;
@@ -28,7 +29,7 @@ class ConfigCheckerTest {
     private static LogGuyProperties properties(List<TokenProperties> tokens, List<UserProperties> users) {
         return new LogGuyProperties(Path.of("/tmp"), ZoneId.of("Europe/Berlin"),
             Map.of("digibib", new AppProperties(7, "mycore-log4j"), "digibib-apache", new AppProperties(7, null)),
-            tokens, users, null, null, null, null, null, null);
+            tokens, users, null, null, null, null, null, null, null, null);
     }
 
     @Test
@@ -69,5 +70,19 @@ class ConfigCheckerTest {
         assertTrue(errors.contains("token b: hash used twice"), errors.toString());
         assertTrue(errors.contains("token b: ingest token needs a valid host"), errors.toString());
         assertTrue(errors.contains("token b: ingest token needs apps"), errors.toString());
+    }
+
+    @Test
+    void retentionCron() {
+        for (String cron : List.of("0 30 2 * * *", "-")) {
+            assertEquals(List.of(), ConfigChecker.check(retention(cron)), cron);
+        }
+        assertEquals(List.of("retention: cron 30 2 * * is not a valid cron expression"),
+            ConfigChecker.check(retention("30 2 * *")));
+    }
+
+    private static LogGuyProperties retention(String cron) {
+        return new LogGuyProperties(Path.of("/tmp"), ZoneId.of("Europe/Berlin"), Map.of(), List.of(), List.of(), null,
+            null, null, null, null, null, new RetentionProperties(cron, true), null);
     }
 }

@@ -84,6 +84,8 @@ public class Indexer implements AutoCloseable {
 
     private final AtomicLong parseErrors = new AtomicLong();
 
+    private final Map<String, AtomicLong> parseErrorsByApp = new ConcurrentHashMap<>();
+
     private volatile boolean running = true;
 
     /**
@@ -185,6 +187,44 @@ public class Indexer implements AutoCloseable {
      */
     public long indexedEvents() {
         return events.get();
+    }
+
+    /**
+     * Bytes indexed since the start.
+     *
+     * @return the byte count
+     */
+    public long indexedBytes() {
+        return bytes.get();
+    }
+
+    /**
+     * Events with a parse error per application since the start.
+     *
+     * @return application to count
+     */
+    public Map<String, Long> parseErrors() {
+        Map<String, Long> result = new HashMap<>();
+        parseErrorsByApp.forEach((app, count) -> result.put(app, count.get()));
+        return result;
+    }
+
+    /**
+     * Files and bytes not yet indexed per application.
+     *
+     * @return application to backlog, only applications with a backlog
+     */
+    public Map<String, Backlog> backlogByApp() {
+        Map<String, Backlog> result = new HashMap<>();
+        for (Cursor cursor : cursors.values()) {
+            if (cursor.done || !cursor.hasWork()) {
+                continue;
+            }
+            long behind = Math.max(0, cursor.file.length() - cursor.state.offset());
+            result.merge(cursor.file.meta().app(), new Backlog(1, behind),
+                (a, b) -> new Backlog(a.files() + b.files(), a.bytes() + b.bytes()));
+        }
+        return result;
     }
 
     private void process(Cursor cursor) throws Exception {
@@ -289,6 +329,7 @@ public class Indexer implements AutoCloseable {
         doc.setField("parser_version", parser.script().version());
         if (parsed.error() != null) {
             parseErrors.incrementAndGet();
+            parseErrorsByApp.computeIfAbsent(meta.app(), app -> new AtomicLong()).incrementAndGet();
             doc.setField("parse_error", parsed.error());
         }
         for (Map.Entry<String, Object> field : parsed.fields().entrySet()) {
@@ -346,6 +387,15 @@ public class Indexer implements AutoCloseable {
          * @throws Exception if they cannot be stored, the indexer tries again later
          */
         void add(List<SolrInputDocument> documents) throws Exception;
+    }
+
+    /**
+     * What is not yet indexed.
+     *
+     * @param files files with a backlog
+     * @param bytes bytes not yet indexed
+     */
+    public record Backlog(long files, long bytes) {
     }
 
     private final class Cursor {

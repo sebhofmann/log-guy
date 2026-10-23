@@ -6,6 +6,8 @@ import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
 
+import org.springframework.scheduling.support.CronExpression;
+
 import de.gbv.logguy.server.config.LogGuyProperties.GrantProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.TokenKind;
 import de.gbv.logguy.server.config.LogGuyProperties.TokenProperties;
@@ -77,6 +79,14 @@ public final class ConfigChecker {
             }
         }
         checkUsers(properties, errors);
+        if (properties.retention() != null && !"-".equals(properties.retention().cron())
+            && !CronExpression.isValidExpression(properties.retention().cron())) {
+            errors.add("retention: cron " + properties.retention().cron() + " is not a valid cron expression");
+        }
+        if (properties.serverLog() != null
+            && (properties.serverLog().ringSize() < 1 || properties.serverLog().keepDays() < 1)) {
+            errors.add("server-log: ring-size and keep-days must be at least 1");
+        }
         return errors;
     }
 

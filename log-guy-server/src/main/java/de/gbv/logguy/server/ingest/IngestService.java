@@ -1,6 +1,9 @@
 package de.gbv.logguy.server.ingest;
 
 import java.io.IOException;
+import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
 import org.apache.logging.log4j.LogManager;
@@ -26,6 +29,8 @@ public class IngestService {
 
     private final HotStore store;
 
+    private final Map<String, Instant> lastSeen = new ConcurrentHashMap<>();
+
     /**
      * Creates the service.
      *
@@ -33,6 +38,19 @@ public class IngestService {
      */
     public IngestService(HotStore store) {
         this.store = store;
+    }
+
+    /**
+     * When each ingest token made its last request since the start.
+     *
+     * @return token name to time
+     */
+    public Map<String, Instant> lastSeen() {
+        return Map.copyOf(lastSeen);
+    }
+
+    private void seen(IngestPrincipal principal) {
+        lastSeen.put(principal.name(), store.now());
     }
 
     /**
@@ -44,6 +62,7 @@ public class IngestService {
      * @throws IngestException 404 if the file is unknown or belongs to an application of another token
      */
     public StreamStatus status(IngestPrincipal principal, String fingerprint) {
+        seen(principal);
         checkFingerprint(fingerprint);
         HotFile file = store.find(fingerprint)
             .orElseThrow(() -> new IngestException(HttpStatus.NOT_FOUND, "unknown stream", null));
@@ -70,6 +89,7 @@ public class IngestService {
      */
     public StreamStatus append(IngestPrincipal principal, String fingerprint, long offset, String host, String app,
         String path, byte[] data, int length) {
+        seen(principal);
         checkFingerprint(fingerprint);
         checkAccess(principal, host, app);
         if (offset < 0) {
@@ -114,6 +134,7 @@ public class IngestService {
      */
     public StreamStatus close(IngestPrincipal principal, String fingerprint, long length, String host, String app,
         String path) {
+        seen(principal);
         checkFingerprint(fingerprint);
         checkAccess(principal, host, app);
         HotFile file = store.find(fingerprint)
