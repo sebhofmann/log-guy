@@ -124,25 +124,6 @@ public final class Parser implements AutoCloseable {
         return new ParsedEvent(ts, message, fields, null);
     }
 
-    /**
-     * Returns the names of fields in a result that are not declared, for the parser lab.
-     *
-     * @param text the event text
-     * @return undeclared field names
-     */
-    public List<String> undeclaredFields(String text) {
-        Value result = parse.execute(text);
-        List<String> undeclared = new ArrayList<>();
-        if (result != null && result.hasMembers()) {
-            for (String key : result.getMemberKeys()) {
-                if (!key.equals("ts") && !key.equals("message") && !script.fields().containsKey(key)) {
-                    undeclared.add(key);
-                }
-            }
-        }
-        return undeclared;
-    }
-
     private static Instant toInstant(Value value) {
         if (value == null || value.isNull()) {
             return null;

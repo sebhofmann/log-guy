@@ -91,9 +91,7 @@ public class IngestService {
         }
         checkOwner(file, host, app);
         try {
-            StreamStatus status = file.append(offset, data, length, path, store.now());
-            store.changed(file);
-            return status;
+            return file.append(offset, data, length, path, store.now());
         } catch (GapException e) {
             throw new IngestException(HttpStatus.CONFLICT, e.getMessage(), e.getStatus());
         } catch (IOException e) {
@@ -122,9 +120,7 @@ public class IngestService {
             .orElseThrow(() -> new IngestException(HttpStatus.NOT_FOUND, "unknown stream", null));
         checkOwner(file, host, app);
         try {
-            StreamStatus status = file.close(length, path, store.now());
-            store.changed(file);
-            return status;
+            return file.close(length, path, store.now());
         } catch (GapException e) {
             throw new IngestException(HttpStatus.CONFLICT, e.getMessage(), e.getStatus());
         } catch (IOException e) {

@@ -199,6 +199,7 @@ public final class HotFile {
         if (meta.closed()) {
             flush(tailLength, now);
             closeChannel();
+            Files.deleteIfExists(tailPath);
         }
     }
 

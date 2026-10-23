@@ -3,7 +3,6 @@ package de.gbv.logguy.agent;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
-import java.io.UncheckedIOException;
 import java.net.InetAddress;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -107,19 +106,5 @@ public record AgentConfig(URI server, String token, String host, int chunkSize, 
             throw new IllegalArgumentException("missing configuration value " + key);
         }
         return value;
-    }
-
-    /**
-     * Reads a token file.
-     *
-     * @param file the file
-     * @return the trimmed token
-     */
-    static String readToken(Path file) {
-        try {
-            return Files.readString(file).trim();
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
     }
 }

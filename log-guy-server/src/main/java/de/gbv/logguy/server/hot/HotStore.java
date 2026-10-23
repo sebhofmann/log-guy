@@ -8,12 +8,9 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Collection;
-import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.function.Consumer;
 import java.util.stream.Stream;
 
 import org.apache.logging.log4j.LogManager;
@@ -36,8 +33,6 @@ public class HotStore implements AutoCloseable {
     private final Clock clock;
 
     private final ConcurrentMap<String, HotFile> files = new ConcurrentHashMap<>();
-
-    private final List<Consumer<HotFile>> listeners = new CopyOnWriteArrayList<>();
 
     /**
      * Creates the store and loads all files from {@code hot/}.
@@ -110,26 +105,6 @@ public class HotStore implements AutoCloseable {
      */
     public Collection<HotFile> files() {
         return files.values();
-    }
-
-    /**
-     * Registers a listener that is called after new bytes arrived or a file was closed.
-     *
-     * @param listener the listener
-     */
-    public void addListener(Consumer<HotFile> listener) {
-        listeners.add(listener);
-    }
-
-    /**
-     * Tells the listeners that a file changed.
-     *
-     * @param file the changed file
-     */
-    public void changed(HotFile file) {
-        for (Consumer<HotFile> listener : listeners) {
-            listener.accept(file);
-        }
     }
 
     /**
