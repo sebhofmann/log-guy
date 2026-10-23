@@ -14,6 +14,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 import org.apache.logging.log4j.LogManager;
@@ -28,6 +29,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
+import de.gbv.logguy.server.security.ControlToken;
 import de.gbv.logguy.server.security.SecurityConfig;
 import de.gbv.logguy.server.security.TokenRegistry;
 
@@ -50,6 +52,7 @@ class WebSecurityTest {
     static void properties(DynamicPropertyRegistry registry) {
         String hash = SecurityConfig.passwordEncoder().encode(PASSWORD);
         registry.add("log-guy.data-dir", dataDir::toString);
+        registry.add("log-guy.scripts.dir", () -> dataDir.resolve("scripts").toString());
         registry.add("log-guy.indexer.enabled", () -> "false");
         registry.add("log-guy.apps.digibib.parser", () -> "mycore-log4j");
         registry.add("log-guy.apps.other.parser", () -> "mycore-log4j");
@@ -139,5 +142,39 @@ class WebSecurityTest {
             .andExpect(status().isBadRequest());
         mvc.perform(get("/admin/api/log").header("Authorization", "Bearer " + LIMITED_TOKEN))
             .andExpect(result -> assertNotEquals(200, result.getResponse().getStatus()));
+    }
+
+    @Test
+    void reloadByControlTokenOrAdmin() throws Exception {
+        String token = ControlToken.read(dataDir);
+        mvc.perform(post("/admin/reload").header("Authorization", "Bearer wrong"))
+            .andExpect(status().isUnauthorized());
+        mvc.perform(post("/admin/reload").header("Authorization", "Bearer " + API_TOKEN))
+            .andExpect(status().isUnauthorized());
+        Files.createDirectories(dataDir.resolve("scripts/rule"));
+        Files.writeString(dataDir.resolve("scripts/rule/broken.js"), "export const meta = {};");
+        mvc.perform(post("/admin/reload").header("Authorization", "Bearer " + token))
+            .andExpect(status().isUnprocessableContent())
+            .andExpect(jsonPath("$.ok").value(false))
+            .andExpect(jsonPath("$.errors[0]").value(containsString("rule/broken")));
+        Files.writeString(dataDir.resolve("scripts/rule/broken.js"),
+            "export const meta = { apps: [\"digibib\"] };\nexport function check(event) { return false; }\n");
+        mvc.perform(post("/admin/reload").header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.ok").value(true))
+            .andExpect(jsonPath("$.scripts[0]").value("rule/broken"))
+            .andExpect(jsonPath("$.restartNeeded.length()").value(0));
+        mvc.perform(post("/admin/reload").param("script", "nonsense").header("Authorization", "Bearer " + token))
+            .andExpect(status().isBadRequest());
+
+        MvcResult anna = mvc.perform(formLogin("/login").user("anna").password(PASSWORD)).andReturn();
+        mvc.perform(post("/admin/reload").session((MockHttpSession) anna.getRequest().getSession()).with(csrf()))
+            .andExpect(status().isForbidden());
+        MvcResult root = mvc.perform(formLogin("/login").user("root").password(PASSWORD)).andReturn();
+        MockHttpSession session = (MockHttpSession) root.getRequest().getSession();
+        mvc.perform(post("/admin/reload").session(session)).andExpect(status().isForbidden());
+        mvc.perform(post("/admin/reload").session(session).with(csrf()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.scripts.length()").value(0));
     }
 }

@@ -48,6 +48,7 @@ log-guy:
       kind: mcp
       user: ben
       hash: "sha256:..."
+      activate: false     # true: darf Parser und Meldungsregeln selbst aktivieren
 ```
 
 ### Tokens
@@ -66,7 +67,7 @@ log-guy:
 - `admin` auf eine Anwendung schließt alle anderen Rechte für sie ein. Administrator von log-guy selbst, also Status, Server-Log und Log-Level, ist, wer `admin` mit `apps: ["*"]` hat.
 - Ein `api`-Token kann mit `apps` auf einen Teil der Anwendungen seines Nutzers eingeschränkt werden. Ohne `apps` darf es alles, was der Nutzer darf.
 - Bis M3 gibt `read_pseudonymized` keinen Zugang zur schnellen Suche, weil die Pseudonymisierung erst dort kommt.
-- Änderungen an der Datei übernimmt log-guy ohne Neustart nach `log-guy reload`.
+- Änderungen an Nutzern und Tokens übernimmt log-guy ohne Neustart nach `log-guy reload`. Alle anderen Änderungen prüft der Reload ebenfalls, sie wirken aber erst nach einem Neustart, siehe [Skripte](Skript-Verwaltung.md).
 
 ### GUI-Anmeldung
 
@@ -81,8 +82,9 @@ Name und Passwort, danach ein Session-Cookie mit `HttpOnly`, `Secure` und `SameS
 | Logs im Original | Archiv |
 | Einsammel-Stand pro Logdatei | `.meta.json` im Archiv |
 | Indexer-Fortschritt | `state/index/<fingerprint>` |
+| Steuer-Token für `log-guy reload` | `state/control.token`, bei jedem Start neu |
 | Meldungen | `state/alerts.ndjson` |
-| Audit-Log | `audit/*.ndjson`, wer wann was gesucht hat |
+| Audit-Log | `audit/*.ndjson`, Skript-Änderungen, Reloads und MCP-Aufrufe |
 | Sessions, Pseudonym-Zuordnungen, Suchjobs | nur im RAM |
 | eigenes Log von log-guy | `/var/lib/log-guy/logs/`, täglich rotiert, die letzten Einträge zusätzlich im RAM |
 

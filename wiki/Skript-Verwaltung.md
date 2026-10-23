@@ -15,8 +15,9 @@ Zwei Verzeichnisse, im Docker-Container als zwei Volumes gemountet:
     rule/connection-pool-voll.js
     lifecycle/ip-kuerzen.js
     pseudonym/standard.js
-  .history/                    jede frühere Fassung mit Zeitpunkt und Autor
-  .drafts/                     Entwürfe, die noch freigegeben werden müssen
+    .history/<art>/<name>/     jede aktivierte Fassung als <millis>.js mit <millis>.json (Zeitpunkt, Autor, Weg, Hash)
+    .drafts/<art>/<name>.js    Entwürfe, die noch freigegeben werden müssen, daneben <name>.json mit Ausgangsfassung
+                               und letztem Test
 
 /var/lib/log-guy/              Daten, groß
   hot/  archive/  state/  audit/      gesichert werden nur archive/, state/, audit/
@@ -31,8 +32,11 @@ Zwei Verzeichnisse, im Docker-Container als zwei Volumes gemountet:
 | `log-guy reload parser/digibib` | nur ein Skript neu laden |
 
 - Ein Reload prüft erst alles. Ist irgendwo ein Fehler, läuft log-guy mit dem alten Stand weiter und meldet die Fehler, wie nginx.
-- Vor jedem Aktivieren landet die bisherige Fassung in `.history/`, beim Reload mit dem Autor „Dateisystem“.
-- Speichert jemand in der GUI, während die Datei auf der Platte geändert wurde, erkennt log-guy das am Hash der Ausgangsfassung und zeigt den Konflikt an, statt zu überschreiben.
+- `.history/` enthält jede aktivierte Fassung einschließlich der aktuellen. Beim Start und beim Reload trägt log-guy eine Datei, die von der neuesten Fassung abweicht, mit dem Autor „Dateisystem“ nach. Damit lässt sich auch eine Änderung von Hand zurückrollen.
+- Speichert jemand in der GUI, während die Datei auf der Platte geändert wurde, erkennt log-guy das am Hash der Ausgangsfassung und zeigt den Konflikt an, statt zu überschreiben. Aktivieren antwortet dann mit 409, mit `force` lässt sich trotzdem überschreiben.
+- Ein Reload übernimmt Nutzer, Tokens und Skripte sofort. Andere Einstellungen in `application.yml`, z.B. Anwendungen oder Solr, werden geprüft, wirken aber erst nach einem Neustart. Die Antwort nennt sie unter `restartNeeded`.
+- `log-guy reload` ruft `POST /admin/reload` am laufenden Server auf, Adresse aus `log-guy.cli.server-url`, Standard `http://localhost:${server.port}`. Der Aufruf weist sich mit einem Steuer-Token aus, das der Server bei jedem Start neu erzeugt und in `state/control.token` nur für seinen eigenen Nutzer lesbar ablegt. Wer die Datei lesen kann, darf neu laden. In der GUI dürfen Administratoren neu laden.
+- Ohne Parser-Datei gilt die mitgelieferte Vorlage gleichen Namens, z.B. `mycore-log4j`. Wird eine Vorlage in der GUI geändert, entsteht beim Aktivieren die Datei.
 
 ### Ablauf in GUI und MCP
 
@@ -41,7 +45,9 @@ Zwei Verzeichnisse, im Docker-Container als zwei Volumes gemountet:
 3. **Aktivieren:** log-guy prüft das Modul wie bei `check`, sichert die alte Fassung in `.history/` und ersetzt die Datei atomar per `rename`. Die Indexer-Threads übernehmen die neue Fassung vor ihrem nächsten Batch.
 4. **Nacharbeit:** Neue Dokumente tragen `parser_version`. Nach einer Parser-Änderung bietet log-guy an, das Index-Fenster der Anwendung neu zu indexieren. Eine Regel behält Zähler und `cooldown`, solange ihr Name gleich bleibt.
 
-Zurückrollen heißt: eine Fassung aus `.history/` wieder aktivieren. Liegt die Fehlerquote im Test über 1 %, lässt sich nur mit ausdrücklicher Bestätigung aktivieren.
+Zurückrollen heißt: eine Fassung aus `.history/` wieder aktivieren. Liegt die Fehlerquote im letzten Test des Entwurfs über 1 %, lässt sich nur mit ausdrücklicher Bestätigung (`confirm`) aktivieren.
+
+Skripte sind höchstens `log-guy.scripts.max-size` groß, Standard 256 KB.
 
 ### Testen
 
@@ -89,7 +95,9 @@ Warum so streng: Das LLM liest Logtext, den Fremde geschrieben haben, z.B. URLs 
 
 - `scripts` pro Anwendung: Parser, Meldungsregeln und Lifecycle-Filter dieser Anwendung bearbeiten, testen und aktivieren. Setzt `read` für dieselben Anwendungen voraus.
 - Skripte, die alle Anwendungen betreffen (`apps: ["*"]`), und alle Pseudonymisierungs-Skripte brauchen `admin`.
-- Jede Änderung landet im Audit-Log, mit Nutzer oder Token, Zeitpunkt und Weg: Dateisystem, GUI oder MCP.
+- Für einen Parser zählen die Anwendungen, die ihn benutzen. Benutzt ihn keine, braucht er `admin`.
+- Für Meldungsregeln und Lifecycle-Filter zählen die Muster in `meta.apps`, beim Ändern die der aktiven Fassung und die des Entwurfs. Ein Muster mit `*` braucht `admin`.
+- Jede Änderung landet im Audit-Log `audit/<datum>.ndjson`, mit Nutzer oder Token, Zeitpunkt und Weg: Dateisystem, GUI, API, MCP oder CLI. Dort stehen auch jeder Reload und jeder MCP-Aufruf.
 
 ### Vorlagen
 

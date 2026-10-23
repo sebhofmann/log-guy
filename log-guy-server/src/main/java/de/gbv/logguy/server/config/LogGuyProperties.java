@@ -98,9 +98,10 @@ public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppPropert
      * @param apps applications of an ingest token
      * @param user user of an API or MCP token
      * @param hash {@code sha256:<hex>} of the token
+     * @param activate whether an MCP token may activate parsers and rules itself
      */
     public record TokenProperties(String name, TokenKind kind, String host, List<String> apps, String user,
-        String hash) {
+        String hash, boolean activate) {
     }
 
     /**
@@ -180,8 +181,11 @@ public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppPropert
      *
      * @param dir directory with {@code parser/}, {@code rule/}, {@code lifecycle/} and {@code pseudonym/}
      * @param eventTimeout time after which a single script call is cancelled
+     * @param maxSize largest script that can be saved
+     * @param testLines most lines a test reads from its source
+     * @param testEvents most events a test returns for display
      */
-    public record ScriptProperties(Path dir, Duration eventTimeout) {
+    public record ScriptProperties(Path dir, Duration eventTimeout, DataSize maxSize, int testLines, int testEvents) {
     }
 
     /**

@@ -11,21 +11,29 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProp
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
+import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.scheduling.annotation.SchedulingConfigurer;
 import org.springframework.scheduling.config.ScheduledTaskRegistrar;
 import org.springframework.scheduling.support.CronTrigger;
 
+import de.gbv.logguy.server.audit.AuditLog;
+import de.gbv.logguy.server.config.ConfigReloader;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.hot.HotStore;
 import de.gbv.logguy.server.index.Indexer;
 import de.gbv.logguy.server.ingest.IngestService;
 import de.gbv.logguy.server.retention.RetentionService;
 import de.gbv.logguy.server.script.ParserRegistry;
+import de.gbv.logguy.server.script.ScriptListener;
 import de.gbv.logguy.server.script.ScriptRuntime;
+import de.gbv.logguy.server.script.ScriptService;
+import de.gbv.logguy.server.script.ScriptStore;
 import de.gbv.logguy.server.search.ContextService;
 import de.gbv.logguy.server.search.SearchService;
+import de.gbv.logguy.server.security.TokenRegistry;
+import de.gbv.logguy.server.security.UserRegistry;
 import de.gbv.logguy.server.serverlog.ServerLog;
 import de.gbv.logguy.server.solr.SolrService;
 import de.gbv.logguy.server.status.StatusService;
@@ -38,16 +46,6 @@ import tools.jackson.databind.json.JsonMapper;
 @Profile("!" + LogGuyApplication.CLI_PROFILE)
 @EnableScheduling
 public class ServerConfig {
-
-    /**
-     * Clock for receive times.
-     *
-     * @return the system clock
-     */
-    @Bean
-    public Clock clock() {
-        return Clock.systemUTC();
-    }
 
     /**
      * The hot storage.
@@ -86,6 +84,56 @@ public class ServerConfig {
             throw new IllegalStateException("parser scripts have errors: " + String.join("; ", errors));
         }
         return new Indexer(properties, store, parsers, runtime, solr::add, clock, json);
+    }
+
+    /**
+     * The audit log in {@code audit/}.
+     *
+     * @param properties configuration
+     * @param clock clock for the time stamps
+     * @param json mapper for the lines
+     * @return the log
+     */
+    @Bean
+    public AuditLog auditLog(LogGuyProperties properties, Clock clock, JsonMapper json) {
+        return new AuditLog(properties.dataDir().resolve("audit"), properties.zone(), clock, json);
+    }
+
+    /**
+     * Drafts, activation and reload of scripts. Records the active scripts in the history at the start.
+     *
+     * @param properties configuration
+     * @param store the script directory
+     * @param runtime the script runtime
+     * @param parsers the parser scripts
+     * @param listeners take over scripts of other kinds
+     * @param audit the audit log
+     * @return the service
+     * @throws IOException if the history cannot be written
+     */
+    @Bean
+    public ScriptService scriptService(LogGuyProperties properties, ScriptStore store, ScriptRuntime runtime,
+        ParserRegistry parsers, List<ScriptListener> listeners, AuditLog audit) throws IOException {
+        ScriptService service = new ScriptService(properties, store, runtime, parsers, listeners, audit);
+        service.recordStartVersions();
+        return service;
+    }
+
+    /**
+     * Reads configuration and scripts again on {@code POST /admin/reload}.
+     *
+     * @param environment the environment of the server
+     * @param properties the configuration the server started with
+     * @param tokens the tokens
+     * @param users the users
+     * @param scripts the scripts
+     * @param audit the audit log
+     * @return the reloader
+     */
+    @Bean
+    public ConfigReloader configReloader(ConfigurableEnvironment environment, LogGuyProperties properties,
+        TokenRegistry tokens, UserRegistry users, ScriptService scripts, AuditLog audit) {
+        return new ConfigReloader(environment, properties, tokens, users, scripts, audit);
     }
 
     /**

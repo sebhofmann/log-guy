@@ -2,14 +2,16 @@ package de.gbv.logguy.server.script;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.logging.log4j.LogManager;
@@ -17,6 +19,8 @@ import org.apache.logging.log4j.Logger;
 
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.AppProperties;
+import de.gbv.logguy.server.script.ScriptStore.ScriptId;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The parser scripts of all applications.
@@ -35,6 +39,8 @@ public class ParserRegistry {
 
     private final ScriptRuntime runtime;
 
+    private final ScriptStore store;
+
     private final AtomicReference<Map<String, ParserScript>> byApp = new AtomicReference<>(Map.of());
 
     private volatile boolean loaded;
@@ -44,19 +50,57 @@ public class ParserRegistry {
      *
      * @param properties configuration
      * @param runtime the script runtime
+     * @param store the script directory with the active scripts
      */
-    public ParserRegistry(LogGuyProperties properties, ScriptRuntime runtime) {
+    public ParserRegistry(LogGuyProperties properties, ScriptRuntime runtime, ScriptStore store) {
         this.properties = properties;
         this.runtime = runtime;
+        this.store = store;
     }
 
     /**
-     * Loads the parser of every configured application. Nothing is changed if a script has errors.
+     * Creates the registry with its own store that reads the script directory once, for tests and tools.
+     *
+     * @param properties configuration
+     * @param runtime the script runtime
+     */
+    public ParserRegistry(LogGuyProperties properties, ScriptRuntime runtime) {
+        this(properties, runtime, scannedStore(properties));
+    }
+
+    private static ScriptStore scannedStore(LogGuyProperties properties) {
+        ScriptStore store = new ScriptStore(properties.scripts().dir(), Clock.systemUTC(),
+            JsonMapper.builder().build());
+        try {
+            store.scan();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return store;
+    }
+
+    /**
+     * Loads the parser of every configured application from the active scripts. Nothing is changed if a script has
+     * errors.
      *
      * @return the errors, empty if everything was loaded
      */
     public List<String> load() {
-        Map<String, ParserScript> scripts = new HashMap<>();
+        Prepared prepared = prepare(store.active());
+        if (prepared.errors().isEmpty()) {
+            apply(prepared);
+        }
+        return prepared.errors();
+    }
+
+    /**
+     * Checks the parsers of all applications with the given scripts, without activating anything.
+     *
+     * @param scripts the scripts to use, parsers missing here come from the templates
+     * @return the checked parsers and the errors
+     */
+    public Prepared prepare(Map<ScriptId, String> scripts) {
+        Map<String, ParserScript> result = new HashMap<>();
         Map<String, ParserScript> byName = new HashMap<>();
         List<String> errors = new ArrayList<>();
         for (Map.Entry<String, AppProperties> app : properties.apps().entrySet()) {
@@ -64,20 +108,30 @@ public class ParserRegistry {
             try {
                 ParserScript script = byName.get(name);
                 if (script == null) {
-                    script = ParserScript.load(runtime, name, source(name));
+                    String code = scripts.get(new ScriptId(ScriptKind.PARSER, name));
+                    script = ParserScript.load(runtime, name, code != null ? code : template(name));
                     byName.put(name, script);
                 }
-                scripts.put(app.getKey(), script);
+                result.put(app.getKey(), script);
             } catch (ScriptException | IOException e) {
                 errors.add("app " + app.getKey() + ": " + e.getMessage());
             }
         }
-        if (errors.isEmpty()) {
-            byApp.set(Map.copyOf(scripts));
-            loaded = true;
-            LOGGER.info("loaded parsers for {} applications", scripts.size());
+        return new Prepared(Map.copyOf(result), List.copyOf(errors));
+    }
+
+    /**
+     * Activates parsers checked by {@link #prepare(Map)}. Indexer threads take them before their next batch.
+     *
+     * @param prepared the checked parsers, must have no errors
+     */
+    public void apply(Prepared prepared) {
+        if (!prepared.errors().isEmpty()) {
+            throw new IllegalArgumentException("parsers have errors");
         }
-        return errors;
+        byApp.set(prepared.byApp());
+        loaded = true;
+        LOGGER.info("loaded parsers for {} applications", prepared.byApp().size());
     }
 
     /**
@@ -104,28 +158,56 @@ public class ParserRegistry {
         return Optional.ofNullable(byApp.get().get(app));
     }
 
+    /**
+     * The name of the parser script of an application.
+     *
+     * @param app the application
+     * @return the name, the application name if none is configured
+     */
+    public String parserName(String app) {
+        return parserName(app, properties.apps().get(app));
+    }
+
+    /**
+     * The applications that use a parser script.
+     *
+     * @param name name of the parser
+     * @return the applications, sorted
+     */
+    public Set<String> appsUsing(String name) {
+        Set<String> apps = new TreeSet<>();
+        for (String app : properties.apps().keySet()) {
+            if (parserName(app).equals(name)) {
+                apps.add(app);
+            }
+        }
+        return apps;
+    }
+
     private static String parserName(String app, AppProperties properties) {
         return properties == null || properties.parser() == null ? app : properties.parser();
     }
 
     /**
-     * Reads the code of a parser from the script directory, or the template of the same name from the JAR.
+     * The active code of a parser, from the script directory or the template of the same name from the JAR.
      *
      * @param name name of the parser
      * @return the code
      * @throws IOException if neither exists
      */
     public String source(String name) throws IOException {
-        Path file = properties.scripts().dir().resolve("parser").resolve(name + ".js");
-        if (Files.exists(file)) {
-            return Files.readString(file);
-        }
-        try (InputStream in = ParserRegistry.class.getResourceAsStream(TEMPLATES + name + ".js")) {
-            if (in == null) {
-                throw new IOException("parser script " + file + " not found");
-            }
-            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        }
+        Optional<String> code = store.active(new ScriptId(ScriptKind.PARSER, name));
+        return code.isPresent() ? code.get() : template(name);
+    }
+
+    /**
+     * Whether a template of this name is in the JAR.
+     *
+     * @param name name of the template
+     * @return true if it exists
+     */
+    public static boolean hasTemplate(String name) {
+        return ParserRegistry.class.getResource(TEMPLATES + name + ".js") != null;
     }
 
     /**
@@ -138,9 +220,18 @@ public class ParserRegistry {
     public static String template(String name) throws IOException {
         try (InputStream in = ParserRegistry.class.getResourceAsStream(TEMPLATES + name + ".js")) {
             if (in == null) {
-                throw new IOException("template " + name + " not found");
+                throw new IOException("parser script parser/" + name + ".js not found");
             }
             return new String(in.readAllBytes(), StandardCharsets.UTF_8);
         }
+    }
+
+    /**
+     * Parsers checked by {@link #prepare(Map)}.
+     *
+     * @param byApp the parser of every application that could be loaded
+     * @param errors the errors, empty if all could be loaded
+     */
+    public record Prepared(Map<String, ParserScript> byApp, List<String> errors) {
     }
 }

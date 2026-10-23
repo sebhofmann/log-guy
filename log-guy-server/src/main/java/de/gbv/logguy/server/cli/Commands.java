@@ -5,6 +5,11 @@ import java.io.Console;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
+import java.net.URI;
+import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -12,17 +17,25 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 import org.springframework.shell.core.command.CommandContext;
+import org.springframework.shell.core.command.annotation.Argument;
 import org.springframework.shell.core.command.annotation.Command;
 import org.springframework.shell.core.command.annotation.Option;
 
 import de.gbv.logguy.server.config.ConfigChecker;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.TokenKind;
+import de.gbv.logguy.server.script.ModuleInfo;
 import de.gbv.logguy.server.script.ParserRegistry;
 import de.gbv.logguy.server.script.ParserScript;
+import de.gbv.logguy.server.script.ScriptException;
+import de.gbv.logguy.server.script.ScriptKind;
 import de.gbv.logguy.server.script.ScriptRuntime;
+import de.gbv.logguy.server.script.ScriptStore;
+import de.gbv.logguy.server.script.ScriptStore.ScriptId;
+import de.gbv.logguy.server.security.ControlToken;
 import de.gbv.logguy.server.security.SecurityConfig;
 import de.gbv.logguy.server.security.TokenRegistry;
 import de.gbv.logguy.server.solr.SolrService;
@@ -42,6 +55,10 @@ public class Commands {
 
     private final CliExitCode exitCode;
 
+    private final ScriptStore store;
+
+    private final CliProperties cli;
+
     /**
      * Creates the commands.
      *
@@ -50,14 +67,18 @@ public class Commands {
      * @param solr connection to Solr, only used by Solr commands
      * @param runtime the script runtime
      * @param exitCode exit code of the process
+     * @param store the script directory
+     * @param cli settings of the command line
      */
     public Commands(LogGuyProperties properties, ParserRegistry parsers, SolrService solr, ScriptRuntime runtime,
-        CliExitCode exitCode) {
+        CliExitCode exitCode, ScriptStore store, CliProperties cli) {
         this.properties = properties;
         this.parsers = parsers;
         this.solr = solr;
         this.runtime = runtime;
         this.exitCode = exitCode;
+        this.store = store;
+        this.cli = cli;
     }
 
     /**
@@ -70,11 +91,56 @@ public class Commands {
         PrintWriter out = context.outputWriter();
         List<String> errors = new ArrayList<>(ConfigChecker.check(properties));
         errors.addAll(parsers.load());
+        for (Map.Entry<ScriptId, String> script : store.active().entrySet()) {
+            if (script.getKey().kind() != ScriptKind.PARSER) {
+                try {
+                    ModuleInfo.check(runtime, script.getKey().kind(), script.getKey().name(), script.getValue());
+                } catch (ScriptException e) {
+                    errors.add(e.getMessage());
+                }
+            }
+        }
         if (errors.isEmpty()) {
             out.println("configuration and scripts are fine: " + properties.apps().size() + " applications, "
                 + properties.tokens().size() + " tokens");
         } else {
             errors.forEach(error -> out.println("ERROR " + error));
+            exitCode.fail();
+        }
+        out.flush();
+    }
+
+    /**
+     * Lets the running server read configuration and scripts again, authenticated by {@code state/control.token}.
+     *
+     * @param context the command context
+     * @param script only this script, e.g. {@code parser/digibib}
+     */
+    @Command(name = "reload", description = "Reload configuration and scripts of the running server")
+    public void reload(CommandContext context,
+        @Argument(index = 0, description = "only this script, e.g. parser/digibib", defaultValue = "") String script) {
+        PrintWriter out = context.outputWriter();
+        try {
+            String token = ControlToken.read(properties.dataDir());
+            String query = script.isBlank() ? "" : "?script=" + URLEncoder.encode(script, StandardCharsets.UTF_8);
+            URI uri = URI.create(cli.serverUrl().toString().replaceAll("/+$", "") + SecurityConfig.RELOAD_PATH + query);
+            HttpRequest request = HttpRequest.newBuilder(uri)
+                .header("Authorization", "Bearer " + token)
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build();
+            HttpResponse<String> response;
+            try (HttpClient client = HttpClient.newHttpClient()) {
+                response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            }
+            out.println(response.body());
+            if (response.statusCode() != 200) {
+                exitCode.fail();
+            }
+        } catch (IOException e) {
+            out.println("ERROR " + e.getMessage());
+            exitCode.fail();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             exitCode.fail();
         }
         out.flush();

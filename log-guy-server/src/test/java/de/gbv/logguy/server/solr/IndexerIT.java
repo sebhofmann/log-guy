@@ -88,7 +88,8 @@ class IndexerIT {
             Map.of("digibib", new AppProperties(null, "mycore-log4j")), List.of(), List.of(),
             new IngestProperties(DataSize.ofMegabytes(8), 4, Duration.ofSeconds(1)),
             new HotProperties(DataSize.ofKilobytes(64), Duration.ofSeconds(60), Duration.ofSeconds(5), 3),
-            new ScriptProperties(dataDir.resolve("scripts"), Duration.ofMillis(50)), solr.properties(),
+            new ScriptProperties(dataDir.resolve("scripts"), Duration.ofMillis(50), DataSize.ofKilobytes(256), 10000,
+                500), solr.properties(),
             new IndexerProperties(true, 2, Duration.ofMillis(100), 500, DataSize.ofKilobytes(64),
                 DataSize.ofMegabytes(64), provisionalAfter, DataSize.ofMegabytes(1), 7, Duration.ofSeconds(10)),
             null, null, null);

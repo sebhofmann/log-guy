@@ -1,6 +1,7 @@
 package de.gbv.logguy.server;
 
 import java.io.IOException;
+import java.time.Clock;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -9,7 +10,9 @@ import org.springframework.context.annotation.Lazy;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.script.ParserRegistry;
 import de.gbv.logguy.server.script.ScriptRuntime;
+import de.gbv.logguy.server.script.ScriptStore;
 import de.gbv.logguy.server.solr.SolrService;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Beans of server and command line.
@@ -30,16 +33,44 @@ public class CommonConfig {
     }
 
     /**
+     * Clock for receive times, history and audit.
+     *
+     * @return the system clock
+     */
+    @Bean
+    public Clock clock() {
+        return Clock.systemUTC();
+    }
+
+    /**
+     * The script directory with history and drafts, read once at the start.
+     *
+     * @param properties configuration
+     * @param clock clock for history and drafts
+     * @param json mapper for the meta files
+     * @return the store
+     * @throws IOException if the script directory cannot be read
+     */
+    @Bean
+    @Lazy
+    public ScriptStore scriptStore(LogGuyProperties properties, Clock clock, JsonMapper json) throws IOException {
+        ScriptStore store = new ScriptStore(properties.scripts().dir(), clock, json);
+        store.scan();
+        return store;
+    }
+
+    /**
      * The parser scripts, not yet loaded.
      *
      * @param properties configuration
      * @param runtime the script runtime
+     * @param store the script directory
      * @return the registry
      */
     @Bean
     @Lazy
-    public ParserRegistry parserRegistry(LogGuyProperties properties, ScriptRuntime runtime) {
-        return new ParserRegistry(properties, runtime);
+    public ParserRegistry parserRegistry(LogGuyProperties properties, ScriptRuntime runtime, ScriptStore store) {
+        return new ParserRegistry(properties, runtime, store);
     }
 
     /**

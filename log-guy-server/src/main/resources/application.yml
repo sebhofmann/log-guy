@@ -39,6 +39,8 @@ management:
 
 log-guy:
   data-dir: /var/lib/log-guy
+  cli:
+    server-url: http://localhost:${server.port}
   zone: Europe/Berlin
   apps: {}
   users: []
@@ -55,6 +57,9 @@ log-guy:
   scripts:
     dir: /etc/log-guy/scripts
     event-timeout: 50ms
+    max-size: 256KB
+    test-lines: 20000
+    test-events: 500
   solr:
     urls:
       - http://localhost:8983/solr

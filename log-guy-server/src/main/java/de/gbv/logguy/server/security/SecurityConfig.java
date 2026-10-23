@@ -1,5 +1,7 @@
 package de.gbv.logguy.server.security;
 
+import java.io.IOException;
+
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
@@ -28,6 +30,9 @@ import de.gbv.logguy.server.config.LogGuyProperties;
 @Configuration
 @Profile("!cli")
 public class SecurityConfig {
+
+    /** Path of the reload. */
+    public static final String RELOAD_PATH = "/admin/reload";
 
     /**
      * Creates the password encoder, Argon2id with the parameters of Spring Security.
@@ -79,6 +84,40 @@ public class SecurityConfig {
     @Bean
     public CurrentUser currentUser(UserRegistry users) {
         return new CurrentUser(users);
+    }
+
+    /**
+     * The control token for {@code log-guy reload}, new at every start.
+     *
+     * @param properties configuration
+     * @return the token
+     * @throws IOException if {@code state/control.token} cannot be written
+     */
+    @Bean
+    public ControlToken controlToken(LogGuyProperties properties) throws IOException {
+        return ControlToken.create(properties.dataDir());
+    }
+
+    /**
+     * The reload by {@code log-guy reload} with the control token. Requests without a token go to the GUI chain and
+     * need an administrator there.
+     *
+     * @param http the builder
+     * @param token the control token
+     * @return the filter chain
+     */
+    @Bean
+    @Order(0)
+    public SecurityFilterChain controlChain(HttpSecurity http, ControlToken token) {
+        return http
+            .securityMatcher(request -> RELOAD_PATH.equals(request.getRequestURI().substring(
+                request.getContextPath().length())) && request.getHeader(HttpHeaders.AUTHORIZATION) != null)
+            .csrf(csrf -> csrf.disable())
+            .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .addFilterBefore(new ControlTokenFilter(token), BasicAuthenticationFilter.class)
+            .authorizeHttpRequests(auth -> auth.anyRequest().hasRole("CONTROL"))
+            .exceptionHandling(ex -> ex.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
+            .build();
     }
 
     /**

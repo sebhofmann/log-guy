@@ -9,6 +9,7 @@ import de.gbv.logguy.server.LogGuyApplication;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.script.ParserRegistry;
 import de.gbv.logguy.server.script.ScriptRuntime;
+import de.gbv.logguy.server.script.ScriptStore;
 import de.gbv.logguy.server.solr.SolrService;
 
 /**
@@ -36,11 +37,13 @@ public class CliConfig {
      * @param solr connection to Solr
      * @param runtime the script runtime
      * @param exitCode exit code of the process
+     * @param store the script directory
+     * @param cli settings of the command line
      * @return the commands
      */
     @Bean
     public Commands commands(LogGuyProperties properties, ParserRegistry parsers, @Lazy SolrService solr,
-        @Lazy ScriptRuntime runtime, CliExitCode exitCode) {
-        return new Commands(properties, parsers, solr, runtime, exitCode);
+        @Lazy ScriptRuntime runtime, CliExitCode exitCode, @Lazy ScriptStore store, CliProperties cli) {
+        return new Commands(properties, parsers, solr, runtime, exitCode, store, cli);
     }
 }
