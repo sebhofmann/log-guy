@@ -1,0 +1,100 @@
+# Milestones und offene Fragen
+
+Sechs Milestones, jeder endet mit etwas Benutzbarem. Der MCP-Server kommt früh, in M3, weil Skripte per LLM entstehen sollen. Mail und Webhooks kommen erst mit dem Produktivbetrieb in M6, bis dahin zeigt log-guy Meldungen in GUI und API.
+
+| Milestone | Ergebnis | fertig, wenn |
+| --- | --- | --- |
+| M1 Fundament | Logs kommen an, liegen in `hot/` und sind in Solr | `prod-logs/` per Backfill und die Live-Datei von digibib sind ohne Duplikate indexiert |
+| M2 Suche und GUI | Logs durchsuchen im Browser | eine Woche digibib lässt sich in der GUI durchsuchen, filtern und über die Zeitleiste eingrenzen |
+| M3 Skripte und MCP | Skripte zur Laufzeit, auch per LLM | ein LLM schreibt per MCP den Apache-Parser für `digibib-apache`, testet ihn, ein Mensch gibt ihn frei |
+| M4 Archiv | gesichertes Archiv mit gekürzten IP-Adressen, Archivsuche | `archive/` ist vollständig gefiltert, `hot/` hält nur 7 Tage, eine Regex-Suche über einen Monat liefert Treffer |
+| M5 Meldungen | Regeln in JavaScript, Meldungen in GUI und API | die Regel „Connection Pool voll“ meldet die Hikari-Warnungen von digibib in der GUI |
+| M6 Produktivbetrieb | alle Anwendungen angebunden, Mail, Betrieb | alle 30 bis 40 Anwendungen liefern Logs, Meldungen kommen per Mail, Backups laufen |
+
+### M1 Fundament
+
+- [ ] Maven-Projekt mit `log-guy-server`, `log-guy-agent` und `log-guy-common`, Docker-Images für Server und Agent
+- [ ] Konfiguration aus `/etc/log-guy/application.yml` mit `@ConfigurationProperties`, `log-guy check`
+- [ ] Ingest-Tokens pro Host
+- [ ] Agent: Live-Datei mitlesen, Rotation über Inode, Prüfung jede Sekunde als Rückfall, Offset merken
+- [ ] Agent: rotierte `.gz` beobachten und Lücken nachliefern, `backfill`
+- [ ] Stream-API mit Fingerabdruck, Duplikate verwerfen, `fsync` vor der Antwort
+- [ ] `hot/` schreiben: zstd-Frames, `.idx`, `.meta.json`
+- [ ] GraalJS-Laufzeit mit Sandbox, Speicher- und Zeitlimit, `parseTime`. Benchmark nach GraalJS portieren und auf GraalVM-JDK und OpenJDK messen
+- [ ] Parser `mycore-log4j.js`, von Hand geschrieben
+- [ ] Solr: Configset hochladen, `logs_v1` und Alias `logs` anlegen, `log-guy solr init`
+- [ ] Indexer mit Fortschritt pro Datei, vorläufige Stacktraces, Event-ID `<fingerprint>:<offset>`
+- [ ] Messen: Durchsatz der Indexierung mit allen Teilen zusammen
+
+### M2 Suche und GUI
+
+- [ ] Nutzer mit Argon2-Passwörtern, Anmeldung, Session-Cookie
+- [ ] Rechte `read` und `admin` pro Anwendung, erzwungener Filter auf `app`
+- [ ] Such-API: `search`, `histogram`, `facets`, `fields`, `context`
+- [ ] JTE-Seiten, Logfenster mit virtuellem Scrollen und `cursorMark`
+- [ ] Zeitleiste mit uPlot, Bereich markieren grenzt die Suche ein
+- [ ] Filter aus den Feldern der Anwendungen, Zustand in der URL
+- [ ] Status-Seite wie bei Solr: System, Agents, Anwendungen, Solr. Eigenes Log mit Log4j 2 als Datei und Ringpuffer, Seite Server-Log, Log-Level zur Laufzeit über Actuator
+- [ ] Aufbewahrung: nächtliches Löschen nach 7 Tagen, `expungeDeletes`
+
+### M3 Skripte und MCP
+
+- [ ] Skriptverzeichnis mit `.history/` und `.drafts/`, `log-guy reload` über den Admin-Endpunkt
+- [ ] Skript-API: Entwurf, Test, Aktivieren, Zurückrollen, Konflikterkennung
+- [ ] Testquellen: Anwendung, Logdatei, eingefügte Zeilen
+- [ ] Skript-Editor in der GUI mit CodeMirror, Freigabe von Entwürfen
+- [ ] Pseudonymisierung als JavaScript, `ps()`, Rückübersetzung in Anfragen, Ausgabe zurückhalten bei Fehlern
+- [ ] MCP-Server mit Spring AI: Such-, Skript-, Status- und Log-Tools, MCP-Tokens, `activate: true`
+- [ ] Recht `scripts`, Audit-Log für alle Änderungen
+- [ ] Erster Parser per LLM: `apache-combined.js`
+
+Die Pseudonymisierung gehört in diesen Milestone, weil alles, was den MCP-Endpunkt verlässt, schon pseudonymisiert sein muss.
+
+### M4 Archiv
+
+- [ ] Archiv-Schreiber von `hot/` nach `archive/` mit Lifecycle-Filtern
+- [ ] Filter `ip-kuerzen.js`, eingebaute Funktionen `maskIp`, `replaceIps`, `findIps`, `findEmails`
+- [ ] Platzhalter bei Filterfehlern, `log-guy archive refilter`
+- [ ] `hot/` nach 7 Tagen leeren
+- [ ] Archivsuche als Job mit Regex, Fortschritt und Abbruch, in GUI und MCP
+- [ ] Ältere Zeiträume nachindexieren mit Ablaufdatum
+
+### M5 Meldungen
+
+- [ ] Regel-Module mit `meta`, `check`, `message`
+- [ ] Zähler für Schwellen und Zeitgeber für Stille in Java, `cooldown`
+- [ ] Zustände offen, quittiert, erledigt in `state/alerts.ndjson`
+- [ ] GUI: Glocke und Meldungsseite, Regeln gegen die letzten 24 Stunden testen
+- [ ] API mit Stream, MCP-Tool `list_alerts`
+
+### M6 Produktivbetrieb
+
+- [ ] Mail per SMTP und Webhooks
+- [ ] Agent-Container für alle Anwendungen ausrollen, Rechte auf die Log-Verzeichnisse
+- [ ] Parser für die übrigen Logformate, per LLM oder von Hand
+- [ ] Solr absichern: eigener Nutzer, `timeAllowed`, `cpuAllowed`, Circuit Breakers
+- [ ] Backups von `archive/`, `state/`, `audit/` und `/etc/log-guy/`
+
+Später: LDAP, Live-Modus in der GUI.
+
+### Offene Fragen
+
+- [ ] Reicht die Freigabe durch einen Menschen für Entwürfe aus MCP, wie in Skripte: Verzeichnis, Reload, GUI und MCP beschrieben?
+- [ ] Welche Hilfsfunktionen soll log-guy zum Start in Java anbieten, z.B. stripAnsi, findExceptions, maskIp?
+- [ ] Auf welchem Server läuft log-guy, und wo liegen `hot/` und `archive/`?
+- [ ] Welche Meldungsregeln brauchen wir zum Start, und wer bekommt die Mails?
+- [ ] Eigener Solr-Nutzer für log-guy, der nur auf `logs*` und das eigene Configset zugreifen darf?
+
+### Entschieden
+
+| Thema | Entscheidung |
+| --- | --- |
+| Plattform | Java 25, Spring Boot 4, Maven, JTE |
+| Skriptsprache | JavaScript mit GraalJS |
+| Agent | eigener Container neben der Anwendung, Log-Verzeichnis lesend gemountet, notfalls auf dem Host |
+| Index-Fenster | 7 Tage |
+| IP-Adressen | im Archiv sofort gekürzt, Originale 7 Tage in `hot/` |
+| Backup | nur `archive/`, `state/`, `audit/` und `/etc/log-guy/`, nie `hot/` |
+| Archiv | ohne Löschfrist, eine Frist ist nicht Teil von log-guy |
+
+[Zur Übersicht](README.md)
