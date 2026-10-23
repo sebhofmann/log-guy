@@ -12,6 +12,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -26,6 +27,8 @@ import de.gbv.logguy.server.hot.HotFile;
 import de.gbv.logguy.server.hot.HotStore;
 import de.gbv.logguy.server.index.EventReader;
 import de.gbv.logguy.server.index.EventReader.RawEvent;
+import de.gbv.logguy.server.pseudonym.PseudonymService;
+import de.gbv.logguy.server.pseudonym.PseudonymService.PseudonymTestResult;
 import de.gbv.logguy.server.script.ScriptRequestException.Reason;
 import de.gbv.logguy.server.script.ScriptStore.ScriptId;
 import de.gbv.logguy.server.script.ScriptStore.TestSummary;
@@ -61,6 +64,10 @@ public class ScriptTester {
 
     private final SearchService search;
 
+    private final ParserRegistry parsers;
+
+    private final PseudonymService pseudonyms;
+
     private final Clock clock;
 
     /**
@@ -71,16 +78,20 @@ public class ScriptTester {
      * @param runtime the script runtime
      * @param scripts the scripts
      * @param search the search, to find the start of a time range
+     * @param parsers the parsers, to turn lines into events for scripts that are no parsers
+     * @param pseudonyms runs tests of pseudonymization scripts
      * @param clock clock for the time of a test
      */
     public ScriptTester(LogGuyProperties properties, HotStore hot, ScriptRuntime runtime, ScriptService scripts,
-        SearchService search, Clock clock) {
+        SearchService search, ParserRegistry parsers, PseudonymService pseudonyms, Clock clock) {
         this.properties = properties;
         this.settings = properties.scripts();
         this.hot = hot;
         this.runtime = runtime;
         this.scripts = scripts;
         this.search = search;
+        this.parsers = parsers;
+        this.pseudonyms = pseudonyms;
         this.clock = clock;
     }
 
@@ -99,6 +110,7 @@ public class ScriptTester {
         throws IOException {
         return switch (id.kind()) {
             case PARSER -> testParser(user, id, code, active, source);
+            case PSEUDONYM -> testPseudonym(user, id, code, active, source);
             default -> throw new ScriptRequestException(Reason.INVALID,
                 "Für Skripte der Art " + id.kind().dir() + " gibt es noch keinen Test.");
         };
@@ -132,6 +144,80 @@ public class ScriptTester {
         scripts.recordTest(id, tested, new TestSummary(clock.instant(), lines.label(), result.events(),
             result.errors()));
         return result;
+    }
+
+    /**
+     * Tests a pseudonymization script. The lines are parsed with the parser of their application, so the script
+     * sees the same events as on the MCP endpoint.
+     *
+     * @param user the user, needs the right to edit the script and to read the source
+     * @param id the script
+     * @param code code to test, {@code null} for the draft or the active version
+     * @param active test the active version even if there is a draft
+     * @param source the test source
+     * @return the result
+     * @throws IOException if the source cannot be read
+     */
+    public PseudonymTestResult testPseudonym(LogGuyUser user, ScriptId id, String code, boolean active,
+        TestSource source) throws IOException {
+        if (id.kind() != ScriptKind.PSEUDONYM) {
+            throw new ScriptRequestException(Reason.INVALID, "Keine Pseudonymisierung: " + id);
+        }
+        String tested = scripts.codeForTest(user, id, code, active);
+        Lines lines = lines(user, source);
+        List<Map<String, Object>> events = events(lines);
+        PseudonymTestResult result;
+        try {
+            result = pseudonyms.test(id, tested, events, settings.testEvents());
+        } catch (ScriptException e) {
+            throw new ScriptRequestException(Reason.INVALID, "Das Skript ist fehlerhaft: " + e.getMessage());
+        }
+        scripts.recordTest(id, tested, new TestSummary(clock.instant(), lines.label(), result.events(),
+            result.heldBack()));
+        return result;
+    }
+
+    /**
+     * Turns test lines into events as the search returns them, with the parser of the application. Without a
+     * parser every line is an event with only a message.
+     *
+     * @param lines the lines
+     * @return the events with {@code app}, {@code ts}, {@code message} and the fields
+     */
+    private List<Map<String, Object>> events(Lines lines) {
+        List<Map<String, Object>> events = new ArrayList<>();
+        String app = lines.app() == null ? "" : lines.app();
+        Optional<ParserScript> script = lines.app() == null ? Optional.empty() : parsers.forApp(lines.app());
+        if (script.isEmpty()) {
+            for (String line : lines.lines()) {
+                Map<String, Object> event = new LinkedHashMap<>();
+                event.put("app", app);
+                event.put("message", line);
+                events.add(event);
+            }
+            return events;
+        }
+        try (Parser parser = new Parser(runtime, script.get())) {
+            EventReader reader = new EventReader(0, (int) properties.indexer().maxEventSize().toBytes());
+            byte[] data = String.join("\n", lines.lines()).concat("\n").getBytes(StandardCharsets.UTF_8);
+            List<RawEvent> raw = new ArrayList<>(reader.feed(data, parser::isStart));
+            raw.addAll(reader.tail(parser::isStart));
+            for (RawEvent rawEvent : raw) {
+                ParsedEvent parsed = parser.parse(rawEvent.text());
+                Map<String, Object> event = new LinkedHashMap<>();
+                event.put("app", app);
+                if (parsed.ts() != null) {
+                    event.put("ts", parsed.ts().toString());
+                }
+                event.put("message", parsed.message());
+                event.putAll(parsed.fields());
+                events.add(event);
+            }
+        } catch (ScriptException e) {
+            throw new ScriptRequestException(Reason.INVALID, "Der Parser von " + app + " ist fehlerhaft: "
+                + e.getMessage());
+        }
+        return events;
     }
 
     private ParserTestResult run(ParserScript script, Lines lines) {
@@ -191,7 +277,8 @@ public class ScriptTester {
         int max = source.lines() == null ? settings.testLines() : Math.clamp(source.lines(), 1, settings.testLines());
         if (source.text() != null) {
             List<String> lines = split(source.text());
-            return new Lines(lines.subList(0, Math.min(lines.size(), max)), "eingefügte Zeilen", null, null);
+            String app = source.app() != null && properties.apps().containsKey(source.app()) ? source.app() : null;
+            return new Lines(lines.subList(0, Math.min(lines.size(), max)), "eingefügte Zeilen", null, null, app);
         }
         if (source.file() != null) {
             HotFile file = hot.files().stream()
@@ -201,7 +288,8 @@ public class ScriptTester {
                     "Die Datei " + source.file() + " liegt nicht in hot/."));
             requireRead(user, file.meta().app());
             List<String> lines = readLines(file, 0, max);
-            return new Lines(lines, "Datei " + file.relativePath() + ", " + lines.size() + " Zeilen", null, null);
+            return new Lines(lines, "Datei " + file.relativePath() + ", " + lines.size() + " Zeilen", null, null,
+                file.meta().app());
         }
         if (source.app() == null) {
             throw new ScriptRequestException(Reason.INVALID, "Eine Testquelle fehlt: Anwendung, Datei oder Text.");
@@ -240,7 +328,7 @@ public class ScriptTester {
             }
             lines.addAll(0, tail.subList(Math.max(0, tail.size() - missing), tail.size()));
         }
-        return new Lines(lines, "Anwendung " + app + ", letzte " + lines.size() + " Zeilen", null, null);
+        return new Lines(lines, "Anwendung " + app + ", letzte " + lines.size() + " Zeilen", null, null, app);
     }
 
     private Lines range(LogGuyUser user, TestSource source, int max) throws IOException {
@@ -251,7 +339,7 @@ public class ScriptTester {
                 source.from(), to, Map.of())), null, 1, true).events();
             if (found.isEmpty()) {
                 return new Lines(List.of(), "Anwendung " + source.app() + " ab " + source.from()
-                    + ", keine Events im Index", source.from(), to);
+                    + ", keine Events im Index", source.from(), to, source.app());
             }
             first = found.getFirst();
         } catch (SolrServerException e) {
@@ -263,7 +351,7 @@ public class ScriptTester {
             Reason.NOT_FOUND, "Die Datei des ersten Events liegt nicht mehr in hot/."));
         List<String> lines = readLines(file, Long.parseLong(id.substring(separator + 1)), max);
         return new Lines(lines, "Anwendung " + source.app() + " ab " + source.from() + ", " + lines.size()
-            + " Zeilen", source.from(), to);
+            + " Zeilen", source.from(), to, source.app());
     }
 
     private List<HotFile> filesOf(String app) {
@@ -352,9 +440,10 @@ public class ScriptTester {
     }
 
     /**
-     * Where the test lines come from. Exactly one of {@code app}, {@code file} and {@code text} is set.
+     * Where the test lines come from: {@code text}, otherwise {@code file}, otherwise {@code app}.
      *
-     * @param app an application: its last lines, or the lines from {@code from} on
+     * @param app an application: its last lines, or the lines from {@code from} on. With {@code text} only the
+     *     parser of the application is used for scripts that need events.
      * @param lines the most lines, {@code null} for {@code log-guy.scripts.test-lines}
      * @param from start of a time range for {@code app}
      * @param to end of the time range, {@code null} for now
@@ -371,8 +460,9 @@ public class ScriptTester {
      * @param label a description for the result and the draft
      * @param from events before are left out, {@code null} for all
      * @param to events from here on are left out
+     * @param app the application of the lines, {@code null} if unknown
      */
-    public record Lines(List<String> lines, String label, Instant from, Instant to) {
+    public record Lines(List<String> lines, String label, Instant from, Instant to, String app) {
     }
 
     /**

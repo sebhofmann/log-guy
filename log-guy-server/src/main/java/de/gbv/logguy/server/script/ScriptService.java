@@ -96,6 +96,7 @@ public class ScriptService {
         for (String app : properties.apps().keySet()) {
             ids.add(new ScriptId(ScriptKind.PARSER, parsers.parserName(app)));
         }
+        ids.addAll(Templates.ALWAYS_ACTIVE);
         ids.addAll(store.drafts());
         List<ScriptSummary> result = new ArrayList<>();
         for (ScriptId id : ids) {
@@ -465,8 +466,8 @@ public class ScriptService {
 
     private Optional<String> activeCode(ScriptId id) throws IOException {
         Optional<String> code = store.active(id);
-        if (code.isEmpty() && id.kind() == ScriptKind.PARSER && ParserRegistry.hasTemplate(id.name())) {
-            return Optional.of(ParserRegistry.template(id.name()));
+        if (code.isEmpty() && usesTemplate(id)) {
+            return Optional.of(Templates.read(id));
         }
         return code;
     }
@@ -479,11 +480,15 @@ public class ScriptService {
         return activeCode(id).map(ScriptStore::hash).orElse(null);
     }
 
+    private static boolean usesTemplate(ScriptId id) {
+        return (id.kind() == ScriptKind.PARSER || Templates.ALWAYS_ACTIVE.contains(id)) && Templates.has(id);
+    }
+
     private String origin(ScriptId id) {
         if (store.active(id).isPresent()) {
             return "file";
         }
-        if (id.kind() == ScriptKind.PARSER && ParserRegistry.hasTemplate(id.name())) {
+        if (usesTemplate(id)) {
             return "template";
         }
         return "draft";

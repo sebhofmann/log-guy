@@ -211,7 +211,7 @@ class ScriptServiceTest {
         assertThrows(AccessDeniedException.class, () -> service.get(LEO_ADMIN, MYCORE));
         assertEquals(List.of("parser/leo"),
             service.list(LEO_ADMIN).stream().map(s -> s.kind() + "/" + s.name()).toList());
-        assertEquals(2, service.list(ROOT).size());
+        assertEquals(3, service.list(ROOT).size(), "two parsers and the pseudonym template");
     }
 
     @Test

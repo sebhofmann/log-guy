@@ -1,9 +1,7 @@
 package de.gbv.logguy.server.script;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -32,8 +30,6 @@ import tools.jackson.databind.json.JsonMapper;
 public class ParserRegistry {
 
     private static final Logger LOGGER = LogManager.getLogger();
-
-    private static final String TEMPLATES = "/templates/parser/";
 
     private final LogGuyProperties properties;
 
@@ -207,7 +203,7 @@ public class ParserRegistry {
      * @return true if it exists
      */
     public static boolean hasTemplate(String name) {
-        return ParserRegistry.class.getResource(TEMPLATES + name + ".js") != null;
+        return Templates.has(new ScriptId(ScriptKind.PARSER, name));
     }
 
     /**
@@ -218,12 +214,7 @@ public class ParserRegistry {
      * @throws IOException if the template does not exist
      */
     public static String template(String name) throws IOException {
-        try (InputStream in = ParserRegistry.class.getResourceAsStream(TEMPLATES + name + ".js")) {
-            if (in == null) {
-                throw new IOException("parser script parser/" + name + ".js not found");
-            }
-            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        }
+        return Templates.read(new ScriptId(ScriptKind.PARSER, name));
     }
 
     /**

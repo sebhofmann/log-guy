@@ -24,6 +24,7 @@ import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.hot.HotStore;
 import de.gbv.logguy.server.index.Indexer;
 import de.gbv.logguy.server.ingest.IngestService;
+import de.gbv.logguy.server.pseudonym.PseudonymService;
 import de.gbv.logguy.server.retention.RetentionService;
 import de.gbv.logguy.server.script.ParserRegistry;
 import de.gbv.logguy.server.script.ScriptListener;
@@ -154,6 +155,19 @@ public class ServerConfig {
     }
 
     /**
+     * Pseudonymizes everything that leaves the MCP endpoint.
+     *
+     * @param runtime the script runtime
+     * @param store the scripts
+     * @param json for passing events to the scripts
+     * @return the service
+     */
+    @Bean(destroyMethod = "close")
+    public PseudonymService pseudonymService(ScriptRuntime runtime, ScriptStore store, JsonMapper json) {
+        return new PseudonymService(runtime, store, json);
+    }
+
+    /**
      * Runs scripts against test sources.
      *
      * @param properties configuration
@@ -161,13 +175,15 @@ public class ServerConfig {
      * @param runtime the script runtime
      * @param scripts the scripts
      * @param search the search
+     * @param parsers the parsers, to turn lines into events for other kinds
+     * @param pseudonyms runs pseudonymization tests
      * @param clock the clock
      * @return the tester
      */
     @Bean
     public ScriptTester scriptTester(LogGuyProperties properties, HotStore store, ScriptRuntime runtime,
-        ScriptService scripts, SearchService search, Clock clock) {
-        return new ScriptTester(properties, store, runtime, scripts, search, clock);
+        ScriptService scripts, SearchService search, ParserRegistry parsers, PseudonymService pseudonyms, Clock clock) {
+        return new ScriptTester(properties, store, runtime, scripts, search, parsers, pseudonyms, clock);
     }
 
     /**

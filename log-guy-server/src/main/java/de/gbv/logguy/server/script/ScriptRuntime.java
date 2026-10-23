@@ -2,8 +2,13 @@ package de.gbv.logguy.server.script;
 
 import java.io.OutputStream;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BinaryOperator;
+import java.util.function.Supplier;
+import java.util.function.UnaryOperator;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -11,6 +16,8 @@ import org.graalvm.polyglot.Context;
 import org.graalvm.polyglot.Engine;
 import org.graalvm.polyglot.SandboxPolicy;
 import org.graalvm.polyglot.Source;
+import org.graalvm.polyglot.Value;
+import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
 
 /**
@@ -32,6 +39,8 @@ public class ScriptRuntime implements AutoCloseable {
     private final Engine engine;
 
     private final long timeoutNanos;
+
+    private static final ThreadLocal<BinaryOperator<String>> PSEUDONYMS = new ThreadLocal<>();
 
     private final TimeParser timeParser = new TimeParser();
 
@@ -79,7 +88,71 @@ public class ScriptRuntime implements AutoCloseable {
             }
             return timeParser.parse(args[0].asString(), args[1].asString(), args[2].asString());
         });
+        Value bindings = context.getBindings(JS);
+        bindings.putMember("maskIp", (ProxyExecutable) args -> TextFunctions.maskIp(text(args)));
+        bindings.putMember("findIps", (ProxyExecutable) args -> array(TextFunctions.findIps(text(args))));
+        bindings.putMember("findEmails", (ProxyExecutable) args -> array(TextFunctions.findEmails(text(args))));
+        bindings.putMember("replaceIps",
+            (ProxyExecutable) args -> TextFunctions.replaceIps(text(args), callback(args)));
+        bindings.putMember("replaceEmails",
+            (ProxyExecutable) args -> TextFunctions.replaceEmails(text(args), callback(args)));
+        bindings.putMember("ps", (ProxyExecutable) args -> {
+            BinaryOperator<String> pseudonyms = PSEUDONYMS.get();
+            if (pseudonyms == null) {
+                throw new IllegalStateException("ps() is only available in pseudonymization scripts");
+            }
+            if (args.length < 2) {
+                throw new IllegalArgumentException("ps(category, value) needs two arguments");
+            }
+            Value value = args[1];
+            return value.isNull() ? null : pseudonyms.apply(args[0].asString(), value.isString()
+                ? value.asString() : value.toString());
+        });
         return context;
+    }
+
+    /**
+     * Runs code with the pseudonyms {@code ps(category, value)} uses on this thread.
+     *
+     * @param pseudonyms maps category and value to the pseudonym
+     * @param action the code
+     * @param <T> the result type
+     * @return the result of the action
+     */
+    public static <T> T withPseudonyms(BinaryOperator<String> pseudonyms, Supplier<T> action) {
+        BinaryOperator<String> before = PSEUDONYMS.get();
+        PSEUDONYMS.set(pseudonyms);
+        try {
+            return action.get();
+        } finally {
+            if (before == null) {
+                PSEUDONYMS.remove();
+            } else {
+                PSEUDONYMS.set(before);
+            }
+        }
+    }
+
+    private static String text(Value[] args) {
+        if (args.length == 0 || args[0].isNull()) {
+            return null;
+        }
+        return args[0].isString() ? args[0].asString() : args[0].toString();
+    }
+
+    private static UnaryOperator<String> callback(Value[] args) {
+        if (args.length < 2 || !args[1].canExecute()) {
+            throw new IllegalArgumentException("the second argument must be a function");
+        }
+        Value function = args[1];
+        return found -> {
+            Value result = function.execute(found);
+            return result.isString() ? result.asString() : result.toString();
+        };
+    }
+
+    private static ProxyArray array(List<String> values) {
+        return ProxyArray.fromList(new ArrayList<>(values));
     }
 
     /**
@@ -99,7 +172,7 @@ public class ScriptRuntime implements AutoCloseable {
      * @param context the context the call runs in
      * @return the handle, to be ended with {@link #end(Call)}
      */
-    Call start(Context context) {
+    public Call start(Context context) {
         Call call = new Call(context, System.nanoTime() + timeoutNanos);
         running.add(call);
         return call;
@@ -111,7 +184,7 @@ public class ScriptRuntime implements AutoCloseable {
      * @param call the handle
      * @return true if the watchdog interrupted the call
      */
-    boolean end(Call call) {
+    public boolean end(Call call) {
         running.remove(call);
         return call.interrupted;
     }
@@ -152,7 +225,7 @@ public class ScriptRuntime implements AutoCloseable {
     /**
      * A running script call.
      */
-    static final class Call {
+    public static final class Call {
 
         private final Context context;
 

@@ -21,30 +21,55 @@ Damit das Kontextfenster des LLM nicht überläuft, liefert jedes Tool höchsten
 
 Die Pseudonymisierung ist ein JavaScript-Modul in `scripts/pseudonym/`. Es bekommt jedes Event, bevor es den MCP-Endpunkt verlässt, und ersetzt Werte über die eingebaute Funktion `ps(kategorie, wert)`. Sie liefert pro Sitzung immer dasselbe Pseudonym für denselben Wert.
 
+Die Vorlage `standard` ist eingebaut und immer aktiv (`log-guy-server/src/main/resources/templates/pseudonym/standard.js`). Eine Datei `scripts/pseudonym/standard.js` ersetzt sie, weitere Dateien in `scripts/pseudonym/` kommen dazu. Gekürzt:
+
 ```js
-// scripts/pseudonym/standard.js
 export const meta = {
     apps: ["*"],
     fields: ["login", "ip"],     // auf diesen Feldern nimmt das MCP nur Pseudonyme an
 };
 
+const KEEP = new Set(["guest", "SYSTEM", "administrator", "MCRJANITOR", "MCRJANITOR@local", "-", ""]);
 const USER_AFTER_LEVEL = /^(\S+ +(?:TRACE|DEBUG|INFO|WARN|ERROR|FATAL) +)([^\s:]+)( +[\w.$-]+: )/;
-const USER_PARAM = /user=([^\s&]+)/g;
+const USER_PARAM = /\b((?:user|userid|login|username|uid)=)([^\s&;,"']+)/gi;
+const USER_PHRASE = /\b((?:user detected|requested user): |user:)([^\s,;"']+)/g;
+
+function user(name) {
+    return KEEP.has(name) ? name : ps("Nutzer", name);
+}
+
+function text(value) {
+    let out = value
+        .replace(USER_AFTER_LEVEL, (m, before, name, after) => before + user(name) + after)
+        .replace(USER_PARAM, (m, key, name) => key + user(name))
+        .replace(USER_PHRASE, (m, key, name) => key + user(name));
+    out = replaceEmails(out, mail => ps("Mail", mail));
+    return replaceIps(out, ip => ps("IP", ip));
+}
 
 export function apply(event) {
     if (event.login) {
-        event.login = ps("Nutzer", event.login);
+        event.login = user(event.login);
     }
-    event.message = event.message
-        .replace(USER_AFTER_LEVEL, (m, before, user, after) => before + ps("Nutzer", user) + after)
-        .replace(USER_PARAM, (m, user) => "user=" + ps("Nutzer", user));
-    event.message = replaceIps(event.message, ip => ps("IP", ip));
-    event.message = replaceEmails(event.message, mail => ps("Mail", mail));
+    event.message = text(event.message);
+    // ebenso alle übrigen Felder außer app, host und ts, auch Listen wie exc
     return event;
 }
 ```
 
-Aus `mueller` wird so `$Nutzer1`, aus `198.51.100.25` wird `$IP3`. Gibt es für eine Anwendung mehrere Skripte, laufen sie nacheinander.
+Eingebaute Funktionen für Pseudonymisierungs-Skripte:
+
+| Funktion | Wirkung |
+|---|---|
+| `ps(kategorie, wert)` | Pseudonym wie `$Nutzer1`. Die Kategorie besteht nur aus Buchstaben. Leere Werte und Werte, die schon Pseudonyme sind, kommen unverändert zurück. |
+| `replaceIps(text, fn)` | ersetzt IPv6 und IPv4, eingebettetes IPv4 in IPv6 zählt als eine Adresse. Uhrzeiten wie `12:00:01` und Versionsnummern bleiben. |
+| `replaceEmails(text, fn)` | ersetzt Mailadressen mit Domain und Endung, `user@localhost` bleibt |
+| `findIps(text)`, `findEmails(text)` | listen die Adressen auf |
+| `maskIp(text)` | kürzt IPv4 auf `a.b.c.0` und IPv6 auf die ersten 48 Bit, auch in Parsern und Regeln nutzbar |
+
+Das Skript bekommt das Event als einfaches Objekt mit `app`, `host`, `ts`, `message` und den Feldern. Es ändert das Objekt oder gibt ein neues zurück. Kontextzeilen und Zeilen aus dem Server-Log laufen als `{app, message}` durch, Facettenwerte als `{app, message: "", <feld>: wert}`.
+
+Aus `mueller` wird so `$Nutzer1`, aus `198.51.100.25` wird `$IP3`. Benutzer werden vor Mailadressen ersetzt, damit ein Login wie `anna.beispiel@example.org` überall `$Nutzer` bleibt. Gibt es für eine Anwendung mehrere Skripte, laufen sie nacheinander in der Reihenfolge ihrer Namen, `meta.fields` ist die Vereinigung aller Skripte.
 
 ### Verhalten
 
@@ -54,12 +79,14 @@ Aus `mueller` wird so `$Nutzer1`, aus `198.51.100.25` wird `$IP3`. Gibt es für 
 - **Klarwerte gesperrt:** Auf pseudonymisierten Feldern nimmt das MCP nur Pseudonyme an. Sonst könnte ein LLM durch Raten herausfinden, ob ein bestimmter Nutzer in den Logs vorkommt.
 - **Überall angewendet:** auf Text, Felder, Facettenwerte und Kontext
 
-Wirft das Pseudonymisierungs-Skript einen Fehler oder läuft es zu lange, verlässt das Event den MCP-Endpunkt gar nicht. log-guy liefert dann nur einen Hinweis, dass ein Event zurückgehalten wurde.
+Wirft das Pseudonymisierungs-Skript einen Fehler oder läuft es zu lange, verlässt das Event den MCP-Endpunkt gar nicht. log-guy liefert dann nur einen Hinweis, dass ein Event zurückgehalten wurde. Lässt sich ein aktives Skript gar nicht laden, hält der MCP-Endpunkt alles zurück, bis es repariert ist, und das Server-Log meldet den Fehler.
+
+**Gemessen** an einem Tag digibib (2026-09-28, 269.870 Events): rund 22.000 Events pro Sekunde in einem Thread, 14.659 IP-Adressen, 13 Mailadressen und 7 Nutzer ersetzt, keine verdächtigen Werte übrig. Gefunden und ergänzt wurde dabei `MCRSessionFilter: user detected: <login>`. ORCID und GND der Autoren bleiben stehen, sie sind öffentlich.
 
 ### Grenzen
 
 Regeln finden nur bekannte Muster. Namen im Freitext, Suchbegriffe, Dokumenttitel in URLs, Referer, User-Agents oder IDs wie ORCID können durchrutschen. Mit Zeitstempeln lassen sich Personen manchmal auch ohne Namen zuordnen. Das ist Pseudonymisierung, keine Anonymisierung.
 
-Hilfe beim Pflegen der Regeln: Der Test in GUI oder MCP zeigt, welche verdächtigen Werte übrig bleiben. Auf der Kommandozeile geht das auch mit `log-guy pseudonym check --app digibib --sample 10000` zeigt, welche Werte in einer Stichprobe ersetzt würden und welche verdächtigen Werte, z.B. Mailadressen-ähnliche Zeichenketten, übrig bleiben. Jeder MCP-Aufruf landet im Audit-Log.
+Hilfe beim Pflegen der Regeln: Der Test in GUI oder API (`POST /api/v1/scripts/pseudonym/<name>/test`, Quellen wie beim Parser-Test in [Skript-Verwaltung](Skript-Verwaltung.md)) parst die Zeilen mit dem Parser der Anwendung, wendet das Skript an und zeigt Pseudonyme je Kategorie, zurückgehaltene Events und die verdächtigen Werte, die übrig bleiben (IP- und Mailadressen, höchstens 100). Über MCP gibt es nur diese Zahlen, keine Beispiel-Events. Auf der Kommandozeile zeigt `log-guy pseudonym check --app digibib --sample 10000` dasselbe für eine Stichprobe. Jeder MCP-Aufruf landet im Audit-Log.
 
 [Zur Übersicht](README.md)

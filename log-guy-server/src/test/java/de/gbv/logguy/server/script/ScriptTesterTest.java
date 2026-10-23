@@ -40,6 +40,8 @@ import de.gbv.logguy.server.config.LogGuyProperties.Right;
 import de.gbv.logguy.server.config.LogGuyProperties.ScriptProperties;
 import de.gbv.logguy.server.hot.HotFile;
 import de.gbv.logguy.server.hot.HotStore;
+import de.gbv.logguy.server.pseudonym.PseudonymService;
+import de.gbv.logguy.server.pseudonym.PseudonymService.PseudonymTestResult;
 import de.gbv.logguy.server.script.ScriptStore.ScriptId;
 import de.gbv.logguy.server.script.ScriptTester.ParserTestResult;
 import de.gbv.logguy.server.script.ScriptTester.TestSource;
@@ -74,6 +76,9 @@ class ScriptTesterTest {
     private static final LogGuyUser DIGI_ADMIN =
         LogGuyUser.of("dora", List.of(new GrantProperties(List.of("digibib"), Set.of(Right.READ, Right.SCRIPTS))));
 
+    private static final LogGuyUser ADMIN =
+        LogGuyUser.of("anna", List.of(new GrantProperties(List.of("*"), Set.of(Right.ADMIN, Right.READ))));
+
     private static ScriptRuntime runtime;
 
     @TempDir
@@ -84,6 +89,8 @@ class ScriptTesterTest {
     private ScriptStore store;
 
     private ScriptTester tester;
+
+    private PseudonymService pseudonyms;
 
     @BeforeAll
     static void startRuntime() {
@@ -117,11 +124,13 @@ class ScriptTesterTest {
         assertEquals(List.of(), parsers.load());
         AuditLog audit = new AuditLog(dir.resolve("audit"), ZoneOffset.UTC, Clock.systemUTC(), JSON);
         ScriptService service = new ScriptService(properties, store, runtime, parsers, List.of(), audit);
-        tester = new ScriptTester(properties, hot, runtime, service, null, Clock.systemUTC());
+        pseudonyms = new PseudonymService(runtime, store, JSON);
+        tester = new ScriptTester(properties, hot, runtime, service, null, parsers, pseudonyms, Clock.systemUTC());
     }
 
     @AfterEach
     void tearDown() throws Exception {
+        pseudonyms.close();
         hot.close();
     }
 
@@ -145,6 +154,20 @@ class ScriptTesterTest {
         assertEquals(3, result.sample().get(2).line());
         assertEquals(1, result.failed().getFirst().line());
         assertTrue(result.errorCounts().keySet().iterator().next().contains("unknown format"));
+    }
+
+    @Test
+    void pseudonymTestParsesLinesWithTheParserOfTheApp() throws Exception {
+        ScriptId standard = new ScriptId(ScriptKind.PSEUDONYM, "standard");
+        PseudonymTestResult result = tester.testPseudonym(ADMIN, standard, null, false,
+            new TestSource("digibib", 300, null, null, null, null));
+        assertEquals(300, result.events(), result.toString());
+        assertEquals(0, result.heldBack());
+        assertTrue(result.pseudonyms().getOrDefault("IP", 0) > 0, result.pseudonyms().toString());
+        assertEquals(List.of(), result.suspicious());
+        assertTrue(result.sample().getFirst().containsKey("level"), result.sample().getFirst().toString());
+        assertThrows(AccessDeniedException.class, () -> tester.testPseudonym(DIGI_ADMIN, standard, null, false,
+            new TestSource("digibib", 10, null, null, null, null)));
     }
 
     @Test
