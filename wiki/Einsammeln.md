@@ -31,7 +31,7 @@ Der Agent läuft als eigener Container neben der Anwendung und bekommt dasselbe 
 - Beide Container sehen über den Mount dieselben Dateien im selben Kernel. Schreibt MIR eine Zeile, sieht der Agent sie sofort, auch `inotify` funktioniert über Container hinweg.
 - Frisch geschriebene Daten liegen noch im Page Cache. Der Agent liest sie also aus dem RAM, die Last entspricht einem `tail -f`.
 - Bei NFS, CIFS oder Docker Desktop kommen `inotify`-Ereignisse nicht zuverlässig an. Der Agent prüft deshalb zusätzlich jede Sekunde Größe und Inode der Datei.
-- Der Agent braucht Leserechte. Die MIR-Logs gehören UID 100500 mit Modus `rw-r-----`, der Agent-Container läuft deshalb mit derselben UID oder in der passenden Gruppe, z.B. `docker run --user 100500 -v ./mir-logs:/logs/digibib:ro log-guy-agent`.
+- Der Agent braucht Leserechte. Die MIR-Logs gehören mit Modus `rw-r-----` dem Nutzer, unter dem MIR im Container läuft, der Agent-Container läuft deshalb mit derselben UID oder in der passenden Gruppe. Maßgeblich ist die UID im Container: Im MIR-Image ist das 501, z.B. `docker run --user 501 -v ./mir-logs:/logs/digibib:ro log-guy-agent`. Mit Rootless Docker erscheint dieselbe Datei auf dem Host als UID 100500, `--user 100500` schlägt dort mit `chown /dev/stdout: invalid argument` fehl.
 - Das Image `log-guy-agent` baut auf `eclipse-temurin` mit JRE 25 auf und startet mit `-Xmx64m` und Serial GC.
 
 ### Live-Datei und rotierte Dateien ohne Duplikate

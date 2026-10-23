@@ -13,18 +13,20 @@ Sechs Milestones, jeder endet mit etwas Benutzbarem. Der MCP-Server kommt früh,
 
 ### M1 Fundament
 
-- [ ] Maven-Projekt mit `log-guy-server`, `log-guy-agent` und `log-guy-common`, Docker-Images für Server und Agent
-- [ ] Konfiguration aus `/etc/log-guy/application.yml` mit `@ConfigurationProperties`, `log-guy check`
-- [ ] Ingest-Tokens pro Host
-- [ ] Agent: Live-Datei mitlesen, Rotation über Inode, Prüfung jede Sekunde als Rückfall, Offset merken
-- [ ] Agent: rotierte `.gz` beobachten und Lücken nachliefern, `backfill`
-- [ ] Stream-API mit Fingerabdruck, Duplikate verwerfen, `fsync` vor der Antwort
-- [ ] `hot/` schreiben: zstd-Frames, `.idx`, `.meta.json`
-- [ ] GraalJS-Laufzeit mit Sandbox, Speicher- und Zeitlimit, `parseTime`. Benchmark nach GraalJS portieren und auf GraalVM-JDK und OpenJDK messen
-- [ ] Parser `mycore-log4j.js`, von Hand geschrieben
-- [ ] Solr: Configset hochladen, `logs_v1` und Alias `logs` anlegen, `log-guy solr init`
-- [ ] Indexer mit Fortschritt pro Datei, vorläufige Stacktraces, Event-ID `<fingerprint>:<offset>`
-- [ ] Messen: Durchsatz der Indexierung mit allen Teilen zusammen
+- [x] Maven-Projekt mit `log-guy-server`, `log-guy-agent` und `log-guy-common`, Docker-Images für Server und Agent
+- [x] Konfiguration aus `/etc/log-guy/application.yml` mit `@ConfigurationProperties`, `log-guy check`
+- [x] Ingest-Tokens pro Host
+- [x] Agent: Live-Datei mitlesen, Rotation über Inode, Prüfung jede Sekunde als Rückfall, Offset merken
+- [x] Agent: rotierte `.gz` beobachten und Lücken nachliefern, `backfill`
+- [x] Stream-API mit Fingerabdruck, Duplikate verwerfen, `fsync` vor der Antwort
+- [x] `hot/` schreiben: zstd-Frames, `.idx`, `.meta.json`
+- [x] GraalJS-Laufzeit mit Sandbox, Speicher- und Zeitlimit, `parseTime`. Benchmark nach GraalJS portieren und auf GraalVM-JDK und OpenJDK messen
+- [x] Parser `mycore-log4j.js`, von Hand geschrieben
+- [x] Solr: Configset hochladen, `logs_v1` und Alias `logs` anlegen, `log-guy solr init`
+- [x] Indexer mit Fortschritt pro Datei, vorläufige Stacktraces, Event-ID `<fingerprint>:<offset>`
+- [x] Messen: Durchsatz der Indexierung mit allen Teilen zusammen
+
+M1 ist erfüllt mit dem Backfill von `prod-logs/` und der Live-Datei einer lokalen MIR-Instanz statt der von digibib. Abweichungen: GraalJS hat in der Community Edition kein Speicherlimit, siehe Parser-Skripte. Die Messwerte stehen in Solr-Verwaltung, Speicherung und Parser-Skripte.
 
 ### M2 Suche und GUI
 
