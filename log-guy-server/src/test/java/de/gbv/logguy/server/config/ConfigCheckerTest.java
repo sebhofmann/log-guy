@@ -7,20 +7,43 @@ import java.nio.file.Path;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 
 import de.gbv.logguy.server.config.LogGuyProperties.AppProperties;
+import de.gbv.logguy.server.config.LogGuyProperties.GrantProperties;
+import de.gbv.logguy.server.config.LogGuyProperties.Right;
 import de.gbv.logguy.server.config.LogGuyProperties.TokenKind;
 import de.gbv.logguy.server.config.LogGuyProperties.TokenProperties;
+import de.gbv.logguy.server.config.LogGuyProperties.UserProperties;
 import de.gbv.logguy.server.security.TokenRegistry;
 
 class ConfigCheckerTest {
 
     private static LogGuyProperties properties(List<TokenProperties> tokens) {
+        return properties(tokens, null);
+    }
+
+    private static LogGuyProperties properties(List<TokenProperties> tokens, List<UserProperties> users) {
         return new LogGuyProperties(Path.of("/tmp"), ZoneId.of("Europe/Berlin"),
             Map.of("digibib", new AppProperties(7, "mycore-log4j"), "digibib-apache", new AppProperties(7, null)),
-            tokens, null, null, null, null, null);
+            tokens, users, null, null, null, null, null, null);
+    }
+
+    @Test
+    void users() {
+        String hash = "$argon2id$v=19$m=16384,t=2,p=1$c2FsdA$aGFzaA";
+        List<GrantProperties> grants = List.of(new GrantProperties(List.of("digi*"), Set.of(Right.READ)));
+        String token = TokenRegistry.hash(TokenRegistry.generate(TokenKind.API));
+        assertEquals(List.of(), ConfigChecker.check(properties(
+            List.of(new TokenProperties("anna-api", TokenKind.API, null, null, "anna", token)),
+            List.of(new UserProperties("anna", hash, grants)))));
+        List<String> errors = ConfigChecker.check(properties(
+            List.of(new TokenProperties("ben-api", TokenKind.API, null, null, "ben", token)),
+            List.of(new UserProperties("anna", "{noop}x", grants), new UserProperties("anna", hash,
+                List.of(new GrantProperties(List.of("leopoldina*"), Set.of(Right.READ)))))));
+        assertEquals(4, errors.size(), errors.toString());
     }
 
     @Test

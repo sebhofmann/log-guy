@@ -61,12 +61,16 @@ log-guy:
 - `log-guy token create --kind ingest --name agent-app1 --host app1 --apps digibib,digibib-apache` erzeugt ein Token, zeigt es einmal an und gibt den Eintrag für `application.yml` mit dem Hash aus. Eintragen muss ihn der Mensch selbst, denn ein Programm, das die YAML-Datei umschreibt, würde Kommentare und Reihenfolge zerstören.
 - Tokens beginnen mit `lg_<art>_`, z.B. `lg_ingest_...`, danach 32 Zufallsbytes in Base64. Konfiguriert ist nur `sha256:<hex>` des ganzen Tokens.
 - `log-guy check` prüft die Tokens: Name eindeutig, Hash im richtigen Format, Ingest-Tokens mit Host und Anwendungen, die unter `log-guy.apps` stehen.
-- Passwörter werden mit Argon2 gehasht.
+- Passwörter werden mit Argon2id gehasht, mit den Parametern von Spring Security. `log-guy password hash --name anna` liest das Passwort ohne Echo vom Terminal oder als erste Zeile von stdin und gibt den Eintrag für `log-guy.users` aus.
+- `log-guy check` prüft auch die Nutzer: Name eindeutig, Hash im Argon2id-Format, jedes Muster einer Freigabe trifft mindestens eine Anwendung, `api`- und `mcp`-Tokens gehören zu einem konfigurierten Nutzer.
+- `admin` auf eine Anwendung schließt alle anderen Rechte für sie ein. Administrator von log-guy selbst, also Status, Server-Log und Log-Level, ist, wer `admin` mit `apps: ["*"]` hat.
+- Ein `api`-Token kann mit `apps` auf einen Teil der Anwendungen seines Nutzers eingeschränkt werden. Ohne `apps` darf es alles, was der Nutzer darf.
+- Bis M3 gibt `read_pseudonymized` keinen Zugang zur schnellen Suche, weil die Pseudonymisierung erst dort kommt.
 - Änderungen an der Datei übernimmt log-guy ohne Neustart nach `log-guy reload`.
 
 ### GUI-Anmeldung
 
-Name und Passwort, danach ein Session-Cookie mit `HttpOnly`, `Secure` und `SameSite=Strict`. Sessions liegen im RAM, nach einem Neustart meldet man sich neu an. Die Anmeldung steckt hinter einer Schnittstelle, sodass LDAP später als zweite Umsetzung dazukommen kann.
+Name und Passwort, danach ein Session-Cookie mit `HttpOnly`, `Secure` und `SameSite=Strict`, gültig 8 Stunden ohne Aktivität. Die GUI ruft die API mit dieser Session und einem CSRF-Token auf, API-Tokens brauchen kein CSRF-Token. Ohne Anmeldung antwortet `/api/**` mit 401, die Seiten leiten auf `/login` um. Sessions liegen im RAM, nach einem Neustart meldet man sich neu an. Die Anmeldung steckt hinter einer Schnittstelle, sodass LDAP später als zweite Umsetzung dazukommen kann.
 
 ### Zustand ohne Datenbank
 

@@ -5,6 +5,7 @@ import java.time.Duration;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.util.unit.DataSize;
@@ -17,16 +18,18 @@ import org.springframework.util.unit.DataSize;
  * @param zone time zone for the date in file names and for log timestamps without zone
  * @param apps applications by name
  * @param tokens access tokens for agents, API and MCP
+ * @param users users of the GUI and the API with their rights
  * @param ingest limits of the stream API
  * @param hot how {@code hot/} is written
  * @param scripts script directory and limits for scripts
  * @param solr connection to the SolrCloud
  * @param indexer settings of the indexer
+ * @param search limits of the search API
  */
 @ConfigurationProperties("log-guy")
 public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppProperties> apps,
-    List<TokenProperties> tokens, IngestProperties ingest, HotProperties hot, ScriptProperties scripts,
-    SolrProperties solr, IndexerProperties indexer) {
+    List<TokenProperties> tokens, List<UserProperties> users, IngestProperties ingest, HotProperties hot,
+    ScriptProperties scripts, SolrProperties solr, IndexerProperties indexer, SearchProperties search) {
 
     /**
      * Normalizes missing collections to empty ones.
@@ -34,6 +37,7 @@ public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppPropert
     public LogGuyProperties {
         apps = apps == null ? Map.of() : Map.copyOf(apps);
         tokens = tokens == null ? List.of() : List.copyOf(tokens);
+        users = users == null ? List.of() : List.copyOf(users);
     }
 
     /**
@@ -87,6 +91,56 @@ public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppPropert
      */
     public record TokenProperties(String name, TokenKind kind, String host, List<String> apps, String user,
         String hash) {
+    }
+
+    /**
+     * A right that is granted per application.
+     */
+    public enum Right {
+        /** Fast search, timeline and context with clear values. */
+        READ,
+        /** Like {@link #READ}, but only pseudonymized. */
+        READ_PSEUDONYMIZED,
+        /** Archive search and loading archived days into the index. */
+        ARCHIVE,
+        /** Solr commands, lifecycle state, rebuilds. Implies all other rights. */
+        ADMIN,
+        /** Edit, test and activate the scripts of the application. */
+        SCRIPTS
+    }
+
+    /**
+     * A user of the GUI and the API.
+     *
+     * @param name login name
+     * @param passwordHash Argon2 hash of the password, {@code $argon2id$...}
+     * @param grants rights per application pattern
+     */
+    public record UserProperties(String name, String passwordHash, List<GrantProperties> grants) {
+
+        /**
+         * Normalizes missing grants to an empty list.
+         */
+        public UserProperties {
+            grants = grants == null ? List.of() : List.copyOf(grants);
+        }
+    }
+
+    /**
+     * Rights for the applications matching some patterns.
+     *
+     * @param apps application names or patterns like {@code digibib*}
+     * @param rights the granted rights
+     */
+    public record GrantProperties(List<String> apps, Set<Right> rights) {
+
+        /**
+         * Normalizes missing values to empty collections.
+         */
+        public GrantProperties {
+            apps = apps == null ? List.of() : List.copyOf(apps);
+            rights = rights == null ? Set.of() : Set.copyOf(rights);
+        }
     }
 
     /**
@@ -153,5 +207,23 @@ public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppPropert
     public record IndexerProperties(boolean enabled, int threads, Duration pollInterval, int batchSize,
         DataSize readSize, DataSize roundSize, Duration provisionalAfter, DataSize maxEventSize, int indexDays,
         Duration statsInterval) {
+    }
+
+    /**
+     * Limits of the search API.
+     *
+     * @param defaultRange time range searched if the request has no {@code from}
+     * @param defaultRows events per page if the request has no {@code rows}
+     * @param maxRows largest page
+     * @param maxBars largest number of bars of a histogram, the interval is chosen to stay below
+     * @param splitLimit how many values of the split field get their own series in the histogram
+     * @param facetLimit values per field in the facets if the request has no {@code limit}
+     * @param maxFacetLimit largest {@code limit} for facets
+     * @param contextLines lines before and after an event if the request does not say
+     * @param maxContextLines largest number of context lines in each direction
+     * @param contextBytes how far the context reads in each direction at most
+     */
+    public record SearchProperties(Duration defaultRange, int defaultRows, int maxRows, int maxBars, int splitLimit,
+        int facetLimit, int maxFacetLimit, int contextLines, int maxContextLines, DataSize contextBytes) {
     }
 }

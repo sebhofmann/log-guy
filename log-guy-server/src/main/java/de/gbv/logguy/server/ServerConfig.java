@@ -18,6 +18,8 @@ import de.gbv.logguy.server.index.Indexer;
 import de.gbv.logguy.server.ingest.IngestService;
 import de.gbv.logguy.server.script.ParserRegistry;
 import de.gbv.logguy.server.script.ScriptRuntime;
+import de.gbv.logguy.server.search.ContextService;
+import de.gbv.logguy.server.search.SearchService;
 import de.gbv.logguy.server.solr.SolrService;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -76,6 +78,34 @@ public class ServerConfig {
             throw new IllegalStateException("parser scripts have errors: " + String.join("; ", errors));
         }
         return new Indexer(properties, store, parsers, runtime, solr::add, clock, json);
+    }
+
+    /**
+     * The search over Solr.
+     *
+     * @param properties configuration
+     * @param parsers the parser scripts with the declared fields
+     * @param solr connection to Solr
+     * @param clock clock for the default range
+     * @param json mapper for facet requests
+     * @return the service
+     */
+    @Bean
+    public SearchService searchService(LogGuyProperties properties, ParserRegistry parsers, SolrService solr,
+        Clock clock, JsonMapper json) {
+        return new SearchService(properties, parsers, solr, clock, json);
+    }
+
+    /**
+     * Reads the lines around an event from {@code hot/}.
+     *
+     * @param properties configuration
+     * @param store the hot storage
+     * @return the service
+     */
+    @Bean
+    public ContextService contextService(LogGuyProperties properties, HotStore store) {
+        return new ContextService(properties, store);
     }
 
     /**

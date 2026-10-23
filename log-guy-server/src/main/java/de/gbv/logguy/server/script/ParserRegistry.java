@@ -37,6 +37,8 @@ public class ParserRegistry {
 
     private final AtomicReference<Map<String, ParserScript>> byApp = new AtomicReference<>(Map.of());
 
+    private volatile boolean loaded;
+
     /**
      * Creates the registry, scripts are loaded by {@link #load()}.
      *
@@ -72,8 +74,23 @@ public class ParserRegistry {
         }
         if (errors.isEmpty()) {
             byApp.set(Map.copyOf(scripts));
+            loaded = true;
             LOGGER.info("loaded parsers for {} applications", scripts.size());
         }
+        return errors;
+    }
+
+    /**
+     * Loads the parsers if no {@link #load()} has succeeded yet, e.g. in a process without indexer.
+     *
+     * @return the errors of the load, empty if loaded now or before
+     */
+    public synchronized List<String> ensureLoaded() {
+        if (loaded) {
+            return List.of();
+        }
+        List<String> errors = load();
+        errors.forEach(error -> LOGGER.error("cannot load parser: {}", error));
         return errors;
     }
 

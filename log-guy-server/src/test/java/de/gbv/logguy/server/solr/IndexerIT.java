@@ -85,12 +85,13 @@ class IndexerIT {
 
     private LogGuyProperties properties(Duration provisionalAfter) {
         return new LogGuyProperties(dataDir, ZoneId.of("Europe/Berlin"),
-            Map.of("digibib", new AppProperties(null, "mycore-log4j")), List.of(),
+            Map.of("digibib", new AppProperties(null, "mycore-log4j")), List.of(), List.of(),
             new IngestProperties(DataSize.ofMegabytes(8), 4, Duration.ofSeconds(1)),
             new HotProperties(DataSize.ofKilobytes(64), Duration.ofSeconds(60), Duration.ofSeconds(5), 3),
             new ScriptProperties(dataDir.resolve("scripts"), Duration.ofMillis(50)), solr.properties(),
             new IndexerProperties(true, 2, Duration.ofMillis(100), 500, DataSize.ofKilobytes(64),
-                DataSize.ofMegabytes(64), provisionalAfter, DataSize.ofMegabytes(1), 7, Duration.ofSeconds(10)));
+                DataSize.ofMegabytes(64), provisionalAfter, DataSize.ofMegabytes(1), 7, Duration.ofSeconds(10)),
+            null);
     }
 
     private int expectedEvents() throws Exception {

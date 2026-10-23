@@ -1,6 +1,11 @@
 package de.gbv.logguy.server.cli;
 
+import java.io.BufferedReader;
+import java.io.Console;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -18,6 +23,7 @@ import de.gbv.logguy.server.config.LogGuyProperties.TokenKind;
 import de.gbv.logguy.server.script.ParserRegistry;
 import de.gbv.logguy.server.script.ParserScript;
 import de.gbv.logguy.server.script.ScriptRuntime;
+import de.gbv.logguy.server.security.SecurityConfig;
 import de.gbv.logguy.server.security.TokenRegistry;
 import de.gbv.logguy.server.solr.SolrService;
 
@@ -149,6 +155,45 @@ public class Commands {
             out.println("      user: " + user);
         }
         out.println("      hash: \"" + TokenRegistry.hash(token) + "\"");
+        out.flush();
+    }
+
+    /**
+     * Hashes a password for {@code password-hash} of a user. The password is read from the terminal without echo, or
+     * as the first line of standard input.
+     *
+     * @param context the command context
+     * @param name name of the user, only for the printed entry
+     */
+    @Command(name = { "password", "hash" }, description = "Hash a password read from the terminal or stdin")
+    public void passwordHash(CommandContext context,
+        @Option(longName = "name", description = "name of the user", required = true) String name) {
+        PrintWriter out = context.outputWriter();
+        try {
+            String password;
+            Console console = System.console();
+            if (console != null && console.isTerminal()) {
+                char[] chars = console.readPassword("Password: ");
+                password = chars == null ? "" : new String(chars);
+            } else {
+                String line = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8)).readLine();
+                password = line == null ? "" : line;
+            }
+            if (password.isEmpty()) {
+                out.println("ERROR empty password");
+                exitCode.fail();
+            } else {
+                out.println("Add to log-guy.users in /etc/log-guy/application.yml and run log-guy reload:");
+                out.println("    - name: " + name);
+                out.println("      password-hash: \"" + SecurityConfig.passwordEncoder().encode(password) + "\"");
+                out.println("      grants:");
+                out.println("        - apps: [\"*\"]");
+                out.println("          rights: [read]");
+            }
+        } catch (IOException e) {
+            out.println("ERROR " + e.getMessage());
+            exitCode.fail();
+        }
         out.flush();
     }
 }

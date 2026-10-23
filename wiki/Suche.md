@@ -12,11 +12,16 @@ Es gibt zwei Suchwege: Die Solr-Suche über das Index-Fenster antwortet in Milli
 | `GET /api/v1/fields?apps=...` | welche Felder die gewählten Anwendungen haben, mit Typ |
 | `GET /api/v1/events/{id}/context` | Originalzeilen davor und danach, direkt aus hot/ per Byte-Offset, ältere aus archive/ |
 
+- Gemeinsame Parameter: `apps` (kommagetrennt, leer heißt alle erlaubten), `q`, `from` und `to` als ISO-8601-Zeitpunkt und Feldfilter `f.<feld>=<wert>`, wiederholbar. Mehrere Werte eines Feldes sind mit ODER verknüpft, verschiedene Felder mit UND. Die Facette eines Feldes ignoriert den eigenen Filter, damit die GUI weitere Werte zur Auswahl anbieten kann.
+- Fehler kommen als JSON `{"error": "..."}` mit deutscher Meldung: 400 für eine falsche Anfrage, 403 ohne Recht, 404 wenn die Datei nicht mehr in hot/ liegt, 502 wenn Solr nicht erreichbar ist.
+- Mehrere Wörter in `q` sind mit UND verknüpft (`q.op=AND`), wie man es von einer Logsuche erwartet.
 - `q` ist Solr-Syntax mit den deklarierten Feldnamen, z.B. `message:(connection AND refused) AND import_id:4711`. log-guy setzt die Namen in Solr-Felder wie `import_id_s` um. Lokale Parameter wie `{!join}` lehnt es ab.
 - log-guy setzt immer einen Filter `app:(...)` mit den Anwendungen, die der Nutzer sehen darf. Der Client kann ihn nicht entfernen.
 - Ohne `from` und `to` gilt: die letzten 24 Stunden.
 - Geblättert wird per `cursorMark`, sortiert nach `ts` und `id`.
-- Das Histogramm wählt das Intervall selbst, sodass 100 bis 300 Balken entstehen: 1 Minute, 5 Minuten, 1 Stunde oder 1 Tag.
+- Das Histogramm wählt das kleinste Intervall aus 1, 2, 5, 10 und 30 Sekunden, 1, 2, 5, 10, 15 und 30 Minuten, 1, 2, 3, 6 und 12 Stunden, 1, 2 und 7 Tagen, mit dem höchstens 300 Balken (`search.max-bars`) entstehen. Weil benachbarte Stufen höchstens den Faktor 2,5 auseinanderliegen, sind es mindestens 120 Balken, bei sehr kurzen Zeiträumen weniger. Mit nur 1 Minute, 5 Minuten, 1 Stunde und 1 Tag wären es bei 6 Stunden nur 72 Balken gewesen. Die Balken beginnen an runden Zeitpunkten in der Zeitzone von log-guy, Tage um Mitternacht.
+- Mit `split=level` teilt das Histogramm jeden Balken nach den 8 häufigsten Werten des Feldes auf (`search.split-limit`), der Rest kommt als `andere`.
+- Der Kontext liest standardmäßig 20 Zeilen davor und danach (`before`, `after`, höchstens 500) und höchstens 512 KB in jede Richtung. ANSI-Farben werden entfernt.
 
 ### Archivsuche auf Textebene
 

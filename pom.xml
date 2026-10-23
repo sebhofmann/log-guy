@@ -30,6 +30,8 @@
     <zstd-jni.version>1.5.7-24</zstd-jni.version>
     <re2j.version>1.8</re2j.version>
     <snakeyaml.version>2.6</snakeyaml.version>
+    <jte.version>3.2.4</jte.version>
+    <bouncycastle.version>1.86</bouncycastle.version>
 
     <maven-clean-plugin.version>3.5.0</maven-clean-plugin.version>
     <maven-compiler-plugin.version>3.16.0</maven-compiler-plugin.version>
@@ -99,6 +101,21 @@
         <version>${zstd-jni.version}</version>
       </dependency>
       <dependency>
+        <groupId>gg.jte</groupId>
+        <artifactId>jte</artifactId>
+        <version>${jte.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>gg.jte</groupId>
+        <artifactId>jte-spring-boot-starter-4</artifactId>
+        <version>${jte.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.bouncycastle</groupId>
+        <artifactId>bcprov-jdk18on</artifactId>
+        <version>${bouncycastle.version}</version>
+      </dependency>
+      <dependency>
         <groupId>com.google.re2j</groupId>
         <artifactId>re2j</artifactId>
         <version>${re2j.version}</version>
@@ -156,6 +173,11 @@
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-surefire-plugin</artifactId>
           <version>${maven-surefire-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>gg.jte</groupId>
+          <artifactId>jte-maven-plugin</artifactId>
+          <version>${jte.version}</version>
         </plugin>
         <plugin>
           <groupId>org.springframework.boot</groupId>

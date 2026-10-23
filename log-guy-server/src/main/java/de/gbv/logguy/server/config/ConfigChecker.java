@@ -6,8 +6,11 @@ import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
 
+import de.gbv.logguy.server.config.LogGuyProperties.GrantProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.TokenKind;
 import de.gbv.logguy.server.config.LogGuyProperties.TokenProperties;
+import de.gbv.logguy.server.config.LogGuyProperties.UserProperties;
+import de.gbv.logguy.server.security.LogGuyUser;
 
 /**
  * Checks the configuration beyond what binding already ensures, like {@code nginx -t}.
@@ -16,13 +19,15 @@ public final class ConfigChecker {
 
     private static final Pattern NAME = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,99}");
 
+    private static final String ARGON2_PREFIX = "$argon2id$";
+
     private static final Pattern HASH = Pattern.compile("sha256:[0-9a-f]{64}");
 
     private ConfigChecker() {
     }
 
     /**
-     * Checks applications and tokens.
+     * Checks applications, tokens and users.
      *
      * @param properties the configuration
      * @return the problems, empty if everything is fine
@@ -66,8 +71,37 @@ public final class ConfigChecker {
                 }
             } else if (token.kind() != null && (token.user() == null || token.user().isBlank())) {
                 errors.add(label + ": " + token.kind().name().toLowerCase() + " token needs a user");
+            } else if (token.kind() != null
+                && properties.users().stream().noneMatch(user -> token.user().equals(user.name()))) {
+                errors.add(label + ": user " + token.user() + " is not configured under log-guy.users");
             }
         }
+        checkUsers(properties, errors);
         return errors;
+    }
+
+    private static void checkUsers(LogGuyProperties properties, List<String> errors) {
+        Set<String> names = new HashSet<>();
+        for (UserProperties user : properties.users()) {
+            String label = "user " + user.name();
+            if (user.name() == null || !NAME.matcher(user.name()).matches()) {
+                errors.add("user " + user.name() + ": invalid name");
+            } else if (!names.add(user.name())) {
+                errors.add(label + ": name used twice");
+            }
+            if (user.passwordHash() != null && !user.passwordHash().startsWith(ARGON2_PREFIX)) {
+                errors.add(label + ": password-hash must be an Argon2id hash, see log-guy password hash");
+            }
+            for (GrantProperties grant : user.grants()) {
+                if (grant.apps().isEmpty() || grant.rights().isEmpty()) {
+                    errors.add(label + ": every grant needs apps and rights");
+                }
+                for (String pattern : grant.apps()) {
+                    if (properties.apps().keySet().stream().noneMatch(app -> LogGuyUser.matches(pattern, app))) {
+                        errors.add(label + ": pattern " + pattern + " matches no application");
+                    }
+                }
+            }
+        }
     }
 }

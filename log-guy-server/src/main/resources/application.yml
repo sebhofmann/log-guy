@@ -5,7 +5,7 @@ spring:
   main:
     banner-mode: off
   autoconfigure:
-    # users come with M2, until then there is no login
+    # users come from log-guy.users, never a generated default user
     exclude: org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration
   shell:
     interactive:
@@ -13,20 +13,35 @@ spring:
   threads:
     virtual:
       enabled: true
+  mvc:
+    static-path-pattern: /static/**
+
+gg:
+  jte:
+    use-precompiled-templates: true
+
 
 server:
   port: 8080
+  servlet:
+    session:
+      timeout: 8h
+      cookie:
+        http-only: true
+        secure: true
+        same-site: strict
 
 management:
   endpoints:
     web:
       exposure:
-        include: health
+        include: health,loggers
 
 log-guy:
   data-dir: /var/lib/log-guy
   zone: Europe/Berlin
   apps: {}
+  users: []
   tokens: []
   ingest:
     max-chunk-size: 8MB
@@ -60,3 +75,14 @@ log-guy:
     max-event-size: 1MB
     index-days: 7
     stats-interval: 10s
+  search:
+    default-range: 24h
+    default-rows: 100
+    max-rows: 1000
+    max-bars: 300
+    split-limit: 8
+    facet-limit: 10
+    max-facet-limit: 100
+    context-lines: 20
+    max-context-lines: 500
+    context-bytes: 512KB

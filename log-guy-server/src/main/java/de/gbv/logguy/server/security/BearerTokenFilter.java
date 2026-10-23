@@ -21,7 +21,8 @@ import jakarta.servlet.http.HttpServletResponse;
 
 /**
  * Authenticates requests with {@code Authorization: Bearer <token>}. Ingest tokens get the authority
- * {@value #INGEST_AUTHORITY} and an {@link IngestPrincipal}.
+ * {@value #INGEST_AUTHORITY} and an {@link IngestPrincipal}. API tokens act as their user with the rights of the
+ * current configuration. MCP tokens follow with the MCP endpoint.
  */
 public class BearerTokenFilter extends OncePerRequestFilter {
 
@@ -55,6 +56,12 @@ public class BearerTokenFilter extends OncePerRequestFilter {
                 IngestPrincipal principal = new IngestPrincipal(token.name(), token.host(), Set.copyOf(token.apps()));
                 UsernamePasswordAuthenticationToken authentication = UsernamePasswordAuthenticationToken
                     .authenticated(principal, null, List.of(new SimpleGrantedAuthority(INGEST_AUTHORITY)));
+                SecurityContextHolder.getContext().setAuthentication(authentication);
+            } else if (token.kind() == TokenKind.API) {
+                UsernamePasswordAuthenticationToken authentication = UsernamePasswordAuthenticationToken
+                    .authenticated(token.user(), null,
+                        List.of(new SimpleGrantedAuthority(UserRegistry.USER_AUTHORITY)));
+                authentication.setDetails(new CurrentUser.ApiTokenDetails(token.name(), token.apps()));
                 SecurityContextHolder.getContext().setAuthentication(authentication);
             }
         }
