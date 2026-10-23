@@ -2,6 +2,8 @@ package de.gbv.logguy.server.ingest;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.Semaphore;
 
@@ -103,7 +105,7 @@ public class StreamController {
                     .body(Map.of("error", "chunk larger than " + maxChunkSize + " bytes"));
             }
             return ResponseEntity
-                .ok(service.append(principal, fingerprint, offset, host, app, file, data, data.length));
+                .ok(service.append(principal, fingerprint, offset, host, app, decode(file), data, data.length));
         } finally {
             permits.release();
         }
@@ -125,7 +127,11 @@ public class StreamController {
         @RequestParam(IngestProtocol.PARAM_LENGTH) long length, @RequestHeader(IngestProtocol.HEADER_HOST) String host,
         @RequestHeader(IngestProtocol.HEADER_APP) String app,
         @RequestHeader(name = IngestProtocol.HEADER_FILE, required = false) String file) {
-        return service.close(principal, fingerprint, length, host, app, file);
+        return service.close(principal, fingerprint, length, host, app, decode(file));
+    }
+
+    private static String decode(String file) {
+        return file == null ? null : URLDecoder.decode(file, StandardCharsets.UTF_8);
     }
 
     /**

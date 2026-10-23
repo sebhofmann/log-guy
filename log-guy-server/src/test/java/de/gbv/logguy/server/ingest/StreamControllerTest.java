@@ -21,7 +21,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 import de.gbv.logguy.common.Fingerprint;
 import de.gbv.logguy.common.IngestProtocol;
-import de.gbv.logguy.server.TestLogs;
+import de.gbv.logguy.common.TestLogs;
 import de.gbv.logguy.server.security.TokenRegistry;
 
 @SpringBootTest

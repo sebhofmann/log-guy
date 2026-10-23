@@ -25,7 +25,7 @@ public final class IngestProtocol {
     /** Header with the application the file belongs to. */
     public static final String HEADER_APP = "X-Log-Guy-App";
 
-    /** Header with the path of the file on the host. */
+    /** Header with the path of the file on the host, URL encoded as UTF-8. */
     public static final String HEADER_FILE = "X-Log-Guy-File";
 
     /** Query parameter with the offset of a chunk. */

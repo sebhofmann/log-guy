@@ -1,4 +1,4 @@
-package de.gbv.logguy.server;
+package de.gbv.logguy.common;
 
 import java.io.IOException;
 import java.io.InputStream;

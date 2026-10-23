@@ -21,7 +21,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.util.unit.DataSize;
 
 import de.gbv.logguy.common.Fingerprint;
-import de.gbv.logguy.server.TestLogs;
+import de.gbv.logguy.common.TestLogs;
 import de.gbv.logguy.server.config.LogGuyProperties.HotProperties;
 import tools.jackson.databind.json.JsonMapper;
 

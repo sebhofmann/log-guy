@@ -36,6 +36,12 @@
     </dependency>
 
     <dependency>
+      <groupId>de.gbv.logguy</groupId>
+      <artifactId>log-guy-common</artifactId>
+      <type>test-jar</type>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter</artifactId>
       <scope>test</scope>
