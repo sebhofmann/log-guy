@@ -3,6 +3,7 @@ package de.gbv.logguy.server.solr;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -13,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 
 import org.apache.solr.client.solrj.SolrQuery;
@@ -154,6 +156,45 @@ class IndexerIT {
                 await(() -> indexer.indexedEvents() >= expected && indexer.backlog() == 0);
             }
             assertEquals(expected, count("*:*"));
+        }
+    }
+
+    @Test
+    void stopAfterPartialBlockLosesNoEvents() throws Exception {
+        LogGuyProperties properties = properties(Duration.ofSeconds(5));
+        String fp = Fingerprint.of(sample);
+        try (HotStore store = new HotStore(properties, JSON, Clock.systemUTC())) {
+            HotFile file = store.getOrCreate(fp, "app1", "digibib");
+            file.append(0, sample, sample.length, null, Instant.now());
+            file.close(sample.length, null, Instant.now());
+            ParserRegistry parsers = new ParserRegistry(properties, runtime);
+            assertTrue(parsers.load().isEmpty());
+            int expected = expectedEvents();
+
+            // the first batch ends inside a read block, then Solr is gone until the restart
+            AtomicInteger calls = new AtomicInteger();
+            Indexer.DocumentSink failing = docs -> {
+                if (calls.incrementAndGet() > 1) {
+                    throw new IOException("Solr is gone");
+                }
+                service.add(docs);
+            };
+            try (Indexer indexer = new Indexer(properties, store, parsers, runtime, failing, Clock.systemUTC(),
+                JSON)) {
+                await(() -> calls.get() > 2);
+            }
+            try (Indexer indexer = new Indexer(properties, store, parsers, runtime, service::add, Clock.systemUTC(),
+                JSON)) {
+                await(() -> indexer.backlog() == 0 && countUnchecked("*:*") == expected);
+            }
+        }
+    }
+
+    private long countUnchecked(String query) {
+        try {
+            return count(query);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
         }
     }
 

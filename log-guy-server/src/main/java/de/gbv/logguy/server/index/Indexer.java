@@ -213,10 +213,13 @@ public class Indexer implements AutoCloseable {
                 break;
             }
             read += data.length;
-            for (EventReader.RawEvent event : reader.feed(data, parser::isStart)) {
-                batch.add(document(file, meta, parser, event, cursor));
+            List<EventReader.RawEvent> found = reader.feed(data, parser::isStart);
+            for (int i = 0; i < found.size(); i++) {
+                batch.add(document(file, meta, parser, found.get(i), cursor));
                 if (batch.size() >= settings.batchSize()) {
-                    send(batch, cursor, reader.resumeOffset(), false);
+                    // the state must not pass events of this block that are not sent yet
+                    long next = i + 1 < found.size() ? found.get(i + 1).offset() : reader.resumeOffset();
+                    send(batch, cursor, next, false);
                 }
             }
         }
