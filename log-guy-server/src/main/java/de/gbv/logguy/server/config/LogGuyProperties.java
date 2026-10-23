@@ -30,13 +30,14 @@ import org.springframework.util.unit.DataSize;
  * @param mcp the MCP endpoint
  * @param archive how {@code archive/} is written
  * @param reindex indexing again from {@code hot/} and loading older days from {@code archive/}
+ * @param alerts checking events against the alert rules
  */
 @ConfigurationProperties("log-guy")
 public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppProperties> apps,
     List<TokenProperties> tokens, List<UserProperties> users, IngestProperties ingest, HotProperties hot,
     ScriptProperties scripts, SolrProperties solr, IndexerProperties indexer, SearchProperties search,
     RetentionProperties retention, ServerLogProperties serverLog, McpProperties mcp, ArchiveProperties archive,
-    ReindexProperties reindex) {
+    ReindexProperties reindex, AlertProperties alerts) {
 
     /**
      * Normalizes missing collections to empty ones.
@@ -334,5 +335,25 @@ public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppPropert
      */
     public record McpProperties(String path, Duration sessionIdleTimeout, int maxSessions, int maxEvents,
         int maxText) {
+    }
+
+    /**
+     * Alerts from the rules in {@code scripts/rule/}.
+     *
+     * @param enabled whether events are checked at all
+     * @param maxAge older events are not checked, e.g. when backfilling or indexing again
+     * @param defaultCooldown cooldown of rules without {@code meta.cooldown}
+     * @param tickInterval how often thresholds, silence and cooldowns are evaluated and the state is written
+     * @param keep acknowledged and resolved alerts are dropped after this time without change
+     * @param maxText characters of the event line and the message of an alert at most
+     * @param testRange time range of a rule test
+     * @param testMaxEvents events a rule test reads at most
+     * @param testSamples matching events and simulated alerts a rule test shows at most
+     * @param streamDuration a stream ends after this time, the client reconnects, must stay below the async timeout
+     * @param streamPing interval of keep alive comments in a stream
+     */
+    public record AlertProperties(boolean enabled, Duration maxAge, Duration defaultCooldown, Duration tickInterval,
+        Duration keep, int maxText, Duration testRange, int testMaxEvents, int testSamples, Duration streamDuration,
+        Duration streamPing) {
     }
 }

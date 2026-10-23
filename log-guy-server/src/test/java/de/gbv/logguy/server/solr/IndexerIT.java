@@ -15,6 +15,8 @@ import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 
@@ -40,6 +42,7 @@ import de.gbv.logguy.server.config.LogGuyProperties.IngestProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.ScriptProperties;
 import de.gbv.logguy.server.hot.HotFile;
 import de.gbv.logguy.server.hot.HotStore;
+import de.gbv.logguy.server.index.EventChecker;
 import de.gbv.logguy.server.index.EventReader;
 import de.gbv.logguy.server.index.Indexer;
 import de.gbv.logguy.server.script.Parser;
@@ -96,7 +99,7 @@ class IndexerIT {
             solr.properties(),
             new IndexerProperties(true, 2, Duration.ofMillis(100), 500, DataSize.ofKilobytes(64),
                 DataSize.ofMegabytes(64), provisionalAfter, DataSize.ofMegabytes(1), 7, Duration.ofSeconds(10)),
-            null, null, null, null, null, null);
+            null, null, null, null, null, null, null);
     }
 
     private int expectedEvents() throws Exception {
@@ -139,7 +142,7 @@ class IndexerIT {
             int expected = expectedEvents();
 
             try (Indexer indexer =
-                new Indexer(properties, store, parsers, runtime, null, service::add, Clock.systemUTC(),
+                new Indexer(properties, store, parsers, runtime, null, null, service::add, Clock.systemUTC(),
                     JSON)) {
                 await(() -> indexer.indexedEvents() >= expected && indexer.backlog() == 0);
             }
@@ -159,7 +162,7 @@ class IndexerIT {
             // a second run from scratch overwrites the same documents
             Files.list(dataDir.resolve("state/index")).forEach(p -> p.toFile().delete());
             try (Indexer indexer =
-                new Indexer(properties, store, parsers, runtime, null, service::add, Clock.systemUTC(),
+                new Indexer(properties, store, parsers, runtime, null, null, service::add, Clock.systemUTC(),
                     JSON)) {
                 await(() -> indexer.indexedEvents() >= expected && indexer.backlog() == 0);
             }
@@ -191,8 +194,9 @@ class IndexerIT {
             assertTrue(parsers.load().isEmpty());
             int expected = expectedEvents();
 
-            try (Indexer indexer = new Indexer(properties, store, parsers, runtime, null, service, Clock.systemUTC(),
-                JSON)) {
+            try (Indexer indexer =
+                new Indexer(properties, store, parsers, runtime, null, null, service, Clock.systemUTC(),
+                    JSON)) {
                 await(() -> indexer.indexedEvents() >= expected && indexer.backlog() == 0);
 
                 // an event the old parser cut differently and one loaded from the archive with an expiry
@@ -232,12 +236,13 @@ class IndexerIT {
                 }
                 service.add(docs);
             };
-            try (Indexer indexer = new Indexer(properties, store, parsers, runtime, null, failing, Clock.systemUTC(),
-                JSON)) {
+            try (Indexer indexer =
+                new Indexer(properties, store, parsers, runtime, null, null, failing, Clock.systemUTC(),
+                    JSON)) {
                 await(() -> calls.get() > 2);
             }
             try (Indexer indexer =
-                new Indexer(properties, store, parsers, runtime, null, service::add, Clock.systemUTC(),
+                new Indexer(properties, store, parsers, runtime, null, null, service::add, Clock.systemUTC(),
                     JSON)) {
                 await(() -> indexer.backlog() == 0 && countUnchecked("*:*") == expected);
             }
@@ -265,8 +270,13 @@ class IndexerIT {
             file.append(0, first, first.length, null, Instant.now());
             ParserRegistry parsers = new ParserRegistry(properties, runtime);
             assertTrue(parsers.load().isEmpty());
+            List<String> checks = new CopyOnWriteArrayList<>();
+            EventChecker checker = (app, host, id, ts, event, skip) -> {
+                checks.add(id + " " + skip);
+                return event.message().contains("IOException") ? Set.of("io") : Set.of("boom");
+            };
             try (Indexer indexer =
-                new Indexer(properties, store, parsers, runtime, null, service::add, Clock.systemUTC(),
+                new Indexer(properties, store, parsers, runtime, null, checker, service::add, Clock.systemUTC(),
                     JSON)) {
                 await(() -> indexer.indexedEvents() >= 1);
                 assertEquals(1, count("id:\"" + fp + ":0\""));
@@ -277,6 +287,8 @@ class IndexerIT {
                 await(() -> indexer.indexedEvents() >= 2);
                 assertEquals(1, count("*:*"));
                 assertEquals(1, count("exc_ss:\"java.io.IOException\""));
+                // the rule that matched the provisional event is skipped when the event comes again
+                assertEquals(List.of(fp + ":0 []", fp + ":0 [boom]"), checks);
             }
         }
     }

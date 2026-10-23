@@ -136,6 +136,20 @@ log-guy:
     expire-cron: "0 15 * * * *"
     max-range: 92d
     keep-jobs: 20
+  alerts:
+    enabled: true
+    # events older than this are not checked, e.g. when backfilling or indexing again
+    max-age: 1h
+    default-cooldown: 15m
+    tick-interval: 2s
+    keep: 30d
+    max-text: 500
+    test-range: 24h
+    test-max-events: 2000000
+    test-samples: 100
+    # below spring.mvc.async.request-timeout, the GUI reconnects
+    stream-duration: 10m
+    stream-ping: 15s
   mcp:
     path: /mcp
     session-idle-timeout: 2h

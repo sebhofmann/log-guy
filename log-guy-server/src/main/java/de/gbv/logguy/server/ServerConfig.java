@@ -18,6 +18,11 @@ import org.springframework.scheduling.annotation.SchedulingConfigurer;
 import org.springframework.scheduling.config.ScheduledTaskRegistrar;
 import org.springframework.scheduling.support.CronTrigger;
 
+import de.gbv.logguy.server.alert.AlertRules;
+import de.gbv.logguy.server.alert.AlertService;
+import de.gbv.logguy.server.alert.AlertStore;
+import de.gbv.logguy.server.alert.LoggingNotifier;
+import de.gbv.logguy.server.alert.Notifier;
 import de.gbv.logguy.server.archive.ArchiveStore;
 import de.gbv.logguy.server.archive.search.ArchiveSearch;
 import de.gbv.logguy.server.archive.ArchiveWriter;
@@ -78,6 +83,7 @@ public class ServerConfig {
      * @param parsers the parser scripts
      * @param runtime the script runtime
      * @param filters change the fields of events with {@code fields(event)}
+     * @param alerts the alert rules, if enabled
      * @param solr connection to Solr
      * @param clock clock for provisional events
      * @param json mapper for state files
@@ -87,13 +93,55 @@ public class ServerConfig {
     @Bean(destroyMethod = "close")
     @ConditionalOnBooleanProperty("log-guy.indexer.enabled")
     public Indexer indexer(LogGuyProperties properties, HotStore store, ParserRegistry parsers,
-        ScriptRuntime runtime, LifecycleFilters filters, SolrService solr, Clock clock, JsonMapper json)
-        throws IOException {
+        ScriptRuntime runtime, LifecycleFilters filters, ObjectProvider<AlertService> alerts, SolrService solr,
+        Clock clock, JsonMapper json) throws IOException {
         List<String> errors = parsers.load();
         if (!errors.isEmpty()) {
             throw new IllegalStateException("parser scripts have errors: " + String.join("; ", errors));
         }
-        return new Indexer(properties, store, parsers, runtime, filters, solr, clock, json);
+        return new Indexer(properties, store, parsers, runtime, filters, alerts.getIfAvailable(), solr, clock, json);
+    }
+
+    /**
+     * The alert rules, reloaded when scripts change.
+     *
+     * @param runtime the script runtime
+     * @param store the scripts
+     * @return the rules
+     */
+    @Bean
+    public AlertRules alertRules(ScriptRuntime runtime, ScriptStore store) {
+        return new AlertRules(runtime, store);
+    }
+
+    /**
+     * Writes notifications to the server log.
+     *
+     * @return the notifier
+     */
+    @Bean
+    public Notifier loggingNotifier() {
+        return new LoggingNotifier();
+    }
+
+    /**
+     * The alerts, unless {@code log-guy.alerts.enabled} is false.
+     *
+     * @param properties configuration
+     * @param rules the alert rules
+     * @param notifiers where notifications go
+     * @param audit the audit log
+     * @param clock the clock
+     * @param json mapper for {@code state/alerts.ndjson}
+     * @return the running service
+     * @throws IOException if the alerts cannot be read
+     */
+    @Bean(destroyMethod = "close")
+    @ConditionalOnBooleanProperty("log-guy.alerts.enabled")
+    public AlertService alertService(LogGuyProperties properties, AlertRules rules, List<Notifier> notifiers,
+        AuditLog audit, Clock clock, JsonMapper json) throws IOException {
+        return new AlertService(properties.alerts(), rules, new AlertStore(properties.stateDir(), json), notifiers,
+            () -> properties.apps().keySet(), audit, clock);
     }
 
     /**

@@ -7,6 +7,8 @@ import org.graalvm.polyglot.Context;
 import org.graalvm.polyglot.PolyglotException;
 import org.graalvm.polyglot.Value;
 
+import de.gbv.logguy.server.alert.RuleDefinition;
+
 /**
  * What a check of a rule, lifecycle filter or pseudonymization module found out.
  *
@@ -39,12 +41,7 @@ public record ModuleInfo(List<String> apps) {
                 throw new ScriptException(label + ": meta.apps must list at least one application", null);
             }
             switch (kind) {
-                case RULE -> {
-                    boolean absent = meta.getMember("absentFor") != null && !meta.getMember("absentFor").isNull();
-                    if (!absent && !function(exports, "check")) {
-                        throw new ScriptException(label + ": export check(event) is missing", null);
-                    }
-                }
+                case RULE -> RuleDefinition.read(name, code, "", exports);
                 case LIFECYCLE -> {
                     if (!function(exports, "line") && !function(exports, "fields")) {
                         throw new ScriptException(label + ": export line(text) or fields(event) is missing", null);

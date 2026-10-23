@@ -9,6 +9,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -67,6 +68,8 @@ public class Indexer implements AutoCloseable {
 
     private volatile List<String> pausedBy = List.of();
 
+    private final EventChecker checker;
+
     private final DocumentSink sink;
 
     private final Clock clock;
@@ -107,13 +110,15 @@ public class Indexer implements AutoCloseable {
      * @param parsers the parser scripts
      * @param runtime the script runtime
      * @param filters change the fields of events with {@code fields(event)}, {@code null} for none
+     * @param checker looks at every new event, e.g. for alerts, {@code null} for none
      * @param sink where documents go, usually Solr
      * @param clock clock for provisional events
      * @param json mapper for state files
      * @throws IOException if the state directory cannot be created
      */
     public Indexer(LogGuyProperties properties, HotStore store, ParserRegistry parsers, ScriptRuntime runtime,
-        LifecycleFilters filters, DocumentSink sink, Clock clock, JsonMapper json) throws IOException {
+        LifecycleFilters filters, EventChecker checker, DocumentSink sink, Clock clock, JsonMapper json)
+        throws IOException {
         this.settings = properties.indexer();
         this.store = store;
         this.parsers = parsers;
@@ -125,6 +130,7 @@ public class Indexer implements AutoCloseable {
             allFilterRunners.add(runner);
             return runner;
         });
+        this.checker = checker;
         this.sink = sink;
         this.clock = clock;
         this.json = json;
@@ -244,6 +250,8 @@ public class Indexer implements AutoCloseable {
         }
         resets.remove(fingerprint);
         Cursor fresher = new Cursor(cursor.file, fresh);
+        // events indexed again are not new, alerts were raised the first time
+        fresher.checked = Math.max(cursor.checked, cursor.reader != null ? cursor.reader.resumeOffset() : 0);
         cursors.put(fingerprint, fresher);
         LOGGER.info("indexing {} again", cursor.file.relativePath());
         return fresher;
@@ -360,7 +368,7 @@ public class Indexer implements AutoCloseable {
             read += data.length;
             List<EventReader.RawEvent> found = reader.feed(data, parser::isStart);
             for (int i = 0; i < found.size(); i++) {
-                batch.add(document(file, meta, parser, found.get(i), cursor));
+                batch.add(document(file, meta, parser, found.get(i), cursor, false));
                 if (batch.size() >= settings.batchSize()) {
                     // the state must not pass events of this block that are not sent yet
                     long next = i + 1 < found.size() ? found.get(i + 1).offset() : reader.resumeOffset();
@@ -371,7 +379,7 @@ public class Indexer implements AutoCloseable {
         boolean caughtUp = reader.readOffset() >= file.length();
         if (caughtUp && meta.closed()) {
             for (EventReader.RawEvent event : reader.tail(parser::isStart)) {
-                batch.add(document(file, meta, parser, event, cursor));
+                batch.add(document(file, meta, parser, event, cursor, false));
             }
             send(batch, cursor, file.length(), true);
             cursor.reader = null;
@@ -382,7 +390,7 @@ public class Indexer implements AutoCloseable {
             && !clock.instant().isBefore(meta.lastReceived().plus(settings.provisionalAfter()))) {
             // indexed now and replaced under the same ID when more lines arrive
             for (EventReader.RawEvent event : reader.tail(parser::isStart)) {
-                batch.add(document(file, meta, parser, event, cursor));
+                batch.add(document(file, meta, parser, event, cursor, true));
             }
             cursor.provisional = reader.readOffset();
         }
@@ -419,7 +427,7 @@ public class Indexer implements AutoCloseable {
     }
 
     private SolrInputDocument document(HotFile file, FileMeta meta, Parser parser, EventReader.RawEvent event,
-        Cursor cursor) throws ScriptException {
+        Cursor cursor, boolean provisional) throws ScriptException {
         ParsedEvent parsed = parser.parse(event.text());
         if (filters != null) {
             parsed = filterRunners.get().fields(meta.app(), meta.host(), parsed, parser.script(), fieldPlaceholder);
@@ -430,8 +438,23 @@ public class Indexer implements AutoCloseable {
             parseErrors.incrementAndGet();
             parseErrorsByApp.computeIfAbsent(meta.app(), app -> new AtomicLong()).incrementAndGet();
         }
-        return EventDocuments.create(EventDocuments.hotId(meta.fingerprint(), event.offset()), meta.app(),
-            meta.host(), file.relativePath(), event.offset(), ts, parsed, parser.script());
+        String id = EventDocuments.hotId(meta.fingerprint(), event.offset());
+        if (checker != null && event.offset() >= cursor.checked) {
+            Set<String> before = cursor.provisionalMatches.getOrDefault(event.offset(), Set.of());
+            Set<String> matched = checker.check(meta.app(), meta.host(), id, ts, parsed, before);
+            if (provisional) {
+                if (!matched.isEmpty()) {
+                    Set<String> all = new HashSet<>(before);
+                    all.addAll(matched);
+                    cursor.provisionalMatches.put(event.offset(), all);
+                }
+            } else {
+                cursor.provisionalMatches.remove(event.offset());
+                cursor.checked = event.offset() + 1;
+            }
+        }
+        return EventDocuments.create(id, meta.app(), meta.host(), file.relativePath(), event.offset(), ts, parsed,
+            parser.script());
     }
 
     private IndexState loadState(String fingerprint, HotFile file) {
@@ -517,9 +540,16 @@ public class Indexer implements AutoCloseable {
 
         private long provisional = -1;
 
+        // events before this offset were checked finally
+        private long checked;
+
+        // rules that matched provisional events, by offset
+        private final Map<Long, Set<String>> provisionalMatches = new HashMap<>();
+
         private Cursor(HotFile file, IndexState state) {
             this.file = file;
             this.state = state;
+            this.checked = state.offset();
             this.done = state.done();
         }
 

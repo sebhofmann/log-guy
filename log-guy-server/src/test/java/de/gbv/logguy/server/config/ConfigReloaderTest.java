@@ -16,7 +16,7 @@ class ConfigReloaderTest {
 
     private static LogGuyProperties properties(Map<String, AppProperties> apps, List<UserProperties> users) {
         return new LogGuyProperties(Path.of("/tmp"), ZoneId.of("Europe/Berlin"), apps, List.of(), users, null, null,
-            null, null, null, null, null, null, null, null, null);
+            null, null, null, null, null, null, null, null, null, null);
     }
 
     @Test
