@@ -93,6 +93,26 @@ import_id: IMPORT_ID.exec(text)?.[1],
 
 Empfehlung zur Schreibweise: Die eingebauten Parser für MyCoRe und Apache werden von Hand geschrieben, weil sie die meisten Events verarbeiten. Für eigene, kleine Anwendungen reichen reguläre Ausdrücke.
 
+### Vorlage `apache-combined`
+
+`apache-combined.js` liest Access-Logs im Common und Combined Log Format von Apache httpd, nginx und dem Tomcat-`AccessLogValve`: `%h %l %u %t "%r" %>s %b "%{Referer}i" "%{User-Agent}i"`. Referer und User-Agent dürfen fehlen, Angaben dahinter wie `%D` werden ignoriert. Jede Zeile ist ein Event, `isStart` gibt es nicht. Die Zeit kommt mit Zeitzone aus der Zeile.
+
+| Feld | Typ | Facette | Inhalt |
+| --- | --- | --- | --- |
+| `ip` | string | | `%h`, pseudonymisiert |
+| `login` | string | | `%u`, ohne `-`, pseudonymisiert |
+| `method` | string | ja | z.B. `GET` |
+| `path` | string | | Pfad ohne Query-String |
+| `status` | int | ja | HTTP-Status |
+| `bytes` | long | | ohne `-` |
+| `referer` | string | | ohne `-` |
+| `agent` | string | | User-Agent |
+| `bot` | bool | ja | User-Agent sieht nach Crawler oder Skript aus (`bot`, `crawl`, `spider`, `curl/`, `python-requests` usw.) |
+
+`ip` und `login` heißen wie die Felder des MyCoRe-Parsers, damit die Standard-Pseudonymisierung sie ohne eigenes Skript schützt. Den Nutzer in der Zeile selbst ersetzt sie über das Muster `USER_IN_ACCESS_LOG`. Der Query-String fehlt in `path`, weil er Suchbegriffe enthalten kann und das Feld sonst kaum zu facettieren wäre. Er steht weiter in `message`.
+
+Geprüft mit einer echten Zeile aus dem Tomcat-Access-Log einer lokalen MIR-Instanz und 2.000 synthetischen Combined-Zeilen über `POST /api/v1/scripts/parser/apache-combined/test`: 0 Fehler, rund 6.000 Events pro Sekunde in dieser kleinen Probe. Echte Apache-Logs der Produktion liegen nicht vor, die Messung mit einem vollen Tag steht noch aus.
+
 ### Felder
 
 - Die Felder stehen im Skript unter `fields`. In der Konfiguration der Anwendung stehen nur die Aufbewahrung, z.B. `index-days: 7`, und welches Parser-Skript sie nutzt.

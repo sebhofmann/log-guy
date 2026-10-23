@@ -106,6 +106,20 @@ class PseudonymServiceTest {
     }
 
     @Test
+    void standardTemplateReplacesUsersInAccessLogs() {
+        Pseudonyms session = new Pseudonyms();
+        String line = "203.0.113.7 - mueller [01/Oct/2026:00:00:05 +0200] \"GET /mir/ HTTP/1.1\" 200 5120";
+        Map<String, Object> result = service.apply(session, event("digibib-apache", line, "ip", "203.0.113.7",
+            "login", "mueller")).orElseThrow();
+        assertEquals("$IP1 - $Nutzer1 [01/Oct/2026:00:00:05 +0200] \"GET /mir/ HTTP/1.1\" 200 5120",
+            result.get("message"));
+        assertEquals("$IP1", result.get("ip"));
+        String anonymous = "203.0.113.8 - - [01/Oct/2026:00:00:05 +0200] \"GET / HTTP/1.1\" 200 1";
+        assertEquals("$IP2 - - [01/Oct/2026:00:00:05 +0200] \"GET / HTTP/1.1\" 200 1",
+            service.apply(session, event("digibib-apache", anonymous)).orElseThrow().get("message"));
+    }
+
+    @Test
     void additionalScriptsRunInNameOrderAndOnlyForTheirApps() {
         Map<ScriptId, String> active = Map.of(new ScriptId(ScriptKind.PSEUDONYM, "zz-leo"), """
             export const meta = { apps: ["leo"], fields: ["session"] };

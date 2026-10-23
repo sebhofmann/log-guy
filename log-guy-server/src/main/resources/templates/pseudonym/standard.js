@@ -14,6 +14,8 @@ const KEEP = new Set(["guest", "SYSTEM", "administrator", "MCRJANITOR", "MCRJANI
 
 // MyCoRe pattern: time, level, login, logger, e.g. "2026-10-01T00:00:00,152 INFO  mueller MCRServlet: ..."
 const USER_AFTER_LEVEL = /^(\S+ +(?:TRACE|DEBUG|INFO|WARN|ERROR|FATAL) +)([^\s:]+)( +[\w.$-]+: )/;
+// Access log pattern: host, ident, user, time, e.g. "203.0.113.7 - mueller [01/Oct/2026:00:00:05 +0200] ..."
+const USER_IN_ACCESS_LOG = /^(\S+ \S+ )([^\s\[]+)( \[\d{2}\/\w{3}\/\d{4}:)/;
 const USER_PARAM = /\b((?:user|userid|login|username|uid)=)([^\s&;,"']+)/gi;
 // MyCoRe messages naming a user, e.g. "MCRSessionFilter: user detected: mueller".
 const USER_PHRASE = /\b((?:user detected|requested user): |user:)([^\s,;"']+)/g;
@@ -28,6 +30,7 @@ function text(value) {
     }
     let out = value
         .replace(USER_AFTER_LEVEL, (m, before, name, after) => before + user(name) + after)
+        .replace(USER_IN_ACCESS_LOG, (m, before, name, after) => before + user(name) + after)
         .replace(USER_PARAM, (m, key, name) => key + user(name))
         .replace(USER_PHRASE, (m, key, name) => key + user(name));
     out = replaceEmails(out, mail => ps("Mail", mail));
