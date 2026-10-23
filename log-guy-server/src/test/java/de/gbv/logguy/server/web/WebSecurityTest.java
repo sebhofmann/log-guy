@@ -7,8 +7,10 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.response.SecurityMockMvcResultMatchers.authenticated;
 import static org.springframework.security.test.web.servlet.response.SecurityMockMvcResultMatchers.unauthenticated;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
@@ -142,6 +144,45 @@ class WebSecurityTest {
             .andExpect(status().isBadRequest());
         mvc.perform(get("/admin/api/log").header("Authorization", "Bearer " + LIMITED_TOKEN))
             .andExpect(result -> assertNotEquals(200, result.getResponse().getStatus()));
+    }
+
+    @Test
+    void scriptApi() throws Exception {
+        MvcResult root = mvc.perform(formLogin("/login").user("root").password(PASSWORD)).andReturn();
+        MockHttpSession session = (MockHttpSession) root.getRequest().getSession();
+        mvc.perform(get("/api/v1/scripts").session(session))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[?(@.name == 'mycore-log4j')].origin").value(hasItem("template")));
+        mvc.perform(get("/api/v1/scripts/nonsense/x").session(session))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.reason").value("not_found"));
+        mvc.perform(post("/api/v1/scripts/parser/mycore-log4j/test").session(session).with(csrf())
+            .contentType("application/json")
+            .content("{\"text\": \"2026-10-01T00:00:00,152 INFO  guest MCRServlet: hello\\nnonsense\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.events").value(1))
+            .andExpect(jsonPath("$.sample[0].fields.level").value("INFO"));
+        String rule = "export const meta = { apps: [\\\"digibib\\\"] };\\n"
+            + "export function check(event) { return false; }\\n";
+        mvc.perform(put("/api/v1/scripts/rule/quiet/draft").session(session).with(csrf())
+            .contentType("application/json")
+            .content("{\"code\": \"" + rule + "\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.draft.info.user").value("root"));
+        mvc.perform(post("/api/v1/scripts/rule/quiet/activate").session(session).with(csrf()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.draft").doesNotExist());
+        mvc.perform(post("/api/v1/scripts/rule/quiet/rollback").param("at", "gestern").session(session)
+            .with(csrf())).andExpect(status().isBadRequest());
+        mvc.perform(delete("/api/v1/scripts/parser/mycore-log4j").session(session).with(csrf()))
+            .andExpect(status().isBadRequest());
+        mvc.perform(delete("/api/v1/scripts/rule/quiet").session(session).with(csrf()))
+            .andExpect(status().isNoContent());
+
+        mvc.perform(put("/api/v1/scripts/parser/mycore-log4j/draft").header("Authorization", "Bearer " + API_TOKEN)
+            .contentType("application/json")
+            .content("{\"code\": \"x\"}"))
+            .andExpect(status().isForbidden());
     }
 
     @Test

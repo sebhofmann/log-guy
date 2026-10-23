@@ -29,6 +29,7 @@ import de.gbv.logguy.server.script.ParserRegistry;
 import de.gbv.logguy.server.script.ScriptListener;
 import de.gbv.logguy.server.script.ScriptRuntime;
 import de.gbv.logguy.server.script.ScriptService;
+import de.gbv.logguy.server.script.ScriptTester;
 import de.gbv.logguy.server.script.ScriptStore;
 import de.gbv.logguy.server.search.ContextService;
 import de.gbv.logguy.server.search.SearchService;
@@ -153,7 +154,24 @@ public class ServerConfig {
     }
 
     /**
-     * Reads the lines around an event from {@code hot/}.
+     * Runs scripts against test sources.
+     *
+     * @param properties configuration
+     * @param store the hot storage
+     * @param runtime the script runtime
+     * @param scripts the scripts
+     * @param search the search
+     * @param clock the clock
+     * @return the tester
+     */
+    @Bean
+    public ScriptTester scriptTester(LogGuyProperties properties, HotStore store, ScriptRuntime runtime,
+        ScriptService scripts, SearchService search, Clock clock) {
+        return new ScriptTester(properties, store, runtime, scripts, search, clock);
+    }
+
+    /**
+     * Reads the lines around an event.
      *
      * @param properties configuration
      * @param store the hot storage

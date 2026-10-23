@@ -54,8 +54,12 @@ Skripte sind höchstens `log-guy.scripts.max-size` groß, Standard 256 KB.
 Testquellen, für alle Arten gleich:
 
 - eine Anwendung, mit Zeitraum oder den letzten N Zeilen
-- eine bestimmte Logdatei im Archiv, z.B. `app1/digibib/2026-10-22-<fingerprint>.log.zst`
+- eine bestimmte Logdatei, z.B. `app1/digibib/2026-10-22-<fingerprint>.log.zst`
 - eingefügte Beispielzeilen
+
+Umgesetzt ist das so: Die letzten N Zeilen einer Anwendung liest der Test vom Ende ihrer Dateien in `hot/`, die neueste zuerst. Bei einem Zeitraum sucht er das erste Event ab `from` im Index und liest ab dessen Stelle in `hot/`. Events außerhalb des Zeitraums zählen nicht mit. Eine Logdatei wird über ihren Fingerabdruck oder ihren Pfad in `hot/` angegeben, ab M4 auch im Archiv. Höchstens `log-guy.scripts.test-lines` Zeilen (Standard 20.000) gehen in einen Test, in der Antwort stehen höchstens `test-events` Events (Standard 500) und die ersten 50 fehlerhaften. Wer testet, braucht neben dem Recht am Skript das Recht `read` an der Anwendung der Quelle.
+
+Der Body von `POST …/test` ist JSON mit genau einer Quelle: `{"app": "digibib", "lines": 1000}`, `{"app": "digibib", "from": "…", "to": "…"}`, `{"file": "<fingerprint>"}` oder `{"text": "…"}`. Ohne weiteres testet der Endpunkt den Entwurf, sonst die aktive Fassung. `"active": true` testet die aktive Fassung trotz Entwurf, `"code"` testet ungespeicherten Quelltext aus dem Editor. Das Ergebnis eines Tests landet beim Entwurf, wenn dessen Quelltext dem getesteten entspricht, und ist dann bei der Freigabe zu sehen. Als Fehler zählt ein Event mit Skriptfehler oder ohne Zeitstempel.
 
 | Art | Testergebnis |
 | --- | --- |
@@ -79,6 +83,8 @@ Ein Test verändert nichts, weder Archiv noch Index, und verschickt keine Meldun
 | `DELETE /api/v1/scripts/{art}/{name}` | Skript entfernen, außer Parser |
 
 `{art}` ist `parser`, `rule`, `lifecycle` oder `pseudonym`.
+
+Fehler kommen als JSON mit `error` (deutscher Text) und `reason`: `invalid` mit 400, `not_found` mit 404, `conflict` mit 409, wenn sich die aktive Fassung seit Beginn des Entwurfs geändert hat (erneut mit `force=true`), und `confirm` mit 409, wenn der letzte Test mehr als 1 % Fehler hatte (erneut mit `confirm=true`). Fehlende Rechte ergeben 403.
 
 ### Per MCP
 

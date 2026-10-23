@@ -173,6 +173,27 @@ public class ScriptService {
     }
 
     /**
+     * The code a test runs: the given code, otherwise the draft, otherwise the active version.
+     *
+     * @param user the user, needs the right to edit the script
+     * @param id the script
+     * @param code code sent with the test, may be {@code null}
+     * @param active test the active version even if there is a draft
+     * @return the code
+     * @throws IOException if the script directory cannot be read
+     */
+    public String codeForTest(LogGuyUser user, ScriptId id, String code, boolean active) throws IOException {
+        Optional<String> current = activeCode(id);
+        Optional<String> draft = store.draft(id).map(Draft::code);
+        String tested = code != null ? code : active ? current.orElse(null) : draft.or(() -> current).orElse(null);
+        if (tested == null) {
+            throw new ScriptRequestException(Reason.NOT_FOUND, "Skript " + id + " gibt es nicht.");
+        }
+        require(user, id, current.orElse(null), tested);
+        return tested;
+    }
+
+    /**
      * Stores the result of a test with the draft, so the approval can see it.
      *
      * @param id the script

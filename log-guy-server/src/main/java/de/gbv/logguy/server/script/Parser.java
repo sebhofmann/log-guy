@@ -1,10 +1,12 @@
 package de.gbv.logguy.server.script;
 
+import java.time.DateTimeException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.graalvm.polyglot.Context;
 import org.graalvm.polyglot.PolyglotException;
@@ -83,6 +85,18 @@ public final class Parser implements AutoCloseable {
      * @return the result, with {@link ParsedEvent#error()} set if the script failed
      */
     public ParsedEvent parse(String text) {
+        return parse(text, null);
+    }
+
+    /**
+     * Parses an event and collects the names the script returned without declaring them.
+     *
+     * @param text the lines of the event, joined with {@code \n}
+     * @param undeclared receives returned names that are neither declared nor {@code ts} or {@code message}, may be
+     *     {@code null}
+     * @return the result, with {@link ParsedEvent#error()} set if the script failed
+     */
+    public ParsedEvent parse(String text, Set<String> undeclared) {
         ScriptRuntime.Call call = runtime.start(context);
         Value result;
         try {
@@ -91,14 +105,21 @@ public final class Parser implements AutoCloseable {
             boolean timeout = runtime.end(call);
             if (e.isInterrupted() && !timeout) {
                 // the watchdog was late and hit the next call, try once more
-                return parse(text);
+                return parse(text, undeclared);
             }
             return failed(text, timeout ? "timeout" : e.getMessage());
         }
         runtime.end(call);
         try {
+            if (undeclared != null && result != null && result.hasMembers()) {
+                for (String key : result.getMemberKeys()) {
+                    if (!script.fields().containsKey(key) && !"ts".equals(key) && !"message".equals(key)) {
+                        undeclared.add(key);
+                    }
+                }
+            }
             return convert(text, result);
-        } catch (PolyglotException | ClassCastException | IllegalArgumentException e) {
+        } catch (PolyglotException | ClassCastException | IllegalArgumentException | DateTimeException e) {
             return failed(text, "invalid result: " + e.getMessage());
         }
     }

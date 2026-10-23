@@ -138,6 +138,14 @@ class ParserTest {
             assertNotNull(parsed.error());
             assertEquals("x", parsed.message());
         }
+        ParserScript badTime = ParserScript.load(runtime, "badtime", """
+            export const fields = {};
+            export function parse(text) { return { ts: text }; }
+            """);
+        try (Parser parser = new Parser(runtime, badTime)) {
+            ParsedEvent parsed = parser.parse("garbage");
+            assertTrue(parsed.error().startsWith("invalid result"), parsed.error());
+        }
         assertThrows(ScriptException.class, () -> ParserScript.load(runtime, "broken", "export const fields = {"));
         assertThrows(ScriptException.class,
             () -> ParserScript.load(runtime, "nofields", "export function parse(t) { return {}; }"));

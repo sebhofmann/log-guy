@@ -1,6 +1,8 @@
 package de.gbv.logguy.server.search;
 
 import java.io.IOException;
+import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
 
@@ -13,6 +15,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+import de.gbv.logguy.server.script.ScriptRequestException;
 
 /**
  * Turns errors of the API into JSON {@code {"error": "..."}} with a German message for the user.
@@ -80,6 +84,26 @@ public class ApiExceptionHandler {
     public ResponseEntity<Map<String, String>> unreachable(Exception e) {
         LOGGER.warn("Solr or storage not reachable", e);
         return error(HttpStatus.BAD_GATEWAY, "Solr oder der Speicher ist gerade nicht erreichbar.");
+    }
+
+    /**
+     * A script request that failed: invalid input, unknown script, conflict or missing confirmation. The details
+     * are added to the body, e.g. the error rate of the last test.
+     *
+     * @param e the exception
+     * @return 400, 404 or 409
+     */
+    @ExceptionHandler(ScriptRequestException.class)
+    public ResponseEntity<Map<String, Object>> script(ScriptRequestException e) {
+        HttpStatus status = switch (e.reason()) {
+            case INVALID -> HttpStatus.BAD_REQUEST;
+            case NOT_FOUND -> HttpStatus.NOT_FOUND;
+            case CONFLICT, CONFIRM -> HttpStatus.CONFLICT;
+        };
+        Map<String, Object> body = new LinkedHashMap<>(e.details());
+        body.put("error", e.getMessage());
+        body.put("reason", e.reason().name().toLowerCase(Locale.ROOT));
+        return ResponseEntity.status(status).body(body);
     }
 
     private static ResponseEntity<Map<String, String>> error(HttpStatus status, String message) {
