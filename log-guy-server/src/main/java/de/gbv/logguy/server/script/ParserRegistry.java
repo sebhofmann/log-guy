@@ -91,7 +91,14 @@ public class ParserRegistry {
         return properties == null || properties.parser() == null ? app : properties.parser();
     }
 
-    private String source(String name) throws IOException {
+    /**
+     * Reads the code of a parser from the script directory, or the template of the same name from the JAR.
+     *
+     * @param name name of the parser
+     * @return the code
+     * @throws IOException if neither exists
+     */
+    public String source(String name) throws IOException {
         Path file = properties.scripts().dir().resolve("parser").resolve(name + ".js");
         if (Files.exists(file)) {
             return Files.readString(file);

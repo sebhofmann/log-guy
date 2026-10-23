@@ -1,0 +1,3 @@
+#!/bin/sh
+# Starts the server (no arguments or "serve") or runs a command such as "check" or "solr init".
+exec java $JAVA_OPTS --sun-misc-unsafe-memory-access=allow -jar /opt/log-guy/log-guy-server.jar "$@"

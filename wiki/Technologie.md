@@ -7,20 +7,25 @@ log-guy ist ein Maven-Projekt mit Java 25 und Spring Boot 4. Es besteht aus drei
 | Web, REST, Konfiguration | Spring Boot mit Spring Web MVC, `@ConfigurationProperties` aus `application.yml` |
 | Templates | JTE mit `jte-spring-boot-starter`, Templates werden beim Build vorkompiliert und typgeprüft |
 | Anmeldung, Rechte, Tokens | Spring Security, `Argon2PasswordEncoder` |
-| Solr | SolrJ, `CloudHttp2SolrClient`, Collections- und Configset-API |
-| Skripte | GraalJS über die Polyglot-API `org.graalvm.polyglot` |
-| Archiv | `zstd-jni`, `java.util.zip` für eingehende `.gz` |
+| Solr | SolrJ 9.10.1, `CloudHttp2SolrClient`, Collections- und Configset-API |
+| Skripte | GraalJS 25.4.4.1.1 über die Polyglot-API `org.graalvm.polyglot`, Community-Fassung |
+| Archiv | `zstd-jni` 1.5.7, `java.util.zip` für eingehende `.gz` |
 | Archivsuche | RE2/J für reguläre Ausdrücke in linearer Zeit, Virtual Threads |
 | Agent: Dateien verfolgen | `WatchService` (unter Linux inotify), Inode über das Attribut `unix:ino`, `FileChannel` |
 | Fingerabdruck, Prüfsummen | `MessageDigest` mit SHA-256 |
 | MCP-Server | Spring AI MCP Server auf Basis des offiziellen MCP-Java-SDK |
 | Mail für Meldungen | Spring Mail |
 | eigenes Log, Status | Log4j 2 mit eigenem Ringpuffer-Appender, Spring Boot Actuator für Health, Kennzahlen und Log-Level zur Laufzeit |
-| Kommandozeile | Spring Shell, nicht interaktiv: log-guy check, reload, solr init. Läuft aus demselben JAR mit einem Profil ohne Webserver |
+| Kommandozeile | Spring Shell 4, nicht interaktiv: log-guy check, reload, solr init, token create, bench parser. Läuft aus demselben JAR mit dem Profil `cli` ohne Webserver |
+| Agent: Konfiguration, HTTP, JSON | SnakeYAML, `java.net.http.HttpClient`, Jackson 3 |
 | Zeitleiste im Browser | uPlot |
 | Skript-Editor im Browser | CodeMirror |
 
-**GraalJS statt Rhino:** GraalJS unterstützt aktuelles ECMAScript, Rhino nur einen Teil davon. Die Beispiel-Skripte nutzen `?.`, `??` und Destructuring. Dazu kommen eine eingebaute Sandbox über `SandboxPolicy` und `ResourceLimits` sowie ein JIT-Compiler. Nach der GraalVM-Dokumentation greift der JIT nur mit einem GraalVM-JDK als Basis-Image oder mit der Truffle-Runtime und JVMCI, auf einem normalen OpenJDK läuft GraalJS nur im Interpreter. Die QuickJS-Messwerte stammen ebenfalls von einem reinen Interpreter. Wie GraalJS mit und ohne JIT im Vergleich dazu abschneidet, ist nicht gemessen. Erwartung: ohne JIT eher langsamer als QuickJS, mit JIT im Dauerbetrieb des Indexers deutlich schneller.
+**GraalJS statt Rhino:** GraalJS unterstützt aktuelles ECMAScript, Rhino nur einen Teil davon. Die Beispiel-Skripte nutzen `?.`, `??` und Destructuring. Dazu kommen eine eingebaute Sandbox über `SandboxPolicy` und ein JIT-Compiler. Der JIT greift nur mit einem GraalVM-JDK, auf einem normalen OpenJDK läuft GraalJS nur im Interpreter. Gemessen: Der handgeschriebene MyCoRe-Parser schafft auf OpenJDK 122.000 Events/s, auf GraalVM CE 770.000 Events/s, siehe Parser-Skripte. Das Image des Servers baut deshalb auf `ghcr.io/graalvm/jdk-community` auf. Die Fassung von GraalJS muss zur Fassung des GraalVM-JDK passen, beide sind auf 25.4.4.1.1 festgelegt.
+
+**Versionen:** Spring Boot 4.1.2, Spring Shell 4.0.3, SolrJ 9.10.1 passend zu `solr:9.10.1`. SolrJ 9 braucht Jetty 10, Spring Boot verwaltet Jetty 12. Das Root-POM importiert deshalb das BOM von Jetty 10 vor dem von Spring Boot. Der Server selbst läuft auf Tomcat und nutzt Jetty nur im Solr-Client.
+
+**Grenzen der Community-Fassung:** Speicher- und CPU-Limits pro Context (`sandbox.MaxHeapMemory`, `sandbox.MaxCPUTime`) und die Policies `ISOLATED` und `UNTRUSTED` gibt es nur in Oracle GraalVM. log-guy nutzt `CONSTRAINED` und bricht zu lange Aufrufe selbst mit `Context.interrupt` ab.
 
 **Agent:** eine schlanke Java-Anwendung ohne Spring. Eine JVM pro Agent-Container braucht grob 50 bis 100 MB RAM, bei 35 Anwendungen also einige GB. Mit GraalVM Native Image ließe sich der Agent als kleine Binary mit deutlich weniger Speicher bauen. Beides ist geschätzt, nicht gemessen.
 

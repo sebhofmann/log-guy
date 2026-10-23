@@ -21,8 +21,10 @@ log-guy:
   apps:
     digibib:
       index-days: 7
+      parser: mycore-log4j
     digibib-apache:
       index-days: 7
+      parser: apache-combined
   users:
     - name: anna
       password-hash: "$argon2id$v=19$..."
@@ -56,7 +58,9 @@ log-guy:
 | `api` | einem Nutzer | was der Nutzer darf, optional eingeschränkt |
 | `mcp` | einem Nutzer | was der Nutzer darf, immer pseudonymisiert. Skripte nur als Entwurf, aktivieren nur mit activate: true |
 
-- `log-guy token create --kind ingest --host app1 --apps digibib,digibib-apache` erzeugt ein Token, zeigt es einmal an und schreibt nur den Hash in die Konfiguration.
+- `log-guy token create --kind ingest --name agent-app1 --host app1 --apps digibib,digibib-apache` erzeugt ein Token, zeigt es einmal an und gibt den Eintrag für `application.yml` mit dem Hash aus. Eintragen muss ihn der Mensch selbst, denn ein Programm, das die YAML-Datei umschreibt, würde Kommentare und Reihenfolge zerstören.
+- Tokens beginnen mit `lg_<art>_`, z.B. `lg_ingest_...`, danach 32 Zufallsbytes in Base64. Konfiguriert ist nur `sha256:<hex>` des ganzen Tokens.
+- `log-guy check` prüft die Tokens: Name eindeutig, Hash im richtigen Format, Ingest-Tokens mit Host und Anwendungen, die unter `log-guy.apps` stehen.
 - Passwörter werden mit Argon2 gehasht.
 - Änderungen an der Datei übernimmt log-guy ohne Neustart nach `log-guy reload`.
 

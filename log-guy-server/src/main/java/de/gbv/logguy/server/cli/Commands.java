@@ -1,6 +1,8 @@
 package de.gbv.logguy.server.cli;
 
 import java.io.PrintWriter;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -14,6 +16,8 @@ import de.gbv.logguy.server.config.ConfigChecker;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.TokenKind;
 import de.gbv.logguy.server.script.ParserRegistry;
+import de.gbv.logguy.server.script.ParserScript;
+import de.gbv.logguy.server.script.ScriptRuntime;
 import de.gbv.logguy.server.security.TokenRegistry;
 import de.gbv.logguy.server.solr.SolrService;
 
@@ -28,6 +32,8 @@ public class Commands {
 
     private final SolrService solr;
 
+    private final ScriptRuntime runtime;
+
     private final CliExitCode exitCode;
 
     /**
@@ -36,12 +42,15 @@ public class Commands {
      * @param properties configuration
      * @param parsers the parser scripts
      * @param solr connection to Solr, only used by Solr commands
+     * @param runtime the script runtime
      * @param exitCode exit code of the process
      */
-    public Commands(LogGuyProperties properties, ParserRegistry parsers, SolrService solr, CliExitCode exitCode) {
+    public Commands(LogGuyProperties properties, ParserRegistry parsers, SolrService solr, ScriptRuntime runtime,
+        CliExitCode exitCode) {
         this.properties = properties;
         this.parsers = parsers;
         this.solr = solr;
+        this.runtime = runtime;
         this.exitCode = exitCode;
     }
 
@@ -75,6 +84,32 @@ public class Commands {
         PrintWriter out = context.outputWriter();
         try {
             solr.init().forEach(out::println);
+        } catch (Exception e) {
+            out.println("ERROR " + e.getMessage());
+            exitCode.fail();
+        }
+        out.flush();
+    }
+
+    /**
+     * Measures a parser script on a log file.
+     *
+     * @param context the command context
+     * @param script name of a parser in the script directory or the JAR, or path of a {@code .js} file
+     * @param file the log file, plain or {@code .gz}
+     * @param rounds number of rounds
+     */
+    @Command(name = { "bench", "parser" }, description = "Measure a parser script on a log file")
+    public void benchParser(CommandContext context,
+        @Option(longName = "script", description = "parser name or .js file", required = true) String script,
+        @Option(longName = "file", description = "log file, plain or .gz", required = true) String file,
+        @Option(longName = "rounds", description = "number of rounds", defaultValue = "3") int rounds) {
+        PrintWriter out = context.outputWriter();
+        try {
+            Path path = Path.of(script);
+            String code = script.endsWith(".js") ? Files.readString(path) : parsers.source(script);
+            String name = script.endsWith(".js") ? path.getFileName().toString().replace(".js", "") : script;
+            ParserBenchmark.run(runtime, ParserScript.load(runtime, name, code), Path.of(file), rounds, out);
         } catch (Exception e) {
             out.println("ERROR " + e.getMessage());
             exitCode.fail();
