@@ -40,7 +40,6 @@ log-guy:
   scripts:
     dir: /etc/log-guy/scripts
     event-timeout: 50ms
-    max-heap-per-context: 64MB
   solr:
     urls:
       - http://localhost:8983/solr
@@ -56,6 +55,8 @@ log-guy:
     poll-interval: 1s
     batch-size: 1000
     read-size: 1MB
+    round-size: 64MB
     provisional-after: 5s
     max-event-size: 1MB
     index-days: 7
+    stats-interval: 10s

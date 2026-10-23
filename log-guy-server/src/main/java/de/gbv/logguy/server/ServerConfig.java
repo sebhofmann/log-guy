@@ -2,8 +2,10 @@ package de.gbv.logguy.server;
 
 import java.io.IOException;
 import java.time.Clock;
+import java.util.List;
 
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
@@ -12,7 +14,11 @@ import org.springframework.scheduling.annotation.Scheduled;
 
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.hot.HotStore;
+import de.gbv.logguy.server.index.Indexer;
 import de.gbv.logguy.server.ingest.IngestService;
+import de.gbv.logguy.server.script.ParserRegistry;
+import de.gbv.logguy.server.script.ScriptRuntime;
+import de.gbv.logguy.server.solr.SolrService;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -45,6 +51,31 @@ public class ServerConfig {
     @Bean(destroyMethod = "close")
     public HotStore hotStore(LogGuyProperties properties, JsonMapper json, Clock clock) throws IOException {
         return new HotStore(properties, json, clock);
+    }
+
+    /**
+     * The indexer, started with the server unless {@code log-guy.indexer.enabled} is false. Fails the start if a
+     * parser script has errors.
+     *
+     * @param properties configuration
+     * @param store the hot storage
+     * @param parsers the parser scripts
+     * @param runtime the script runtime
+     * @param solr connection to Solr
+     * @param clock clock for provisional events
+     * @param json mapper for state files
+     * @return the running indexer
+     * @throws IOException if the state directory cannot be created
+     */
+    @Bean(destroyMethod = "close")
+    @ConditionalOnBooleanProperty("log-guy.indexer.enabled")
+    public Indexer indexer(LogGuyProperties properties, HotStore store, ParserRegistry parsers,
+        ScriptRuntime runtime, SolrService solr, Clock clock, JsonMapper json) throws IOException {
+        List<String> errors = parsers.load();
+        if (!errors.isEmpty()) {
+            throw new IllegalStateException("parser scripts have errors: " + String.join("; ", errors));
+        }
+        return new Indexer(properties, store, parsers, runtime, solr::add, clock, json);
     }
 
     /**

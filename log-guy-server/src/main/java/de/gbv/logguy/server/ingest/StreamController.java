@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.Semaphore;
 
+import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -23,6 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import de.gbv.logguy.common.IngestProtocol;
 import de.gbv.logguy.common.StreamStatus;
+import de.gbv.logguy.server.LogGuyApplication;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.security.IngestPrincipal;
 import jakarta.servlet.http.HttpServletRequest;
@@ -31,6 +33,7 @@ import jakarta.servlet.http.HttpServletRequest;
  * The stream API the agents send their log files to, see {@link IngestProtocol}.
  */
 @RestController
+@Profile("!" + LogGuyApplication.CLI_PROFILE)
 @RequestMapping(IngestProtocol.STREAMS_PATH)
 public class StreamController {
 

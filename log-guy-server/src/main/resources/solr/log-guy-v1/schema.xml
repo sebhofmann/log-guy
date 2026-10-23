@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Schema of log-guy. Fixed fields for every event, dynamic fields with a type suffix for the fields of the parser
+  scripts. A new field in a script needs no new configset.
+-->
+<schema name="log-guy-v1" version="1.7">
+  <uniqueKey>id</uniqueKey>
+
+  <!-- <fingerprint>:<byte offset of the event> -->
+  <field name="id" type="string" indexed="true" stored="true" required="true"/>
+  <field name="app" type="string" indexed="true" stored="false" required="true"/>
+  <field name="host" type="string" indexed="true" stored="false" required="true"/>
+  <field name="file" type="string" indexed="true" stored="false" required="true"/>
+  <field name="offset" type="plong" indexed="true" stored="false" required="true"/>
+  <field name="ts" type="pdate" indexed="true" stored="false" required="true"/>
+  <field name="message" type="text_log" indexed="true" stored="true" required="true"/>
+  <field name="parser_version" type="string" indexed="true" stored="false"/>
+  <field name="parse_error" type="string" indexed="true" stored="false"/>
+  <!-- documents loaded for older periods are deleted after this point in time -->
+  <field name="expires" type="pdate" indexed="true" stored="false"/>
+  <field name="_version_" type="plong" indexed="false" stored="false"/>
+
+  <dynamicField name="*_s" type="string" indexed="true" stored="false"/>
+  <dynamicField name="*_ss" type="string" indexed="true" stored="false" multiValued="true"/>
+  <dynamicField name="*_i" type="pint" indexed="true" stored="false"/>
+  <dynamicField name="*_l" type="plong" indexed="true" stored="false"/>
+  <dynamicField name="*_d" type="pdouble" indexed="true" stored="false"/>
+  <dynamicField name="*_dt" type="pdate" indexed="true" stored="false"/>
+  <dynamicField name="*_b" type="boolean" indexed="true" stored="false"/>
+  <dynamicField name="*_t" type="text_log" indexed="true" stored="true"/>
+
+  <!-- docValues serve facets, sorting and, with useDocValuesAsStored, the values in search results -->
+  <fieldType name="string" class="solr.StrField" sortMissingLast="true" docValues="true"/>
+  <fieldType name="boolean" class="solr.BoolField" sortMissingLast="true" docValues="true"/>
+  <fieldType name="pint" class="solr.IntPointField" docValues="true"/>
+  <fieldType name="plong" class="solr.LongPointField" docValues="true"/>
+  <fieldType name="pdouble" class="solr.DoublePointField" docValues="true"/>
+  <fieldType name="pdate" class="solr.DatePointField" docValues="true"/>
+
+  <fieldType name="text_log" class="solr.TextField" positionIncrementGap="100">
+    <analyzer>
+      <tokenizer name="standard"/>
+      <filter name="lowercase"/>
+    </analyzer>
+  </fieldType>
+</schema>

@@ -1,0 +1,4 @@
+# Command line: only warnings, the commands print their own results.
+logging:
+  level:
+    de.gbv.logguy: WARN

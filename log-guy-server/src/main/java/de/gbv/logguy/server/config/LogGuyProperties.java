@@ -116,9 +116,8 @@ public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppPropert
      *
      * @param dir directory with {@code parser/}, {@code rule/}, {@code lifecycle/} and {@code pseudonym/}
      * @param eventTimeout time after which a single script call is cancelled
-     * @param maxHeapPerContext heap a script context may use, if the runtime supports the limit
      */
-    public record ScriptProperties(Path dir, Duration eventTimeout, DataSize maxHeapPerContext) {
+    public record ScriptProperties(Path dir, Duration eventTimeout) {
     }
 
     /**
@@ -145,11 +144,14 @@ public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppPropert
      * @param pollInterval how often files are checked for new bytes
      * @param batchSize documents per request to Solr
      * @param readSize bytes read from {@code hot/} per step
+     * @param roundSize bytes of one file indexed before other files get their turn
      * @param provisionalAfter time without new lines after which a growing event is indexed provisionally
      * @param maxEventSize events longer than this are cut
      * @param indexDays global number of days kept in the index
+     * @param statsInterval how often the throughput is logged
      */
     public record IndexerProperties(boolean enabled, int threads, Duration pollInterval, int batchSize,
-        DataSize readSize, Duration provisionalAfter, DataSize maxEventSize, int indexDays) {
+        DataSize readSize, DataSize roundSize, Duration provisionalAfter, DataSize maxEventSize, int indexDays,
+        Duration statsInterval) {
     }
 }

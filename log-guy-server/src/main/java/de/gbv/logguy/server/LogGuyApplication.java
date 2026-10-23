@@ -7,6 +7,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
+import org.springframework.context.ConfigurableApplicationContext;
 
 /**
  * Entry point. Without arguments, or with {@code serve}, log-guy starts as server. With a command such as
@@ -27,7 +28,10 @@ public class LogGuyApplication {
      * @param args nothing or {@code serve} for the server, otherwise a command
      */
     public static void main(String[] args) {
-        createApplication(args).run(serverArgs(args));
+        ConfigurableApplicationContext context = createApplication(args).run(serverArgs(args));
+        if (isCommand(args)) {
+            System.exit(SpringApplication.exit(context));
+        }
     }
 
     /**

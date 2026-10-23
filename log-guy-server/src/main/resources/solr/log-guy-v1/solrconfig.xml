@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  solrconfig.xml of log-guy. Values with ${...} can be changed per collection without a new configset.
+-->
+<config>
+  <luceneMatchVersion>9.12</luceneMatchVersion>
+
+  <dataDir>${solr.data.dir:}</dataDir>
+  <directoryFactory name="DirectoryFactory" class="${solr.directoryFactory:solr.NRTCachingDirectoryFactory}"/>
+
+  <!-- stored fields compressed as in the prototype -->
+  <codecFactory class="solr.SchemaCodecFactory">
+    <str name="compressionMode">BEST_COMPRESSION</str>
+  </codecFactory>
+
+  <schemaFactory class="ClassicIndexSchemaFactory"/>
+
+  <indexConfig>
+    <lockType>${solr.lock.type:native}</lockType>
+    <ramBufferSizeMB>${logguy.ramBufferSizeMB:256}</ramBufferSizeMB>
+    <mergePolicyFactory class="org.apache.solr.index.TieredMergePolicyFactory">
+      <!-- limits the share of deleted documents, the nightly job deletes old days -->
+      <double name="deletesPctAllowed">${logguy.deletesPctAllowed:25}</double>
+    </mergePolicyFactory>
+  </indexConfig>
+
+  <updateHandler class="solr.DirectUpdateHandler2">
+    <updateLog>
+      <str name="dir">${solr.ulog.dir:}</str>
+    </updateLog>
+    <autoCommit>
+      <maxTime>${logguy.autoCommit.maxTime:60000}</maxTime>
+      <openSearcher>false</openSearcher>
+    </autoCommit>
+    <autoSoftCommit>
+      <maxTime>${logguy.autoSoftCommit.maxTime:15000}</maxTime>
+    </autoSoftCommit>
+  </updateHandler>
+
+  <!-- log searches must not slow down the MIR collections on the same nodes -->
+  <circuitBreaker class="org.apache.solr.util.circuitbreaker.MemoryCircuitBreaker">
+    <double name="threshold">${logguy.memoryCircuitBreaker:80}</double>
+  </circuitBreaker>
+  <circuitBreaker class="org.apache.solr.util.circuitbreaker.CPUCircuitBreaker">
+    <double name="threshold">${logguy.cpuCircuitBreaker:90}</double>
+  </circuitBreaker>
+
+  <query>
+    <maxBooleanClauses>${solr.max.booleanClauses:1024}</maxBooleanClauses>
+    <filterCache size="256" initialSize="64" autowarmCount="16"/>
+    <queryResultCache size="256" initialSize="64" autowarmCount="0"/>
+    <documentCache size="512" initialSize="64" autowarmCount="0"/>
+    <enableLazyFieldLoading>true</enableLazyFieldLoading>
+    <useColdSearcher>false</useColdSearcher>
+  </query>
+
+  <requestDispatcher>
+    <requestParsers multipartUploadLimitInKB="-1" formdataUploadLimitInKB="-1"/>
+    <httpCaching never304="true"/>
+  </requestDispatcher>
+
+  <requestHandler name="/select" class="solr.SearchHandler">
+    <lst name="defaults">
+      <str name="echoParams">explicit</str>
+      <int name="rows">50</int>
+      <str name="df">message</str>
+      <long name="timeAllowed">${logguy.timeAllowed:20000}</long>
+      <long name="cpuAllowed">${logguy.cpuAllowed:15000}</long>
+    </lst>
+  </requestHandler>
+</config>
