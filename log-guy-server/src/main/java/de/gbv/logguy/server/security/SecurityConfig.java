@@ -1,6 +1,7 @@
 package de.gbv.logguy.server.security;
 
 import java.io.IOException;
+import java.util.Set;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -34,6 +35,12 @@ public class SecurityConfig {
 
     /** Path of the reload. */
     public static final String RELOAD_PATH = "/admin/reload";
+
+    /** Path of {@code log-guy archive refilter}. */
+    public static final String REFILTER_PATH = "/admin/archive/refilter";
+
+    /** Paths that also accept the control token of the command line. */
+    public static final Set<String> CONTROL_PATHS = Set.of(RELOAD_PATH, REFILTER_PATH);
 
     /**
      * Creates the password encoder, Argon2id with the parameters of Spring Security.
@@ -100,7 +107,7 @@ public class SecurityConfig {
     }
 
     /**
-     * The reload by {@code log-guy reload} with the control token. Requests without a token go to the GUI chain and
+     * The commands of the command line with the control token, e.g. {@code log-guy reload}. Requests without a token go to the GUI chain and
      * need an administrator there.
      *
      * @param http the builder
@@ -111,7 +118,7 @@ public class SecurityConfig {
     @Order(0)
     public SecurityFilterChain controlChain(HttpSecurity http, ControlToken token) {
         return http
-            .securityMatcher(request -> RELOAD_PATH.equals(request.getRequestURI().substring(
+            .securityMatcher(request -> CONTROL_PATHS.contains(request.getRequestURI().substring(
                 request.getContextPath().length())) && request.getHeader(HttpHeaders.AUTHORIZATION) != null)
             .csrf(csrf -> csrf.disable())
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))

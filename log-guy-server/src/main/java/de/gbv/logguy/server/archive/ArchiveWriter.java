@@ -12,8 +12,10 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -177,8 +179,11 @@ public class ArchiveWriter implements AutoCloseable {
      * @throws ScriptException if a filter cannot be loaded into the thread
      */
     void process(HotFile file) throws IOException, ScriptException {
+        process(file, archive.getOrCreate(file.meta()));
+    }
+
+    private void process(HotFile file, ArchiveFile target) throws IOException, ScriptException {
         FileMeta source = file.meta();
-        ArchiveFile target = archive.getOrCreate(source);
         List<Filter> lineFilters = runners.get().forApp(source.app()).stream().filter(Filter::filtersLines)
             .toList();
         List<String> labels = filters.labels(source.app());
@@ -222,6 +227,81 @@ public class ArchiveWriter implements AutoCloseable {
         }
     }
 
+    /**
+     * Writes archive files again from their originals in {@code hot/} with the current filters, e.g. after a filter
+     * was repaired. Each file is written beside the current one and then replaces it, the writer does not touch
+     * it meanwhile.
+     *
+     * @param app only files of this application, {@code null} for all
+     * @param all all files with an original, not only those with placeholders
+     * @return what was written again
+     * @throws InterruptedException if waiting for the files is interrupted
+     */
+    public RefilterReport refilter(String app, boolean all) throws InterruptedException {
+        if (!filters.errors().isEmpty()) {
+            return new RefilterReport(List.of(), List.of(), List.of(), 0, filters.errors());
+        }
+        List<String> missing = new ArrayList<>();
+        List<Future<ArchiveFile>> futures = new ArrayList<>();
+        List<String> names = new ArrayList<>();
+        for (ArchiveFile current : List.copyOf(archive.files())) {
+            ArchiveMeta meta = current.meta();
+            if (app != null && !app.equals(meta.app()) || !all && meta.filterErrors() == 0) {
+                continue;
+            }
+            Optional<HotFile> original = hot.find(current.fingerprint());
+            if (original.isEmpty()) {
+                missing.add(current.relativePath());
+                continue;
+            }
+            // taken here and not in the worker, a waiting worker could block the task holding the file
+            while (!busy.add(current.fingerprint())) {
+                Thread.sleep(settings.pollInterval().toMillis());
+            }
+            names.add(current.relativePath());
+            futures.add(workers.submit(() -> refilter(original.get())));
+        }
+        List<String> done = new ArrayList<>();
+        List<String> failed = new ArrayList<>();
+        long placeholders = 0;
+        for (int i = 0; i < futures.size(); i++) {
+            try {
+                ArchiveFile result = futures.get(i).get();
+                done.add(result.relativePath());
+                placeholders += result.meta().filterErrors();
+            } catch (ExecutionException e) {
+                LOGGER.error("cannot refilter {}", names.get(i), e.getCause());
+                failed.add(names.get(i) + ": " + e.getCause().getMessage());
+            }
+        }
+        LOGGER.info("refiltered {} files, {} placeholders left, {} without original, {} failed", done.size(),
+            placeholders, missing.size(), failed.size());
+        return new RefilterReport(done, missing, failed, placeholders, List.of());
+    }
+
+    private ArchiveFile refilter(HotFile file) throws IOException, ScriptException {
+        try {
+            ArchiveFile staged = archive.stage(file.meta());
+            process(file, staged);
+            return archive.replace(staged);
+        } finally {
+            busy.remove(file.fingerprint());
+        }
+    }
+
+    /**
+     * Result of {@link #refilter(String, boolean)}.
+     *
+     * @param refiltered files written again
+     * @param missing files whose original is no longer in {@code hot/}
+     * @param failed files that could not be written again, with the reason
+     * @param placeholders placeholders left in the files written again
+     * @param pausedBy errors of filters that cannot be loaded, then nothing was written
+     */
+    public record RefilterReport(List<String> refiltered, List<String> missing, List<String> failed,
+        long placeholders, List<String> pausedBy) {
+    }
+
     private void writeFrame(HotFile file, ArchiveFile target, byte[] bytes, int length, long src,
         List<Filter> lineFilters, List<String> labels, Parser parser) throws IOException {
         List<String> original = new ArrayList<>();
@@ -244,6 +324,7 @@ public class ArchiveWriter implements AutoCloseable {
         ByteArrayOutputStream out = new ByteArrayOutputStream(length);
         int written = 0;
         int errors = 0;
+        String firstError = null;
         for (int i = 0; i < original.size(); i++) {
             String line = original.get(i);
             String cr = line.endsWith("\r") ? "\r" : "";
@@ -251,8 +332,9 @@ public class ArchiveWriter implements AutoCloseable {
             for (Filter filter : lineFilters) {
                 LineResult result = filter.line(text);
                 if (result.error() != null) {
-                    LOGGER.warn("lifecycle filter {} failed on {} at offset {}: {}", filter.label(),
-                        file.relativePath(), offsets.get(i), result.error());
+                    if (firstError == null) {
+                        firstError = filter.label() + " at offset " + offsets.get(i) + ": " + result.error();
+                    }
                     text = settings.placeholder().replace("{filter}", filter.name()).replace("{offset}",
                         String.valueOf(offsets.get(i)));
                     errors++;
@@ -272,6 +354,10 @@ public class ArchiveWriter implements AutoCloseable {
                 out.write('\n');
             }
             written++;
+        }
+        if (firstError != null) {
+            LOGGER.warn("{} lines of {} replaced by the placeholder, the first by {}", errors, file.relativePath(),
+                firstError);
         }
         Instant received = file.received(src + length - 1);
         Instant from = time(parser, original, true).orElse(received);

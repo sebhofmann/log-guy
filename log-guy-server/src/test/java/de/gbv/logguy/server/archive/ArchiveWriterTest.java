@@ -2,6 +2,7 @@ package de.gbv.logguy.server.archive;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayOutputStream;
@@ -225,6 +226,55 @@ class ArchiveWriterTest {
             assertTrue(content.contains("[zurückgehalten kaputt " + offset + "]\n"), content);
             assertEquals(1, target.meta().filterErrors());
             assertEquals(3, target.meta().filters().size(), target.meta().filters().toString());
+        }
+    }
+
+    @Test
+    void refilterReplacesPlaceholdersAfterTheFilterIsRepaired() throws Exception {
+        String broken = """
+            export const meta = { apps: ["*"] };
+            export function line(text) {
+                if (text.includes("MCRIPFilter")) {
+                    throw new Error("kaputt");
+                }
+                return text;
+            }
+            """;
+        writeScript("kaputt", broken);
+        try (HotStore hot = new HotStore(properties, JSON, Clock.systemUTC())) {
+            HotFile file = fill(hot, sample, true);
+            byte[] other = "2026-10-02T10:00:00,000 INFO  guest MCRStartup: ohne Fehler\n"
+                .getBytes(StandardCharsets.UTF_8);
+            HotFile clean = fill(hot, other, true);
+            ArchiveStore archive = new ArchiveStore(properties, JSON);
+            LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON);
+            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, parsers(), runtime)) {
+                await(() -> archive.find(file.fingerprint()).map(a -> a.meta().closed()).orElse(false)
+                    && archive.find(clean.fingerprint()).map(a -> a.meta().closed()).orElse(false));
+                ArchiveFile before = archive.find(file.fingerprint()).orElseThrow();
+                assertEquals(1, before.meta().filterErrors());
+
+                writeScript("kaputt", broken.replace("throw new Error(\"kaputt\")", "return text + \" [geprüft]\""));
+                filters.changed(de.gbv.logguy.server.script.ScriptKind.LIFECYCLE, scripts);
+                ArchiveWriter.RefilterReport report = writer.refilter(null, false);
+                assertEquals(List.of(before.relativePath()), report.refiltered());
+                assertEquals(0, report.placeholders());
+                assertTrue(report.failed().isEmpty() && report.missing().isEmpty());
+                assertThrows(IOException.class, () -> readAll(before));
+            }
+            ArchiveFile after = archive.find(file.fingerprint()).orElseThrow();
+            String content = new String(readAll(after), StandardCharsets.UTF_8);
+            assertTrue(content.contains("request from 192.0.2.0 and 2001:db8:1:: [geprüft]\n"), content);
+            assertFalse(content.contains("zurückgehalten"));
+            assertEquals(0, after.meta().filterErrors());
+            assertTrue(after.meta().closed());
+            assertFalse(Files.exists(properties.archiveDir().resolve(".refilter/app1/digibib/"
+                + after.relativePath().substring("app1/digibib/".length()))));
+            ArchiveStore reloaded = new ArchiveStore(properties, JSON);
+            assertEquals(after.meta(), reloaded.find(file.fingerprint()).orElseThrow().meta());
+            assertEquals(content, new String(readAll(reloaded.find(file.fingerprint()).orElseThrow()),
+                StandardCharsets.UTF_8));
+            assertFalse(Files.exists(properties.archiveDir().resolve(".refilter")));
         }
     }
 

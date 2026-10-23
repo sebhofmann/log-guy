@@ -60,6 +60,8 @@ public final class ArchiveFile {
 
     private ArchiveMeta meta;
 
+    private volatile boolean replaced;
+
     private ArchiveFile(Path dir, String name, String relativeDir, JsonMapper json) {
         this.zstPath = dir.resolve(name + ZST_SUFFIX);
         this.idxPath = dir.resolve(name + IDX_SUFFIX);
@@ -82,6 +84,9 @@ public final class ArchiveFile {
         Path dir = root.resolve(relativeDir);
         Files.createDirectories(dir);
         ArchiveFile file = new ArchiveFile(dir, source.created() + "-" + source.fingerprint(), relativeDir, json);
+        // left over by a crash during a replacement, see replaceBy
+        Files.deleteIfExists(file.zstPath);
+        Files.deleteIfExists(file.idxPath);
         file.meta = new ArchiveMeta(source.fingerprint(), source.host(), source.app(), source.created(),
             source.paths(), 0, 0, 0, null, null, false, List.of(), 0);
         file.writeMeta();
@@ -239,6 +244,9 @@ public final class ArchiveFile {
      * @throws IOException if reading fails
      */
     public byte[] readFrame(ArchiveFrame frame) throws IOException {
+        if (replaced) {
+            throw new IOException(relativePath + " was written again, find it again in the store");
+        }
         if (frame.zlen() == 0) {
             return new byte[0];
         }
@@ -302,6 +310,47 @@ public final class ArchiveFile {
             throw new IllegalStateException("no frame for offset " + offset);
         }
         return found;
+    }
+
+    /**
+     * Replaces this file by a file written again in the staging directory. The meta data go first and come last:
+     * after a crash in between the file is missing in the archive and is written again from {@code hot/}.
+     *
+     * @param staged the new content, for the same original
+     * @return the path of the meta data, to load the file again
+     * @throws IOException if moving fails
+     */
+    Path replaceBy(ArchiveFile staged) throws IOException {
+        lock.lock();
+        staged.lock.lock();
+        try {
+            if (!staged.fingerprint().equals(fingerprint())) {
+                throw new IllegalArgumentException(staged.relativePath + " is not " + relativePath);
+            }
+            replaced = true;
+            Files.delete(metaPath);
+            syncDirectory(metaPath.getParent());
+            if (Files.exists(staged.zstPath)) {
+                Files.move(staged.zstPath, zstPath, StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING);
+            } else {
+                Files.deleteIfExists(zstPath);
+            }
+            if (Files.exists(staged.idxPath)) {
+                Files.move(staged.idxPath, idxPath, StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING);
+            } else {
+                Files.deleteIfExists(idxPath);
+            }
+            syncDirectory(metaPath.getParent());
+            Files.move(staged.metaPath, metaPath, StandardCopyOption.ATOMIC_MOVE);
+            syncDirectory(metaPath.getParent());
+            staged.replaced = true;
+            return metaPath;
+        } finally {
+            staged.lock.unlock();
+            lock.unlock();
+        }
     }
 
     private void writeMeta() throws IOException {

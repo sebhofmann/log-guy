@@ -11,6 +11,7 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.function.UnaryOperator;
 
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 import de.gbv.logguy.server.pseudonym.PseudonymQueries;
@@ -28,6 +29,7 @@ import de.gbv.logguy.server.security.LogGuyUser;
  * only pseudonymized. Pseudonyms in queries and filters are translated back to the real values first.
  */
 @Component
+@Profile("!cli")
 public class PseudonymizedSearch {
 
     /** Replaces an event, a line or a value whose pseudonymization failed. */

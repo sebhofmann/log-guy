@@ -5,6 +5,7 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -27,6 +28,9 @@ public class ArchiveStore {
 
     private final Path root;
 
+    /** Directory below {@code archive/} for files written again, deeper than the files are loaded from. */
+    private static final String STAGING = ".refilter";
+
     private final JsonMapper json;
 
     private final ConcurrentMap<String, ArchiveFile> files = new ConcurrentHashMap<>();
@@ -42,6 +46,7 @@ public class ArchiveStore {
         this.root = properties.archiveDir();
         this.json = json;
         Files.createDirectories(root);
+        deleteStaging();
         try (Stream<Path> paths = Files.walk(root, 3)) {
             for (Path meta : paths.filter(p -> p.getFileName().toString().endsWith(ArchiveFile.META_SUFFIX))
                 .toList()) {
@@ -91,5 +96,48 @@ public class ArchiveStore {
      */
     public Collection<ArchiveFile> files() {
         return files.values();
+    }
+
+    /**
+     * Creates an empty file in the staging directory, to write an archive file again beside the current one.
+     *
+     * @param source meta data of the original in {@code hot/}
+     * @return the staged file, see {@link #replace(ArchiveFile)}
+     * @throws IOException if the file cannot be created
+     */
+    public ArchiveFile stage(FileMeta source) throws IOException {
+        Path staging = root.resolve(STAGING);
+        ArchiveFile file = ArchiveFile.create(staging, source, json);
+        return file;
+    }
+
+    /**
+     * Replaces an archive file by a staged one for the same original.
+     *
+     * @param staged a file from {@link #stage(FileMeta)}
+     * @return the new archive file
+     * @throws IOException if moving fails
+     */
+    public ArchiveFile replace(ArchiveFile staged) throws IOException {
+        ArchiveFile current = files.get(staged.fingerprint());
+        if (current == null) {
+            throw new IllegalStateException(staged.fingerprint() + " is not archived");
+        }
+        Path meta = current.replaceBy(staged);
+        ArchiveFile loaded = ArchiveFile.load(root, meta, json);
+        files.put(loaded.fingerprint(), loaded);
+        return loaded;
+    }
+
+    private void deleteStaging() throws IOException {
+        Path staging = root.resolve(STAGING);
+        if (!Files.exists(staging)) {
+            return;
+        }
+        try (Stream<Path> paths = Files.walk(staging)) {
+            for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
+                Files.delete(path);
+            }
+        }
     }
 }

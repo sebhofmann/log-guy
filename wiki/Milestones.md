@@ -61,7 +61,7 @@ Die Pseudonymisierung gehört in diesen Milestone, weil alles, was den MCP-Endpu
 
 - [x] Archiv-Schreiber von `hot/` nach `archive/` mit Lifecycle-Filtern
 - [x] Filter `ip-kuerzen.js`, eingebaute Funktionen `maskIp`, `replaceIps`, `findIps`, `findEmails`
-- [ ] Platzhalter bei Filterfehlern, `log-guy archive refilter`
+- [x] Platzhalter bei Filterfehlern, `log-guy archive refilter`
 - [ ] `hot/` nach 7 Tagen leeren
 - [ ] Archivsuche als Job mit Regex, Fortschritt und Abbruch, in GUI und MCP
 - [ ] Ältere Zeiträume nachindexieren mit Ablaufdatum

@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.apache.logging.log4j.Level;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -17,8 +18,11 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.servlet.ModelAndView;
 
+import de.gbv.logguy.server.archive.ArchiveWriter;
+import de.gbv.logguy.server.archive.ArchiveWriter.RefilterReport;
 import de.gbv.logguy.server.audit.Actor;
 import de.gbv.logguy.server.audit.Actor.Via;
+import de.gbv.logguy.server.audit.AuditLog;
 import de.gbv.logguy.server.config.ConfigReloader;
 import de.gbv.logguy.server.config.ConfigReloader.Report;
 import de.gbv.logguy.server.script.ScriptStore.ScriptId;
@@ -48,6 +52,10 @@ public class AdminController {
 
     private final ConfigReloader reloader;
 
+    private final ObjectProvider<ArchiveWriter> archiveWriter;
+
+    private final AuditLog audit;
+
     /**
      * Creates the controller.
      *
@@ -55,13 +63,24 @@ public class AdminController {
      * @param status collects the status
      * @param serverLog the own log
      * @param reloader reads configuration and scripts again
+     * @param archiveWriter the archive writer, missing if the archive is disabled
+     * @param audit the audit log
      */
     public AdminController(CurrentUser currentUser, StatusService status, ServerLog serverLog,
-        ConfigReloader reloader) {
+        ConfigReloader reloader, ObjectProvider<ArchiveWriter> archiveWriter, AuditLog audit) {
         this.currentUser = currentUser;
         this.status = status;
         this.serverLog = serverLog;
         this.reloader = reloader;
+        this.archiveWriter = archiveWriter;
+        this.audit = audit;
+    }
+
+    private Actor actor(Authentication authentication) {
+        boolean control = authentication.getAuthorities().stream()
+            .anyMatch(a -> ControlTokenFilter.CONTROL_AUTHORITY.equals(a.getAuthority()));
+        return control ? new Actor(null, ControlTokenFilter.PRINCIPAL, Via.CLI)
+            : new Actor(currentUser.get().name(), null, Via.GUI);
     }
 
     /**
@@ -76,10 +95,7 @@ public class AdminController {
     @ResponseBody
     public ResponseEntity<Report> reload(@RequestParam(required = false) String script,
         Authentication authentication) throws IOException {
-        boolean control = authentication.getAuthorities().stream()
-            .anyMatch(a -> ControlTokenFilter.CONTROL_AUTHORITY.equals(a.getAuthority()));
-        Actor actor = control ? new Actor(null, ControlTokenFilter.PRINCIPAL, Via.CLI)
-            : new Actor(currentUser.get().name(), null, Via.GUI);
+        Actor actor = actor(authentication);
         ScriptId only;
         try {
             only = script == null || script.isBlank() ? null : ScriptId.parse(script);
@@ -89,6 +105,34 @@ public class AdminController {
         }
         Report report = reloader.reload(actor, only);
         return ResponseEntity.status(report.ok() ? HttpStatus.OK : HttpStatus.UNPROCESSABLE_CONTENT).body(report);
+    }
+
+    /**
+     * Writes archive files again from {@code hot/} with the current lifecycle filters, for administrators and for
+     * {@code log-guy archive refilter} with the control token. Runs until all files are written.
+     *
+     * @param app only files of this application
+     * @param all all files with an original in {@code hot/}, not only those with placeholders
+     * @param authentication the caller
+     * @return the files written again, 200 if all could be written, otherwise 422
+     * @throws InterruptedException if waiting is interrupted
+     */
+    @PostMapping(SecurityConfig.REFILTER_PATH)
+    @ResponseBody
+    public ResponseEntity<RefilterReport> refilter(@RequestParam(required = false) String app,
+        @RequestParam(defaultValue = "false") boolean all, Authentication authentication)
+        throws InterruptedException {
+        ArchiveWriter writer = archiveWriter.getIfAvailable();
+        if (writer == null) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(new RefilterReport(List.of(), List.of(),
+                List.of(), 0, List.of("Das Archiv ist abgeschaltet (log-guy.archive.enabled)")));
+        }
+        RefilterReport report = writer.refilter(app == null || app.isBlank() ? null : app, all);
+        audit.log(actor(authentication), "archive.refilter", app == null ? "*" : app,
+            Map.of("all", all, "refiltered", report.refiltered().size(), "missing", report.missing().size(),
+                "failed", report.failed().size(), "placeholders", report.placeholders()));
+        boolean ok = report.failed().isEmpty() && report.pausedBy().isEmpty();
+        return ResponseEntity.status(ok ? HttpStatus.OK : HttpStatus.UNPROCESSABLE_CONTENT).body(report);
     }
 
     /**

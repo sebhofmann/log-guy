@@ -119,11 +119,37 @@ public class Commands {
     @Command(name = "reload", description = "Reload configuration and scripts of the running server")
     public void reload(CommandContext context,
         @Argument(index = 0, description = "only this script, e.g. parser/digibib", defaultValue = "") String script) {
+        String query =
+            script == null || script.isBlank() ? "" : "?script=" + URLEncoder.encode(script, StandardCharsets.UTF_8);
+        control(context, SecurityConfig.RELOAD_PATH + query);
+    }
+
+    /**
+     * Lets the running server write archive files again from {@code hot/} with the current lifecycle filters.
+     *
+     * @param context the command context
+     * @param app only files of this application
+     * @param all all files with an original, not only those with placeholders
+     */
+    @Command(name = { "archive", "refilter" },
+        description = "Write archive files with placeholders again from hot/ with the current lifecycle filters")
+    public void archiveRefilter(CommandContext context,
+        @Option(longName = "app", description = "only this application", defaultValue = "") String app,
+        @Option(longName = "all", description = "all files still in hot/, not only those with placeholders",
+            defaultValue = "false") boolean all) {
+        String query = "?all=" + all + (app == null || app.isBlank() ? "" : "&app=" + URLEncoder.encode(app,
+            StandardCharsets.UTF_8));
+        control(context, SecurityConfig.REFILTER_PATH + query);
+    }
+
+    /**
+     * Sends a request with the control token to the running server and prints the answer.
+     */
+    private void control(CommandContext context, String pathAndQuery) {
         PrintWriter out = context.outputWriter();
         try {
             String token = ControlToken.read(properties.dataDir());
-            String query = script.isBlank() ? "" : "?script=" + URLEncoder.encode(script, StandardCharsets.UTF_8);
-            URI uri = URI.create(cli.serverUrl().toString().replaceAll("/+$", "") + SecurityConfig.RELOAD_PATH + query);
+            URI uri = URI.create(cli.serverUrl().toString().replaceAll("/+$", "") + pathAndQuery);
             HttpRequest request = HttpRequest.newBuilder(uri)
                 .header("Authorization", "Bearer " + token)
                 .POST(HttpRequest.BodyPublishers.noBody())
