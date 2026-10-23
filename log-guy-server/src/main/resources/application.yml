@@ -1,0 +1,61 @@
+# Defaults of log-guy. Overridden by /etc/log-guy/application.yml.
+spring:
+  application:
+    name: log-guy
+  main:
+    banner-mode: off
+  autoconfigure:
+    # users come with M2, until then there is no login
+    exclude: org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration
+  shell:
+    interactive:
+      enabled: false
+  threads:
+    virtual:
+      enabled: true
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+log-guy:
+  data-dir: /var/lib/log-guy
+  zone: Europe/Berlin
+  apps: {}
+  tokens: []
+  ingest:
+    max-chunk-size: 8MB
+    max-concurrent: 32
+    retry-after: 2s
+  hot:
+    frame-size: 1MB
+    frame-max-age: 60s
+    flush-interval: 5s
+    compression-level: 3
+  scripts:
+    dir: /etc/log-guy/scripts
+    event-timeout: 50ms
+    max-heap-per-context: 64MB
+  solr:
+    urls:
+      - http://localhost:8983/solr
+    user: ""
+    configset: log-guy-v1
+    collection: logs_v1
+    alias: logs
+    replication-factor: 2
+    timeout: 60s
+  indexer:
+    enabled: true
+    threads: 4
+    poll-interval: 1s
+    batch-size: 1000
+    read-size: 1MB
+    provisional-after: 5s
+    max-event-size: 1MB
+    index-days: 7

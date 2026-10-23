@@ -1,0 +1,13 @@
+# Testdaten, nur lokal
+/prod-logs/
+
+# Maven
+target/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.project
+.classpath
+.settings/
