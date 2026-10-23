@@ -50,9 +50,12 @@ M2 ist erfüllt mit dem Backfill von digibib in der E2E-Umgebung: Suche, Facette
 - [x] Pseudonymisierung als JavaScript, `ps()`, Rückübersetzung in Anfragen, Ausgabe zurückhalten bei Fehlern
 - [x] MCP-Server mit Spring AI: Such-, Skript-, Status- und Log-Tools, MCP-Tokens, `activate: true`
 - [x] Recht `scripts`, Audit-Log für alle Änderungen
-- [ ] Erster Parser per LLM: `apache-combined.js`
+- [x] Erster Parser per LLM: `apache-combined.js`
+- [x] `read_pseudonymized` in GUI und API, gleiche Pseudonymisierung wie beim MCP
 
 Die Pseudonymisierung gehört in diesen Milestone, weil alles, was den MCP-Endpunkt verlässt, schon pseudonymisiert sein muss.
+
+`apache-combined.js` hat Claude als LLM geschrieben und über die Script-API gegen eingefügte Zeilen getestet, der Parser wird als Vorlage ausgeliefert. M3 ist damit erfüllt.
 
 ### M4 Archiv
 

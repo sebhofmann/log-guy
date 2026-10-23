@@ -1,4 +1,4 @@
-package de.gbv.logguy.server.mcp;
+package de.gbv.logguy.server.pseudonym;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -8,15 +8,15 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import de.gbv.logguy.server.pseudonym.Pseudonyms;
 import de.gbv.logguy.server.search.SearchException;
 
 /**
- * Translates pseudonyms in queries and filters of the MCP tools back to the real values. On protected fields, the
- * {@code meta.fields} of the pseudonymization scripts, only pseudonyms of the session are accepted, so an LLM cannot
- * find out by guessing whether a certain user appears in the logs.
+ * Translates pseudonyms in pseudonymized queries and filters, from the MCP tools or from users who may only read
+ * pseudonymized, back to the real values. On protected fields, the {@code meta.fields} of the pseudonymization
+ * scripts, only pseudonyms of the session are accepted, so nobody can find out by guessing whether a certain user
+ * appears in the logs.
  */
-public final class McpQueries {
+public final class PseudonymQueries {
 
     // a field name followed by a colon, the value is a quoted phrase, a group or a single term
     private static final Pattern FIELD_TERM =
@@ -25,13 +25,13 @@ public final class McpQueries {
 
     private static final Pattern QUOTED = Pattern.compile("\"(?:[^\"\\\\]|\\\\.)*\"");
 
-    private McpQueries() {
+    private PseudonymQueries() {
     }
 
     /**
      * Checks a query and replaces the pseudonyms of the session with their real values, quoted as Solr phrases.
      *
-     * @param query the query of the LLM, may be {@code null}
+     * @param query the pseudonymized query, may be {@code null}
      * @param protectedFields fields that only accept pseudonyms
      * @param session the pseudonyms of the session
      * @return the query with real values
@@ -54,11 +54,11 @@ public final class McpQueries {
         Matcher quoted = QUOTED.matcher(query);
         int last = 0;
         while (quoted.find()) {
-            out.append(session.resolve(query.substring(last, quoted.start()), McpQueries::phrase));
-            out.append(session.resolve(quoted.group(), McpQueries::escape));
+            out.append(session.resolve(query.substring(last, quoted.start()), PseudonymQueries::phrase));
+            out.append(session.resolve(quoted.group(), PseudonymQueries::escape));
             last = quoted.end();
         }
-        out.append(session.resolve(query.substring(last), McpQueries::phrase));
+        out.append(session.resolve(query.substring(last), PseudonymQueries::phrase));
         return out.toString();
     }
 

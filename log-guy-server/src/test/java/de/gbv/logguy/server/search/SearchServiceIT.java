@@ -14,6 +14,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 import org.apache.solr.client.solrj.SolrQuery;
 import org.junit.jupiter.api.AfterAll;
@@ -37,8 +38,11 @@ import de.gbv.logguy.server.config.LogGuyProperties.SearchProperties;
 import de.gbv.logguy.server.hot.HotFile;
 import de.gbv.logguy.server.hot.HotStore;
 import de.gbv.logguy.server.index.Indexer;
+import de.gbv.logguy.server.pseudonym.PseudonymService;
+import de.gbv.logguy.server.pseudonym.Pseudonyms;
 import de.gbv.logguy.server.script.ParserRegistry;
 import de.gbv.logguy.server.script.ScriptRuntime;
+import de.gbv.logguy.server.script.ScriptStore;
 import de.gbv.logguy.server.search.ContextService.ContextView;
 import de.gbv.logguy.server.search.SearchService.EventView;
 import de.gbv.logguy.server.search.SearchService.FacetValue;
@@ -75,11 +79,24 @@ class SearchServiceIT {
 
     private static ContextService context;
 
+    private static PseudonymService pseudonyms;
+
+    private static PseudonymizedSearch pseudonymized;
+
+    private static final Pattern IPV4 = Pattern.compile("\\b\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\b");
+
     private static final LogGuyUser READER =
         LogGuyUser.of("reader", List.of(new GrantProperties(List.of("digi*"), Set.of(Right.READ))));
 
     private static final LogGuyUser OTHER =
         LogGuyUser.of("other", List.of(new GrantProperties(List.of("other"), Set.of(Right.READ))));
+
+    private static final LogGuyUser PSEUDONYMIZED = LogGuyUser.of("pseudo",
+        List.of(new GrantProperties(List.of("digi*"), Set.of(Right.READ_PSEUDONYMIZED))));
+
+    private static final LogGuyUser MIXED = LogGuyUser.of("mixed", List.of(
+        new GrantProperties(List.of("other"), Set.of(Right.READ)),
+        new GrantProperties(List.of("digibib"), Set.of(Right.READ_PSEUDONYMIZED))));
 
     @BeforeAll
     static void index() throws Exception {
@@ -117,10 +134,15 @@ class SearchServiceIT {
         service.client().commit();
         search = new SearchService(properties, parsers, service, Clock.systemUTC(), JSON);
         context = new ContextService(properties, store);
+        ScriptStore scripts = new ScriptStore(dataDir.resolve("scripts"), Clock.systemUTC(), JSON);
+        scripts.scan();
+        pseudonyms = new PseudonymService(runtime, scripts, JSON);
+        pseudonymized = new PseudonymizedSearch(search, pseudonyms);
     }
 
     @AfterAll
     static void stop() throws Exception {
+        pseudonyms.close();
         store.close();
         runtime.close();
         service.close();
@@ -214,5 +236,39 @@ class SearchServiceIT {
         ContextView first = context.context(READER, Fingerprint.of(SAMPLE) + ":0", 5, 1);
         assertTrue(first.start());
         assertEquals(0, first.before().size());
+    }
+
+    @Test
+    void pseudonymizedReadersSeePseudonymsOnly() throws Exception {
+        assertTrue(search.apps(PSEUDONYMIZED, List.of()).isEmpty());
+        assertFalse(pseudonymized.searchUser(READER, List.of()).pseudonymized());
+        assertTrue(pseudonymized.searchUser(PSEUDONYMIZED, List.of()).pseudonymized());
+        assertFalse(pseudonymized.searchUser(MIXED, List.of("other")).pseudonymized());
+        assertTrue(pseudonymized.searchUser(MIXED, List.of()).pseudonymized());
+        assertEquals(List.of("digibib"), search.describeFields(MIXED, List.of()).pseudonymized());
+        assertEquals(List.of(), search.describeFields(READER, List.of()).pseudonymized());
+
+        LogGuyUser user = pseudonymized.searchUser(PSEUDONYMIZED, List.of());
+        Pseudonyms session = new Pseudonyms();
+        SearchScope scope = pseudonymized.scope(user, session, new SearchRequest(List.of(), "ip", FROM, TO,
+            Map.of()));
+        SearchResult plain = search.search(scope, null, 50, true);
+        assertTrue(plain.events().stream().anyMatch(e -> IPV4.matcher(e.message()).find()));
+        SearchResult result = pseudonymized.result(session, plain);
+        assertEquals(plain.total(), result.total());
+        for (EventView event : result.events()) {
+            assertFalse(IPV4.matcher(event.message()).find(), event.message());
+            assertFalse(PseudonymizedSearch.HELD_BACK.equals(event.message()));
+        }
+        assertTrue(result.events().stream().anyMatch(e -> e.message().contains("$IP1")));
+
+        Map<String, List<FacetValue>> facets = pseudonymized.facets(session, scope.apps(),
+            search.facets(scope, List.of("level"), 10), value -> value);
+        assertFalse(facets.get("level").isEmpty());
+
+        ContextView view = pseudonymized.context(session, context.context(user, result.events().getFirst().id(), 0,
+            20), line -> line);
+        view.lines().forEach(line -> assertFalse(IPV4.matcher(line).find(), line));
+        assertThrows(AccessDeniedException.class, () -> context.context(PSEUDONYMIZED, view.id(), 0, 1));
     }
 }

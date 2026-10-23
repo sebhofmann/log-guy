@@ -177,15 +177,16 @@ public class SearchService {
     }
 
     /**
-     * Describes the fields of the applications a user may read.
+     * Describes the fields of the applications a user may read, also those it may only read pseudonymized.
      *
      * @param user the user
      * @param requested requested applications, empty for all allowed ones
      * @return allowed applications and fields
      */
     public FieldsView describeFields(LogGuyUser user, Collection<String> requested) {
-        Set<String> allowed = user.readableApps(properties.apps().keySet());
-        Set<String> apps = apps(user, requested);
+        LogGuyUser view = user.asPseudonymized();
+        Set<String> allowed = view.readableApps(properties.apps().keySet());
+        Set<String> apps = apps(view, requested);
         parsers.ensureLoaded();
         Map<String, FieldInfo> infos = new TreeMap<>();
         for (String app : apps) {
@@ -202,7 +203,8 @@ public class SearchService {
         FIXED_FIELDS.forEach((name, type) -> fields.add(new FieldInfo(name, type.name().toLowerCase(
             java.util.Locale.ROOT), FIXED_FACETS.contains(name), new TreeSet<>(apps))));
         fields.addAll(infos.values());
-        return new FieldsView(List.copyOf(allowed), fields);
+        return new FieldsView(List.copyOf(allowed), allowed.stream().filter(app -> !user.readsPlain(app)).toList(),
+            fields);
     }
 
     /**
@@ -527,9 +529,10 @@ public class SearchService {
     /**
      * The allowed applications and the fields of the requested ones.
      *
-     * @param apps all applications the user may read
+     * @param apps all applications the user may read, also pseudonymized
+     * @param pseudonymized the applications whose events the user only gets pseudonymized
      * @param fields the fields
      */
-    public record FieldsView(List<String> apps, List<FieldInfo> fields) {
+    public record FieldsView(List<String> apps, List<String> pseudonymized, List<FieldInfo> fields) {
     }
 }

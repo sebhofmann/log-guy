@@ -13,7 +13,6 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.TreeSet;
 import java.util.function.BiFunction;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -43,6 +42,7 @@ import de.gbv.logguy.server.script.ScriptTester.TestEvent;
 import de.gbv.logguy.server.script.ScriptTester.TestSource;
 import de.gbv.logguy.server.search.ContextService;
 import de.gbv.logguy.server.search.ContextService.ContextView;
+import de.gbv.logguy.server.search.PseudonymizedSearch;
 import de.gbv.logguy.server.search.SearchException;
 import de.gbv.logguy.server.search.SearchRequest;
 import de.gbv.logguy.server.search.SearchScope;
@@ -78,7 +78,7 @@ public class McpTools {
 
     private static final Logger LOGGER = LogManager.getLogger();
 
-    private static final String HELD_BACK = "[zurückgehalten]";
+    private static final String HELD_BACK = PseudonymizedSearch.HELD_BACK;
 
     private static final Pattern RELATIVE = Pattern.compile("(\\d+)\\s*([smhd])");
 
@@ -120,6 +120,8 @@ public class McpTools {
 
     private final PseudonymService pseudonyms;
 
+    private final PseudonymizedSearch pseudonymizedSearch;
+
     private final AuditLog audit;
 
     private final JsonMapper json;
@@ -139,13 +141,15 @@ public class McpTools {
      * @param scripts the script store
      * @param tester tests scripts
      * @param pseudonyms the pseudonymization
+     * @param pseudonymizedSearch pseudonymizes search results
      * @param audit the audit log
      * @param json serializes the results
      * @param mcpJson parses the input schemas
      */
     public McpTools(McpProperties settings, UserRegistry users, McpSessions sessions, SearchService search,
         ContextService context, StatusService status, ServerLog serverLog, ScriptService scripts, ScriptTester tester,
-        PseudonymService pseudonyms, AuditLog audit, JsonMapper json, McpJsonMapper mcpJson) {
+        PseudonymService pseudonyms, PseudonymizedSearch pseudonymizedSearch, AuditLog audit, JsonMapper json,
+        McpJsonMapper mcpJson) {
         this.settings = settings;
         this.users = users;
         this.sessions = sessions;
@@ -156,6 +160,7 @@ public class McpTools {
         this.scripts = scripts;
         this.tester = tester;
         this.pseudonyms = pseudonyms;
+        this.pseudonymizedSearch = pseudonymizedSearch;
         this.audit = audit;
         this.json = json;
         this.mcpJson = mcpJson;
@@ -344,15 +349,7 @@ public class McpTools {
      * @return the event for the LLM, empty if it is held back
      */
     Optional<Map<String, Object>> event(Pseudonyms session, EventView event) {
-        Map<String, Object> input = new LinkedHashMap<>(event.fields());
-        input.put("app", event.app());
-        input.put("host", event.host());
-        input.put("ts", event.ts() == null ? null : event.ts().toString());
-        input.put("message", event.message());
-        if (event.parseError() != null) {
-            input.put("parse_error", event.parseError());
-        }
-        return pseudonyms.apply(session, input).map(result -> {
+        return pseudonymizedSearch.event(session, event).map(result -> {
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("id", event.id());
             out.put("ts", event.ts());
@@ -372,73 +369,25 @@ public class McpTools {
 
     private Object histogram(Call call, Map<String, Object> args) throws Exception {
         SearchScope scope = scope(call, args);
-        String split = string(args, "split");
-        Histogram histogram = search.histogram(scope, split);
-        if (histogram.series() == null || split == null) {
-            return histogram;
-        }
-        Map<String, List<Long>> series = new LinkedHashMap<>();
-        histogram.series().forEach((key, counts) -> {
-            String value = value(call.session(), scope.apps(), split, key);
-            series.merge(value, counts, McpTools::sum);
-        });
-        return new Histogram(histogram.interval(), histogram.times(), histogram.total(), split, series);
-    }
-
-    private static List<Long> sum(List<Long> a, List<Long> b) {
-        List<Long> result = new ArrayList<>(a.size());
-        for (int i = 0; i < a.size(); i++) {
-            result.add(a.get(i) + b.get(i));
-        }
-        return result;
+        Histogram histogram = search.histogram(scope, string(args, "split"));
+        return pseudonymizedSearch.histogram(call.session(), scope.apps(), histogram, this::cutText);
     }
 
     private Object topValues(Call call, Map<String, Object> args) throws Exception {
         SearchScope scope = scope(call, args);
         int limit = Math.clamp(integer(args, "limit").orElse(10), 1, settings.maxEvents());
         Map<String, List<FacetValue>> facets = search.facets(scope, strings(args, "fields"), limit);
-        Map<String, List<FacetValue>> out = new LinkedHashMap<>();
-        facets.forEach((field, values) -> {
-            Map<String, Long> merged = new LinkedHashMap<>();
-            for (FacetValue value : values) {
-                merged.merge(value(call.session(), scope.apps(), field, value.value()), value.count(), Long::sum);
-            }
-            out.put(field, merged.entrySet().stream().map(e -> new FacetValue(e.getKey(), e.getValue())).toList());
-        });
-        return out;
-    }
-
-    /**
-     * Pseudonymizes a single value of a field, e.g. a facet value, with the scripts of the applications.
-     *
-     * @param session the pseudonyms
-     * @param apps the applications the value comes from
-     * @param field the field
-     * @param value the value
-     * @return the pseudonymized value, a marker if it is held back
-     */
-    String value(Pseudonyms session, Collection<String> apps, String field, String value) {
-        if (value == null || "app".equals(field) || "host".equals(field)) {
-            return value;
-        }
-        Map<String, Object> event = new LinkedHashMap<>();
-        event.put("app", "");
-        event.put("message", "");
-        event.put(field, value);
-        return pseudonyms.applyFor(session, apps, event).map(result -> cut(result.get(field)))
-            .map(String::valueOf).orElse(HELD_BACK);
+        return pseudonymizedSearch.facets(call.session(), scope.apps(), facets, this::cutText);
     }
 
     private Object context(Call call, Map<String, Object> args) throws IOException {
         ContextView view = context.context(call.user(), required(args, "id"), integer(args, "before").orElse(null),
             integer(args, "after").orElse(null));
-        return new ContextView(view.id(), view.app(), view.host(), lines(call.session(), view.app(), view.before()),
-            lines(call.session(), view.app(), view.lines()), view.start(), view.end());
+        return pseudonymizedSearch.context(call.session(), view, this::cutText);
     }
 
-    private List<String> lines(Pseudonyms session, String app, List<String> lines) {
-        return lines.stream().map(line -> pseudonyms.text(session, app, line).map(this::cut).orElse(HELD_BACK))
-            .toList();
+    private String cutText(String text) {
+        return text == null ? null : String.valueOf(cut(text));
     }
 
     private Object status(Call call, Map<String, Object> args) {
@@ -536,18 +485,14 @@ public class McpTools {
     }
 
     private SearchScope scope(Call call, Map<String, Object> args) {
-        Set<String> apps = search.apps(call.user(), strings(args, "apps"));
-        Set<String> protectedFields = new TreeSet<>();
-        apps.forEach(app -> protectedFields.addAll(pseudonyms.protectedFields(app)));
-        String query = McpQueries.query(string(args, "query"), protectedFields, call.session());
-        Map<String, List<String>> filters = McpQueries.filters(filters(args), protectedFields, call.session());
         Instant to = instant(args, "to").orElse(null);
         Instant from = instant(args, "from").orElse(null);
         String last = string(args, "last");
         if (last != null) {
             from = (to == null ? Instant.now() : to).minus(duration(last));
         }
-        return search.scope(call.user(), new SearchRequest(List.copyOf(apps), query, from, to, filters));
+        return pseudonymizedSearch.scope(call.user(), call.session(), new SearchRequest(strings(args, "apps"),
+            string(args, "query"), from, to, filters(args)));
     }
 
     /**

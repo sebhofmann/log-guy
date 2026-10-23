@@ -52,6 +52,27 @@ public record LogGuyUser(String name, List<GrantProperties> grants, String token
     }
 
     /**
+     * Whether what the user reads from an application may leave log-guy unpseudonymized: {@link Right#READ} and a
+     * request that is not pseudonymized.
+     *
+     * @param app the application
+     * @return true for plain text
+     */
+    public boolean readsPlain(String app) {
+        return !pseudonymized && may(Right.READ, app);
+    }
+
+    /**
+     * The same user for a pseudonymized request, which may also read the applications with
+     * {@link Right#READ_PSEUDONYMIZED}.
+     *
+     * @return the pseudonymized user
+     */
+    public LogGuyUser asPseudonymized() {
+        return pseudonymized ? this : new LogGuyUser(name, grants, token, tokenApps, true);
+    }
+
+    /**
      * The applications the user may read, see {@link #mayRead(String)}.
      *
      * @param known all configured applications

@@ -49,6 +49,8 @@ class McpEndpointTest {
 
     private static final String API_TOKEN = "lg_api_test";
 
+    private static final String PSEUDONYMIZED_API_TOKEN = "lg_api_anna";
+
     private static final byte[] SAMPLE = TestLogs.mycoreSample();
 
     private static final Pattern IPV4 = Pattern.compile("\\b\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\b");
@@ -84,6 +86,10 @@ class McpEndpointTest {
         registry.add("log-guy.tokens[2].kind", () -> "api");
         registry.add("log-guy.tokens[2].user", () -> "root");
         registry.add("log-guy.tokens[2].hash", () -> TokenRegistry.hash(API_TOKEN));
+        registry.add("log-guy.tokens[3].name", () -> "anna-api");
+        registry.add("log-guy.tokens[3].kind", () -> "api");
+        registry.add("log-guy.tokens[3].user", () -> "anna");
+        registry.add("log-guy.tokens[3].hash", () -> TokenRegistry.hash(PSEUDONYMIZED_API_TOKEN));
     }
 
     @LocalServerPort
@@ -171,6 +177,32 @@ class McpEndpointTest {
                 Map.of("id", id, "before", 0, "after", 200))));
             assertEquals(first, second, "a new session numbers again from 1");
         }
+    }
+
+    private HttpResponse<String> get(String path, String token) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
+            .header("Authorization", "Bearer " + token)
+            .build();
+        try (HttpClient http = HttpClient.newHttpClient()) {
+            return http.send(request, HttpResponse.BodyHandlers.ofString());
+        }
+    }
+
+    @Test
+    void apiIsPseudonymizedForPseudonymizedReaders() throws Exception {
+        String path = "/api/v1/events/" + id + "/context?before=0&after=200";
+        HttpResponse<String> anna = get(path, PSEUDONYMIZED_API_TOKEN);
+        assertEquals(200, anna.statusCode(), anna.body());
+        assertTrue(anna.body().contains("$IP1"), anna.body());
+        assertFalse(IPV4.matcher(anna.body()).find(), anna.body());
+        HttpResponse<String> root = get(path, API_TOKEN);
+        assertEquals(200, root.statusCode(), root.body());
+        assertTrue(root.body().contains("ip=66.249.64.0"));
+
+        HttpResponse<String> fields = get("/api/v1/fields", PSEUDONYMIZED_API_TOKEN);
+        assertEquals(200, fields.statusCode(), fields.body());
+        assertTrue(fields.body().contains("\"pseudonymized\":[\"digibib\"]"), fields.body());
+        assertTrue(get("/api/v1/fields", API_TOKEN).body().contains("\"pseudonymized\":[]"));
     }
 
     @Test

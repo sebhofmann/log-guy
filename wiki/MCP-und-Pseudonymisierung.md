@@ -46,6 +46,7 @@ export const meta = {
 
 const KEEP = new Set(["guest", "SYSTEM", "administrator", "MCRJANITOR", "MCRJANITOR@local", "-", ""]);
 const USER_AFTER_LEVEL = /^(\S+ +(?:TRACE|DEBUG|INFO|WARN|ERROR|FATAL) +)([^\s:]+)( +[\w.$-]+: )/;
+const USER_IN_ACCESS_LOG = /^(\S+ \S+ )([^\s\[]+)( \[\d{2}\/\w{3}\/\d{4}:)/;
 const USER_PARAM = /\b((?:user|userid|login|username|uid)=)([^\s&;,"']+)/gi;
 const USER_PHRASE = /\b((?:user detected|requested user): |user:)([^\s,;"']+)/g;
 
@@ -56,6 +57,7 @@ function user(name) {
 function text(value) {
     let out = value
         .replace(USER_AFTER_LEVEL, (m, before, name, after) => before + user(name) + after)
+        .replace(USER_IN_ACCESS_LOG, (m, before, name, after) => before + user(name) + after)
         .replace(USER_PARAM, (m, key, name) => key + user(name))
         .replace(USER_PHRASE, (m, key, name) => key + user(name));
     out = replaceEmails(out, mail => ps("Mail", mail));
@@ -95,6 +97,8 @@ Aus `mueller` wird so `$Nutzer1`, aus `198.51.100.25` wird `$IP3`. Benutzer werd
 - **Facetten und Zeitleiste:** Facettenwerte und Serien der Zeitleiste gehören zu keiner einzelnen Anwendung. Sie laufen durch alle Pseudonymisierungs-Skripte der abgefragten Anwendungen, gleiche Pseudonyme werden zusammengezählt. `app` und `host` bleiben im Klartext.
 - **Skript-Tests:** Ein Parser-Test liefert die geparsten Beispiele, Fehlzeilen und Fehlerarten pseudonymisiert. Ein Test der Pseudonymisierung liefert nur Zahlen: Events, zurückgehaltene Events, Pseudonyme und verdächtige Werte je Kategorie.
 - **Überall angewendet:** auf Text, Felder, Facettenwerte und Kontext
+- **Auch für Menschen:** Nutzer mit `read_pseudonymized` bekommen Suche, Zeitleiste, Facetten und Kontext in GUI und API genauso pseudonymisiert, mit denselben Regeln für Rückübersetzung und Klarwerte, siehe [Rechte und Konfiguration](Rechte-und-Konfiguration.md). Der Code dafür ist für MCP und GUI derselbe (`PseudonymizedSearch`).
+- **Technische Konten bleiben:** `guest`, `administrator`, `SYSTEM` und `MCRJANITOR` identifizieren niemanden und bleiben im Klartext, damit man Cronjobs und Gastzugriffe von echten Nutzern unterscheiden kann.
 
 Wirft das Pseudonymisierungs-Skript einen Fehler oder läuft es zu lange, verlässt das Event den MCP-Endpunkt gar nicht. log-guy liefert dann nur einen Hinweis, dass ein Event zurückgehalten wurde. Lässt sich ein aktives Skript gar nicht laden, hält der MCP-Endpunkt alles zurück, bis es repariert ist, und das Server-Log meldet den Fehler.
 

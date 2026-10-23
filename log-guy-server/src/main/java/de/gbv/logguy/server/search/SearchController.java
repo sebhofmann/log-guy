@@ -17,17 +17,25 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpSession;
+
 import de.gbv.logguy.server.search.ContextService.ContextView;
 import de.gbv.logguy.server.search.SearchService.FacetValue;
 import de.gbv.logguy.server.search.SearchService.FieldsView;
 import de.gbv.logguy.server.search.SearchService.Histogram;
 import de.gbv.logguy.server.search.SearchService.SearchResult;
+import de.gbv.logguy.server.pseudonym.Pseudonyms;
 import de.gbv.logguy.server.security.CurrentUser;
+import de.gbv.logguy.server.security.LogGuyUser;
 
 /**
  * The search API. Common parameters: {@code apps} (comma separated, empty for all allowed), {@code q} (Solr syntax
  * with declared field names), {@code from} and {@code to} (ISO-8601 instants) and {@code f.<field>} (filter values,
  * repeatable).
+ * <p>
+ * If one of the applications may only be read pseudonymized, the whole response is pseudonymized as for the MCP
+ * endpoint, with the pseudonyms of the GUI session. Queries and filters then accept these pseudonyms.
  */
 @RestController
 @RequestMapping("/api/v1")
@@ -36,11 +44,17 @@ public class SearchController {
 
     private static final String FILTER_PREFIX = "f.";
 
+    private static final String SESSION_PSEUDONYMS = Pseudonyms.class.getName();
+
     private final SearchService search;
 
     private final ContextService context;
 
     private final CurrentUser currentUser;
+
+    private final PseudonymizedSearch pseudonymized;
+
+    private final HttpServletRequest request;
 
     /**
      * Creates the controller.
@@ -48,11 +62,16 @@ public class SearchController {
      * @param search the search
      * @param context the context reader
      * @param currentUser resolves the user
+     * @param pseudonymized pseudonymizes the responses for users who may only read pseudonymized
+     * @param request the current request, for the pseudonyms of the session
      */
-    public SearchController(SearchService search, ContextService context, CurrentUser currentUser) {
+    public SearchController(SearchService search, ContextService context, CurrentUser currentUser,
+        PseudonymizedSearch pseudonymized, HttpServletRequest request) {
         this.search = search;
         this.context = context;
         this.currentUser = currentUser;
+        this.pseudonymized = pseudonymized;
+        this.request = request;
     }
 
     /**
@@ -70,7 +89,9 @@ public class SearchController {
     public SearchResult search(@RequestParam MultiValueMap<String, String> params,
         @RequestParam(required = false) String cursor, @RequestParam(required = false) Integer rows,
         @RequestParam(defaultValue = "desc") String order) throws IOException, SolrServerException {
-        return search.search(scope(params), cursor, rows, "asc".equalsIgnoreCase(order));
+        Search s = scope(params);
+        SearchResult result = search.search(s.scope(), cursor, rows, "asc".equalsIgnoreCase(order));
+        return s.session() == null ? result : pseudonymized.result(s.session(), result);
     }
 
     /**
@@ -85,7 +106,10 @@ public class SearchController {
     @GetMapping("/histogram")
     public Histogram histogram(@RequestParam MultiValueMap<String, String> params,
         @RequestParam(required = false) String split) throws IOException, SolrServerException {
-        return search.histogram(scope(params), split);
+        Search s = scope(params);
+        Histogram histogram = search.histogram(s.scope(), split);
+        return s.session() == null ? histogram
+            : pseudonymized.histogram(s.session(), s.scope().apps(), histogram, value -> value);
     }
 
     /**
@@ -102,7 +126,10 @@ public class SearchController {
     public Map<String, List<FacetValue>> facets(@RequestParam MultiValueMap<String, String> params,
         @RequestParam(required = false) List<String> fields, @RequestParam(required = false) Integer limit)
         throws IOException, SolrServerException {
-        return search.facets(scope(params), fields == null ? List.of() : fields, limit);
+        Search s = scope(params);
+        Map<String, List<FacetValue>> facets = search.facets(s.scope(), fields == null ? List.of() : fields, limit);
+        return s.session() == null ? facets
+            : pseudonymized.facets(s.session(), s.scope().apps(), facets, value -> value);
     }
 
     /**
@@ -128,10 +155,12 @@ public class SearchController {
     @GetMapping("/events/{id}/context")
     public ContextView context(@PathVariable String id, @RequestParam(required = false) Integer before,
         @RequestParam(required = false) Integer after) throws IOException {
-        return context.context(currentUser.get(), id, before, after);
+        LogGuyUser user = currentUser.get();
+        ContextView view = context.context(user.asPseudonymized(), id, before, after);
+        return user.readsPlain(view.app()) ? view : pseudonymized.context(session(user), view, line -> line);
     }
 
-    private SearchScope scope(MultiValueMap<String, String> params) {
+    private Search scope(MultiValueMap<String, String> params) {
         Map<String, List<String>> filters = new LinkedHashMap<>();
         params.forEach((key, values) -> {
             if (key.startsWith(FILTER_PREFIX) && key.length() > FILTER_PREFIX.length()) {
@@ -139,9 +168,30 @@ public class SearchController {
                     values.stream().filter(v -> v != null && !v.isEmpty()).toList());
             }
         });
-        SearchRequest request = new SearchRequest(list(params.get("apps")), params.getFirst("q"),
+        SearchRequest searchRequest = new SearchRequest(list(params.get("apps")), params.getFirst("q"),
             instant(params.getFirst("from")), instant(params.getFirst("to")), filters);
-        return search.scope(currentUser.get(), request);
+        LogGuyUser user = pseudonymized.searchUser(currentUser.get(), searchRequest.apps());
+        if (!user.pseudonymized()) {
+            return new Search(search.scope(user, searchRequest), null);
+        }
+        Pseudonyms session = session(user);
+        return new Search(pseudonymized.scope(user, session, searchRequest), session);
+    }
+
+    // a GUI session keeps its pseudonyms, a request with an API token gets new ones
+    private Pseudonyms session(LogGuyUser user) {
+        if (user.token() != null) {
+            return new Pseudonyms();
+        }
+        HttpSession session = this.request.getSession(true);
+        synchronized (session) {
+            if (!(session.getAttribute(SESSION_PSEUDONYMS) instanceof Pseudonyms pseudonyms)) {
+                Pseudonyms created = new Pseudonyms();
+                session.setAttribute(SESSION_PSEUDONYMS, created);
+                return created;
+            }
+            return pseudonyms;
+        }
     }
 
     private static List<String> list(List<String> values) {
@@ -167,5 +217,9 @@ public class SearchController {
         } catch (DateTimeParseException e) {
             throw new SearchException("Ungültige Zeitangabe „" + value + "“, erwartet wird z.B. 2026-10-23T08:00:00Z.");
         }
+    }
+
+    // the checked search, with the pseudonyms of the session if the response is pseudonymized
+    private record Search(SearchScope scope, Pseudonyms session) {
     }
 }

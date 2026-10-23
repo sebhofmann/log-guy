@@ -19,6 +19,7 @@ import de.gbv.logguy.server.pseudonym.PseudonymService;
 import de.gbv.logguy.server.script.ScriptService;
 import de.gbv.logguy.server.script.ScriptTester;
 import de.gbv.logguy.server.search.ContextService;
+import de.gbv.logguy.server.search.PseudonymizedSearch;
 import de.gbv.logguy.server.search.SearchService;
 import de.gbv.logguy.server.security.UserRegistry;
 import de.gbv.logguy.server.serverlog.ServerLog;
@@ -86,6 +87,7 @@ public class McpConfig {
      * @param scripts the scripts
      * @param tester tests scripts
      * @param pseudonyms the pseudonymization
+     * @param pseudonymizedSearch pseudonymizes search results
      * @param audit the audit log
      * @param json the JSON mapper
      * @return the tool specifications
@@ -93,9 +95,9 @@ public class McpConfig {
     @Bean
     public List<SyncToolSpecification> logGuyTools(LogGuyProperties properties, UserRegistry users,
         McpSessions sessions, SearchService search, ContextService context, StatusService status,
-        ServerLog serverLog, ScriptService scripts, ScriptTester tester, PseudonymService pseudonyms, AuditLog audit,
-        JsonMapper json) {
+        ServerLog serverLog, ScriptService scripts, ScriptTester tester, PseudonymService pseudonyms,
+        PseudonymizedSearch pseudonymizedSearch, AuditLog audit, JsonMapper json) {
         return new McpTools(properties.mcp(), users, sessions, search, context, status, serverLog, scripts, tester,
-            pseudonyms, audit, json, new JacksonMcpJsonMapper(json)).specifications();
+            pseudonyms, pseudonymizedSearch, audit, json, new JacksonMcpJsonMapper(json)).specifications();
     }
 }

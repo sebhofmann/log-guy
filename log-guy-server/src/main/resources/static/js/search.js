@@ -24,7 +24,7 @@ const timelineBox = element('section', 'timeline');
 const logBox = element('section', 'log');
 
 let state;
-let fields = { apps: [], fields: [] };
+let fields = { apps: [], pseudonymized: [], fields: [] };
 
 const timeline = new Timeline(timelineBox, {
     onRange: (from, to) => update({ range: '', from: from.toISOString(), to: to.toISOString(), at: '' }),
@@ -174,8 +174,15 @@ function defaultColumns() {
 
 function renderApps() {
     const selected = new Set(state.apps);
+    const pseudonymized = new Set(fields.pseudonymized);
     const summary = element('summary', null,
         selected.size ? `Anwendungen: ${[...selected].join(', ')}` : 'Alle Anwendungen');
+    if ((selected.size ? [...selected] : fields.apps).some(app => pseudonymized.has(app))) {
+        const badge = element('span', 'badge warn', 'pseudonymisiert');
+        badge.title = 'Mindestens eine Anwendung ist nur pseudonymisiert freigegeben. Deshalb zeigt die ganze Suche '
+            + 'Pseudonyme wie $Nutzer1 statt der echten Werte. Suche und Filter nehmen diese Pseudonyme an.';
+        summary.append(' ', badge);
+    }
     const list = element('div', 'app-list');
     for (const app of fields.apps) {
         const label = element('label');
@@ -184,6 +191,9 @@ function renderApps() {
         box.value = app;
         box.checked = selected.has(app);
         label.append(box, document.createTextNode(` ${app}`));
+        if (pseudonymized.has(app)) {
+            label.append(' ', element('span', 'badge warn', 'pseudonymisiert'));
+        }
         list.append(label);
     }
     const apply = element('button', null, 'Übernehmen');
