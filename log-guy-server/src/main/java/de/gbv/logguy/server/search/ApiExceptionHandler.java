@@ -1,6 +1,7 @@
 package de.gbv.logguy.server.search;
 
 import java.io.IOException;
+import java.nio.file.FileSystemException;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -84,6 +85,21 @@ public class ApiExceptionHandler {
     public ResponseEntity<Map<String, String>> unreachable(Exception e) {
         LOGGER.warn("Solr or storage not reachable", e);
         return error(HttpStatus.BAD_GATEWAY, "Solr oder der Speicher ist gerade nicht erreichbar.");
+    }
+
+    /**
+     * A file of log-guy itself cannot be read or written, e.g. a read-only scripts directory. Named, because only
+     * the operator can fix it.
+     *
+     * @param e the exception
+     * @return 500
+     */
+    @ExceptionHandler(FileSystemException.class)
+    public ResponseEntity<Map<String, String>> fileSystem(FileSystemException e) {
+        LOGGER.error("File system error", e);
+        String reason = e.getReason() == null ? e.getClass().getSimpleName() : e.getReason();
+        return error(HttpStatus.INTERNAL_SERVER_ERROR,
+            "log-guy kann die Datei " + e.getFile() + " nicht schreiben oder lesen: " + reason);
     }
 
     /**

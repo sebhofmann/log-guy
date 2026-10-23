@@ -106,6 +106,16 @@ public record LogGuyUser(String name, List<GrantProperties> grants, String token
     }
 
     /**
+     * Whether the user has a right for at least one application, e.g. to show the script editor.
+     *
+     * @param right the right
+     * @return true if a grant contains the right or {@link Right#ADMIN}
+     */
+    public boolean hasRight(Right right) {
+        return grants.stream().anyMatch(g -> g.rights().contains(right) || g.rights().contains(Right.ADMIN));
+    }
+
+    /**
      * Whether the user is administrator of log-guy itself, i.e. has {@link Right#ADMIN} for all applications.
      *
      * @return true for {@code apps: ["*"]} with {@code admin}, unless a token limits the applications

@@ -46,7 +46,7 @@ M2 ist erfüllt mit dem Backfill von digibib in der E2E-Umgebung: Suche, Facette
 - [x] Skriptverzeichnis mit `.history/` und `.drafts/`, `log-guy reload` über den Admin-Endpunkt
 - [x] Skript-API: Entwurf, Test, Aktivieren, Zurückrollen, Konflikterkennung
 - [x] Testquellen: Anwendung, Logdatei, eingefügte Zeilen
-- [ ] Skript-Editor in der GUI mit CodeMirror, Freigabe von Entwürfen
+- [x] Skript-Editor in der GUI mit CodeMirror, Freigabe von Entwürfen
 - [x] Pseudonymisierung als JavaScript, `ps()`, Rückübersetzung in Anfragen, Ausgabe zurückhalten bei Fehlern
 - [x] MCP-Server mit Spring AI: Such-, Skript-, Status- und Log-Tools, MCP-Tokens, `activate: true`
 - [x] Recht `scripts`, Audit-Log für alle Änderungen
@@ -62,6 +62,7 @@ Die Pseudonymisierung gehört in diesen Milestone, weil alles, was den MCP-Endpu
 - [ ] `hot/` nach 7 Tagen leeren
 - [ ] Archivsuche als Job mit Regex, Fortschritt und Abbruch, in GUI und MCP
 - [ ] Ältere Zeiträume nachindexieren mit Ablaufdatum
+- [ ] Neuindexierung im Index-Fenster nach einer Skriptänderung, `log-guy reindex`, Angebot im Skript-Editor nach dem Aktivieren
 
 ### M5 Meldungen
 

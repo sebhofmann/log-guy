@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.ResponseEntity;
@@ -77,6 +78,21 @@ public class ScriptController {
     @GetMapping("/{kind}/{name}")
     public ScriptDetail get(@PathVariable String kind, @PathVariable String name) throws IOException {
         return scripts.get(currentUser.get(), id(kind, name));
+    }
+
+    /**
+     * Reads the code of an earlier version.
+     *
+     * @param kind the kind
+     * @param name the name
+     * @param at when the version was activated, as listed in the history
+     * @return {@code code}
+     * @throws IOException if the history cannot be read
+     */
+    @GetMapping("/{kind}/{name}/history")
+    public Map<String, String> history(@PathVariable String kind, @PathVariable String name,
+        @RequestParam String at) throws IOException {
+        return Map.of("code", scripts.historyCode(currentUser.get(), id(kind, name), instant(at)));
     }
 
     /**
@@ -162,13 +178,15 @@ public class ScriptController {
     @PostMapping("/{kind}/{name}/rollback")
     public ScriptDetail rollback(@PathVariable String kind, @PathVariable String name, @RequestParam String at)
         throws IOException {
-        Instant instant;
+        return scripts.rollback(caller(), id(kind, name), instant(at));
+    }
+
+    private static Instant instant(String at) {
         try {
-            instant = Instant.parse(at);
+            return Instant.parse(at);
         } catch (DateTimeParseException e) {
             throw new ScriptRequestException(Reason.INVALID, "Ungültiger Zeitpunkt „" + at + "“.");
         }
-        return scripts.rollback(caller(), id(kind, name), instant);
     }
 
     /**

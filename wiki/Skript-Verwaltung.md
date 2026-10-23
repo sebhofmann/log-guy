@@ -80,6 +80,7 @@ Ein Test verändert nichts, weder Archiv noch Index, und verschickt keine Meldun
 | `POST /api/v1/scripts/{art}/{name}/test` | Entwurf oder aktive Fassung gegen eine Testquelle laufen lassen |
 | `POST /api/v1/scripts/{art}/{name}/activate` | Entwurf aktivieren |
 | `POST /api/v1/scripts/{art}/{name}/rollback?at=<zeitpunkt>` | frühere Fassung wieder aktivieren |
+| `GET /api/v1/scripts/{art}/{name}/history?at=<zeitpunkt>` | Code einer früheren Fassung, für den Vergleich im Editor |
 | `DELETE /api/v1/scripts/{art}/{name}` | Skript entfernen, außer Parser |
 
 `{art}` ist `parser`, `rule`, `lifecycle` oder `pseudonym`.

@@ -11,6 +11,12 @@
   --warn: #9a6400;
   --mono: ui-monospace, "JetBrains Mono", "DejaVu Sans Mono", Menlo, monospace;
   --row: 22px;
+  --selection: #c9d8ec;
+  --code-keyword: #7a2a8c;
+  --code-string: #1e7a3a;
+  --code-number: #9a4a00;
+  --code-function: #1f5fa8;
+  --code-property: #0b6b75;
   color-scheme: light dark;
 }
 
@@ -26,6 +32,12 @@
     --hover: #232c38;
     --error: #ff6b78;
     --warn: #f0b440;
+    --selection: #2f4a6e;
+    --code-keyword: #d19ae6;
+    --code-string: #8fd18f;
+    --code-number: #f0a860;
+    --code-function: #7fb6f0;
+    --code-property: #6fd0d8;
   }
 }
 
@@ -612,6 +624,144 @@ table.data td.number {
   margin-bottom: 12px;
 }
 
+.ok {
+  color: #1e7a3a;
+}
+
+.warn {
+  color: var(--warn);
+}
+
+.mono {
+  font-family: var(--mono);
+}
+
+.scripts-layout {
+  display: flex;
+  gap: 16px;
+  padding: 12px 16px;
+  align-items: flex-start;
+}
+
+.script-list {
+  flex: 0 0 220px;
+}
+
+.script-list ul {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+
+.script-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+}
+
+.script-list a {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.script-list a.active {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.script-list h2 {
+  font-size: 13px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 12px 0 4px;
+}
+
+.new-script {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.new-script input {
+  width: 120px;
+}
+
+.script-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.script-info {
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+.script-message {
+  min-height: 1.5em;
+  margin-bottom: 12px;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: -1px;
+}
+
+.script-list .badge {
+  border: 1px solid var(--border);
+}
+
+.editor {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  margin-bottom: 8px;
+}
+
+.compare-legend {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.script-history {
+  margin-bottom: 8px;
+}
+
+.script-test textarea {
+  width: 100%;
+  font-family: var(--mono);
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.script-test .toolbar input[type="number"] {
+  width: 90px;
+}
+
+.test-result {
+  overflow-x: auto;
+}
+
+.test-events td {
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: nowrap;
+  max-width: 40ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.test-events tr.failed td {
+  color: var(--error);
+}
+
+@media (prefers-color-scheme: dark) {
+  .ok {
+    color: #5fd07f;
+  }
+}
+
 @media (max-width: 800px) {
   .search-layout {
     flex-direction: column;
@@ -620,5 +770,13 @@ table.data td.number {
   .facets {
     flex-basis: auto;
     max-height: 160px;
+  }
+
+  .scripts-layout {
+    flex-direction: column;
+  }
+
+  .script-list {
+    flex-basis: auto;
   }
 }

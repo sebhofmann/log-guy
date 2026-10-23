@@ -4,9 +4,10 @@ const csrfHeader = document.querySelector('meta[name="csrf-header"]')?.content;
 const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
 
 export class ApiError extends Error {
-    constructor(status, message) {
+    constructor(status, message, body) {
         super(message);
         this.status = status;
+        this.body = body;
     }
 }
 
@@ -22,7 +23,7 @@ async function handle(response) {
         body = null;
     }
     if (!response.ok) {
-        throw new ApiError(response.status, body?.error ?? `Fehler ${response.status}`);
+        throw new ApiError(response.status, body?.error ?? `Fehler ${response.status}`, body);
     }
     return body;
 }

@@ -1,0 +1,21 @@
+{
+  "name": "log-guy-codemirror",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Bundles CodeMirror 6 into src/main/resources/static/vendor/codemirror.esm.js",
+  "scripts": {
+    "build": "esbuild entry.js --bundle --format=esm --minify --legal-comments=none --outfile=../../src/main/resources/static/vendor/codemirror.esm.js"
+  },
+  "dependencies": {
+    "@codemirror/lang-javascript": "6.2.5",
+    "@codemirror/language": "6.13.1",
+    "@codemirror/merge": "6.12.3",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.15",
+    "@lezer/highlight": "1.2.5",
+    "codemirror": "6.0.2"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

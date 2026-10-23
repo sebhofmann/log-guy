@@ -132,6 +132,22 @@ public class ScriptService {
     }
 
     /**
+     * The code of an earlier version, e.g. to compare it with the active one.
+     *
+     * @param user the user
+     * @param id the script
+     * @param at the time of the version, as listed in the history
+     * @return the code
+     * @throws IOException if the history cannot be read
+     */
+    public String historyCode(LogGuyUser user, ScriptId id, Instant at) throws IOException {
+        String code = store.historyCode(id, at).orElseThrow(() -> new ScriptRequestException(Reason.NOT_FOUND,
+            "Eine Fassung von " + id + " vom " + at + " gibt es nicht."));
+        require(user, id, activeCode(id).orElse(null), code);
+        return code;
+    }
+
+    /**
      * Saves a draft. It is not active until {@link #activate} is called.
      *
      * @param caller who saves

@@ -2,6 +2,7 @@ package de.gbv.logguy.server.web;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.not;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestBuilders.formLogin;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -30,6 +31,8 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+
+import com.jayway.jsonpath.JsonPath;
 
 import de.gbv.logguy.server.security.ControlToken;
 import de.gbv.logguy.server.security.SecurityConfig;
@@ -169,9 +172,16 @@ class WebSecurityTest {
             .content("{\"code\": \"" + rule + "\"}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.draft.info.user").value("root"));
-        mvc.perform(post("/api/v1/scripts/rule/quiet/activate").session(session).with(csrf()))
+        MvcResult activated = mvc.perform(post("/api/v1/scripts/rule/quiet/activate").session(session).with(csrf()))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.draft").doesNotExist());
+            .andExpect(jsonPath("$.draft").doesNotExist())
+            .andReturn();
+        String at = JsonPath.read(activated.getResponse().getContentAsString(), "$.history[0].at");
+        mvc.perform(get("/api/v1/scripts/rule/quiet/history").param("at", at).session(session))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.code").value(containsString("check(event)")));
+        mvc.perform(get("/api/v1/scripts/rule/quiet/history").param("at", "2020-01-01T00:00:00Z").session(session))
+            .andExpect(status().isNotFound());
         mvc.perform(post("/api/v1/scripts/rule/quiet/rollback").param("at", "gestern").session(session)
             .with(csrf())).andExpect(status().isBadRequest());
         mvc.perform(delete("/api/v1/scripts/parser/mycore-log4j").session(session).with(csrf()))
@@ -183,6 +193,22 @@ class WebSecurityTest {
             .contentType("application/json")
             .content("{\"code\": \"x\"}"))
             .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void scriptPageNeedsScriptsRight() throws Exception {
+        MvcResult anna = mvc.perform(formLogin("/login").user("anna").password(PASSWORD)).andReturn();
+        MockHttpSession reader = (MockHttpSession) anna.getRequest().getSession();
+        mvc.perform(get("/scripts").session(reader)).andExpect(status().isForbidden());
+        mvc.perform(get("/").session(reader))
+            .andExpect(content().string(not(containsString("href=\"/scripts\""))));
+        MvcResult root = mvc.perform(formLogin("/login").user("root").password(PASSWORD)).andReturn();
+        MockHttpSession admin = (MockHttpSession) root.getRequest().getSession();
+        mvc.perform(get("/scripts").session(admin))
+            .andExpect(status().isOk())
+            .andExpect(content().string(containsString("/static/js/scripts.js")))
+            .andExpect(content().string(containsString("data-admin=\"true\"")));
+        mvc.perform(get("/static/vendor/codemirror.esm.js")).andExpect(status().isOk());
     }
 
     @Test

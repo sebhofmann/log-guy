@@ -156,6 +156,12 @@ class ScriptServiceTest {
         assertEquals("lena", active.history().getFirst().user());
 
         Instant first = active.history().getLast().at();
+        assertEquals(LEO_PARSER, service.historyCode(LEO_ADMIN, LEO, first));
+        assertThrows(ScriptRequestException.class, () -> service.historyCode(LEO_ADMIN, LEO,
+            first.minusSeconds(1)));
+        LogGuyUser stranger =
+            LogGuyUser.of("eve", List.of(new GrantProperties(List.of("other"), Set.of(Right.SCRIPTS))));
+        assertThrows(AccessDeniedException.class, () -> service.historyCode(stranger, LEO, first));
         ScriptDetail back = service.rollback(gui(LEO_ADMIN), LEO, first);
         assertEquals(LEO_PARSER, back.code());
         assertEquals(LEO_PARSER, parsers.forApp("leo").orElseThrow().code());

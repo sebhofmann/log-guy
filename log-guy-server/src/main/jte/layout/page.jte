@@ -22,6 +22,9 @@
   <a class="brand" href="/">log-guy</a>
   <nav>
     <a href="/" class="${"search".equals(page.active()) ? "active" : null}">Suche</a>
+    @if(page.user().hasRight(de.gbv.logguy.server.config.LogGuyProperties.Right.SCRIPTS))
+    <a href="/scripts" class="${"scripts".equals(page.active()) ? "active" : null}">Skripte</a>
+    @endif
     @if(page.user().isAdmin())
     <a href="/admin/status" class="${"status".equals(page.active()) ? "active" : null}">Status</a>
     <a href="/admin/log" class="${"log".equals(page.active()) ? "active" : null}">Server-Log</a>
