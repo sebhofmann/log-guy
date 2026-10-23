@@ -582,6 +582,39 @@ public final class HotFile {
     }
 
     /**
+     * Number of bytes already written into frames. Frames end at line ends unless a line is longer than four
+     * frames, so this is where the complete lines end.
+     *
+     * @return end of the last frame in the original file
+     */
+    public long framedLength() {
+        lock.lock();
+        try {
+            return tailBase;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * Receive time of the bytes at an offset.
+     *
+     * @param offset offset in the original file
+     * @return receive time of the frame containing the offset, the last receive time for pending bytes
+     */
+    public Instant received(long offset) {
+        lock.lock();
+        try {
+            if (offset >= tailBase || frames.isEmpty()) {
+                return meta.lastReceived();
+            }
+            return frames.get(findFrame(Math.max(0, offset))).received();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
      * Number of frames written.
      *
      * @return the number of entries in the {@code .idx}

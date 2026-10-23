@@ -28,12 +28,13 @@ import org.springframework.util.unit.DataSize;
  * @param retention nightly cleanup
  * @param serverLog the own log of log-guy
  * @param mcp the MCP endpoint
+ * @param archive how {@code archive/} is written
  */
 @ConfigurationProperties("log-guy")
 public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppProperties> apps,
     List<TokenProperties> tokens, List<UserProperties> users, IngestProperties ingest, HotProperties hot,
     ScriptProperties scripts, SolrProperties solr, IndexerProperties indexer, SearchProperties search,
-    RetentionProperties retention, ServerLogProperties serverLog, McpProperties mcp) {
+    RetentionProperties retention, ServerLogProperties serverLog, McpProperties mcp, ArchiveProperties archive) {
 
     /**
      * Normalizes missing collections to empty ones.
@@ -51,6 +52,15 @@ public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppPropert
      */
     public Path hotDir() {
         return dataDir.resolve("hot");
+    }
+
+    /**
+     * Directory with the filtered log files, kept forever.
+     *
+     * @return {@code <data-dir>/archive}
+     */
+    public Path archiveDir() {
+        return dataDir.resolve("archive");
     }
 
     /**
@@ -177,6 +187,21 @@ public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppPropert
      */
     public record HotProperties(DataSize frameSize, Duration frameMaxAge, Duration flushInterval,
         int compressionLevel) {
+    }
+
+    /**
+     * How {@code archive/} is written.
+     *
+     * @param enabled whether the archive writer runs in this process
+     * @param threads number of writer threads, each with its own script contexts
+     * @param pollInterval how often files in {@code hot/} are checked for new frames
+     * @param compressionLevel zstd compression level
+     * @param hotDays days a file stays in {@code hot/} after its last event
+     * @param placeholder written instead of a line whose filter failed, {@code {filter}} and {@code {offset}} are
+     *     replaced
+     */
+    public record ArchiveProperties(boolean enabled, int threads, Duration pollInterval, int compressionLevel,
+        int hotDays, String placeholder) {
     }
 
     /**

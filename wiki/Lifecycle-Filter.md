@@ -38,12 +38,20 @@ Eingebaute Hilfsfunktionen in Java: `maskIp`, `replaceIps`, `findIps`, `findEmai
 3. Wirft ein Filter einen Fehler, kommt die Zeile nicht ungefiltert ins Archiv. Stattdessen steht dort ein Platzhalter, und die Status-Seite zählt den Fehler. Das Original liegt noch 7 Tage in `hot/`, und `log-guy archive refilter` schreibt die betroffenen Dateien nach der Korrektur neu.
 4. Nach 7 Tagen löscht der nächtliche Job die Datei aus `hot/` und die Dokumente des Tages aus dem Index, danach läuft `expungeDeletes`.
 
+### Umsetzung
+
+- Die Filter laufen nach Namen sortiert. Die Vorlage `ip-kuerzen` ist immer aktiv, eine Datei `scripts/lifecycle/ip-kuerzen.js` ersetzt sie. Jeder Thread des Archiv-Schreibers hat eigene Kontexte (`log-guy.archive.threads`, 2).
+- `line(text)` bekommt die Zeile ohne Zeilenumbruch und ohne `\r`. Beides hängt der Archiv-Schreiber danach wieder an, eine letzte Zeile ohne Umbruch bleibt ohne.
+- Der Platzhalter ist `log-guy.archive.placeholder`, darin werden `{filter}` und `{offset}` ersetzt, z.B. `[log-guy: Zeile zurückgehalten, Filter kaputt fehlgeschlagen, Offset 4711]`. Der Offset zeigt auf die Zeile im Original in `hot/`. Die übrigen Filter laufen für diese Zeile nicht mehr.
+- Lässt sich ein Filter gar nicht laden, etwa wegen eines Syntaxfehlers, hält der Archiv-Schreiber ganz an, bis der Filter repariert ist. Die Status-Seite zeigt dann den Fehler. Die Originale warten so lange in `hot/`.
+- Die Status-Seite zeigt archivierte, weggelassene und durch Platzhalter ersetzte Zeilen seit dem Start, den Rückstand und die Größe von `archive/`. Die Summe der Filterfehler pro Datei steht in ihrer `.meta.json`.
+- Gemessen am Backfill von `prod-logs/` mit `ip-kuerzen.js` und 8 Threads auf 32 Kernen: 43,9 GB in 691 Dateien, 305,8 Mio. Zeilen in etwa 290 s, also etwa 150 MB/s oder 1 Mio. Zeilen/s. Danach stand im Archiv keine einzige ungekürzte IPv4-Adresse mehr, in `hot/` waren es allein in der größten Datei Tausende. Ein Tag aller Anwendungen mit etwa 1 GB braucht damit unter einer Minute eines Threads.
+
 Regeln für Backfill und Änderungen:
 
-- Dateien aus dem Backfill, die älter als 7 Tage sind, gehen gefiltert direkt nach `archive/`. Jüngere landen zusätzlich in `hot/`.
+- Auch Dateien aus dem Backfill, die älter als 7 Tage sind, gehen zuerst nach `hot/`, denn der Archiv-Schreiber liest nur aus `hot/`. Der nächtliche Job entfernt sie, sobald sie vollständig archiviert sind und ihr letztes Event älter als 7 Tage ist. Das hält den Weg ins Archiv einheitlich, kostet aber bis zur nächsten Nacht Platz in `hot/`.
 - Den Fingerabdruck des Originals behält die Archivdatei. Ein späterer Backfill derselben `.gz` wird daran erkannt und abgelehnt, auch wenn die Datei längst nicht mehr in `hot/` liegt.
 - Ein geänderter Filter gilt für neue Daten. Für die letzten 7 Tage kann `log-guy archive refilter` das Archiv aus `hot/` neu schreiben. Ältere Archivdateien lassen sich nur noch weiter filtern, nicht mehr zurück zum Original.
-- Die Filter laufen über jede Zeile, bei etwa 1 GB Rohdaten pro Tag aller Anwendungen. Nach dem Benchmark sollte das einen Kern nur einen kleinen Teil der Zeit beschäftigen. Das ist hochgerechnet, nicht gemessen.
 
 Gesichert werden nur `archive/` und `/etc/log-guy/`, nie `hot/`. Fällt `hot/` aus, fehlen nur die ungekürzten Originale der letzten 7 Tage. Die gefilterte Fassung steht vollständig im Archiv, und der Index lässt sich daraus neu aufbauen.
 

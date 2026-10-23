@@ -34,6 +34,9 @@ import de.gbv.logguy.server.config.LogGuyProperties.TokenProperties;
 import de.gbv.logguy.server.hot.FileMeta;
 import de.gbv.logguy.server.hot.HotFile;
 import de.gbv.logguy.server.hot.HotStore;
+import de.gbv.logguy.server.archive.ArchiveFile;
+import de.gbv.logguy.server.archive.ArchiveStore;
+import de.gbv.logguy.server.archive.ArchiveWriter;
 import de.gbv.logguy.server.index.Indexer;
 import de.gbv.logguy.server.index.Indexer.Backlog;
 import de.gbv.logguy.server.ingest.IngestService;
@@ -54,6 +57,10 @@ public class StatusService {
 
     private final Indexer indexer;
 
+    private final ArchiveStore archive;
+
+    private final ArchiveWriter writer;
+
     private final IngestService ingest;
 
     private final SolrService solr;
@@ -70,17 +77,21 @@ public class StatusService {
      * @param properties configuration
      * @param store the hot storage
      * @param indexer the indexer, {@code null} if it is disabled
+     * @param archive the archive
+     * @param writer the archive writer, {@code null} if it is disabled
      * @param ingest the stream API
      * @param solr connection to Solr
      * @param clock clock for the last hour
      * @param json mapper for facet requests
      * @param version version of log-guy, {@code null} if unknown
      */
-    public StatusService(LogGuyProperties properties, HotStore store, Indexer indexer, IngestService ingest,
-        SolrService solr, Clock clock, JsonMapper json, String version) {
+    public StatusService(LogGuyProperties properties, HotStore store, Indexer indexer, ArchiveStore archive,
+        ArchiveWriter writer, IngestService ingest, SolrService solr, Clock clock, JsonMapper json, String version) {
         this.properties = properties;
         this.store = store;
         this.indexer = indexer;
+        this.archive = archive;
+        this.writer = writer;
         this.ingest = ingest;
         this.solr = solr;
         this.clock = clock;
@@ -106,7 +117,7 @@ public class StatusService {
             LOGGER.warn("Solr status failed", e);
             solrView = new SolrView(false, e.getMessage(), -1, List.of());
         }
-        return new StatusView(now, system(), indexerView(), agents(), apps(counts), solrView);
+        return new StatusView(now, system(), indexerView(), archiveView(), agents(), apps(counts), solrView);
     }
 
     private SystemView system() {
@@ -153,6 +164,16 @@ public class StatusService {
         return new IndexerView(true, indexer.indexedEvents(), indexer.indexedBytes(), parseErrors,
             backlog.values().stream().mapToLong(Backlog::files).sum(),
             backlog.values().stream().mapToLong(Backlog::bytes).sum());
+    }
+
+    private ArchiveView archiveView() {
+        long bytes = archive.files().stream().mapToLong(ArchiveFile::compressedSize).sum();
+        int files = archive.files().size();
+        if (writer == null) {
+            return new ArchiveView(false, 0, 0, 0, 0, List.of(), bytes, files);
+        }
+        return new ArchiveView(true, writer.archivedLines(), writer.droppedLines(), writer.filterErrors(),
+            writer.backlog(), writer.pausedBy(), bytes, files);
     }
 
     private List<AgentView> agents() {
@@ -229,12 +250,13 @@ public class StatusService {
      * @param generated when it was collected
      * @param system the server
      * @param indexer the indexer
+     * @param archive the archive writer
      * @param agents one entry per ingest token
      * @param apps one entry per configured or indexed application
      * @param solr the Solr collection
      */
-    public record StatusView(Instant generated, SystemView system, IndexerView indexer, List<AgentView> agents,
-        List<AppView> apps, SolrView solr) {
+    public record StatusView(Instant generated, SystemView system, IndexerView indexer, ArchiveView archive,
+        List<AgentView> agents, List<AppView> apps, SolrView solr) {
     }
 
     /**
@@ -269,6 +291,22 @@ public class StatusService {
      */
     public record IndexerView(boolean enabled, long events, long bytes, long parseErrors, long backlogFiles,
         long backlogBytes) {
+    }
+
+    /**
+     * The archive writer since the start and the size of {@code archive/}.
+     *
+     * @param enabled whether it runs
+     * @param lines archived lines
+     * @param dropped lines dropped by a filter
+     * @param filterErrors lines replaced by the placeholder
+     * @param backlogBytes original bytes not yet archived
+     * @param pausedBy errors of filters that cannot be loaded, the writer is paused while there are any
+     * @param bytes bytes in {@code archive/}
+     * @param files files in {@code archive/}
+     */
+    public record ArchiveView(boolean enabled, long lines, long dropped, long filterErrors, long backlogBytes,
+        List<String> pausedBy, long bytes, int files) {
     }
 
     /**

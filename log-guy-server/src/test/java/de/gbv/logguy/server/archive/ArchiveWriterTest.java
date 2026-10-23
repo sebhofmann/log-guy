@@ -1,0 +1,304 @@
+package de.gbv.logguy.server.archive;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.function.BooleanSupplier;
+
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.springframework.util.unit.DataSize;
+
+import de.gbv.logguy.common.Fingerprint;
+import de.gbv.logguy.common.TestLogs;
+import de.gbv.logguy.server.config.LogGuyProperties;
+import de.gbv.logguy.server.config.LogGuyProperties.AppProperties;
+import de.gbv.logguy.server.config.LogGuyProperties.ArchiveProperties;
+import de.gbv.logguy.server.config.LogGuyProperties.HotProperties;
+import de.gbv.logguy.server.config.LogGuyProperties.ScriptProperties;
+import de.gbv.logguy.server.hot.HotFile;
+import de.gbv.logguy.server.hot.HotStore;
+import de.gbv.logguy.server.script.ParsedEvent;
+import de.gbv.logguy.server.script.Parser;
+import de.gbv.logguy.server.script.ParserRegistry;
+import de.gbv.logguy.server.script.ParserScript;
+import de.gbv.logguy.server.script.ScriptRuntime;
+import de.gbv.logguy.server.script.ScriptStore;
+import de.gbv.logguy.server.script.TextFunctions;
+import tools.jackson.databind.json.JsonMapper;
+
+class ArchiveWriterTest {
+
+    private static final JsonMapper JSON = JsonMapper.builder().build();
+
+    private static final String PLACEHOLDER = "[zurückgehalten {filter} {offset}]";
+
+    private static ScriptRuntime runtime;
+
+    @TempDir
+    Path dataDir;
+
+    private LogGuyProperties properties;
+
+    private ScriptStore scripts;
+
+    private byte[] sample;
+
+    @BeforeAll
+    static void startRuntime() {
+        runtime = new ScriptRuntime(Duration.ofMillis(200));
+    }
+
+    @AfterAll
+    static void stopRuntime() {
+        runtime.close();
+    }
+
+    @BeforeEach
+    void setUp() throws IOException {
+        Path scriptDir = dataDir.resolve("scripts");
+        Files.createDirectories(scriptDir.resolve("lifecycle"));
+        properties = new LogGuyProperties(dataDir, ZoneId.of("Europe/Berlin"),
+            Map.of("digibib", new AppProperties(null, "mycore-log4j")), List.of(), List.of(), null,
+            new HotProperties(DataSize.ofKilobytes(64), Duration.ofSeconds(60), Duration.ofSeconds(5), 3),
+            new ScriptProperties(scriptDir, Duration.ofMillis(200), DataSize.ofKilobytes(256), 1000, 100), null,
+            null, null, null, null, null,
+            new ArchiveProperties(true, 2, Duration.ofMillis(50), 3, 7, PLACEHOLDER));
+        scripts = new ScriptStore(scriptDir, Clock.systemUTC(), JSON);
+        // the sample has shortened IP addresses already, two full ones show the filter
+        String text = new String(TestLogs.mycoreSample(), StandardCharsets.UTF_8);
+        int middle = text.indexOf('\n', text.length() / 2) + 1;
+        sample = (text.substring(0, middle)
+            + "2026-10-01T09:00:00,000 WARN  guest MCRIPFilter: request from 192.0.2.123 and 2001:db8:1:2::7\n"
+            + text.substring(middle)).getBytes(StandardCharsets.UTF_8);
+    }
+
+    private void writeScript(String name, String code) throws IOException {
+        Files.writeString(properties.scripts().dir().resolve("lifecycle/" + name + ".js"), code);
+        scripts.scan();
+    }
+
+    private static HotFile fill(HotStore hot, byte[] data, boolean close) throws Exception {
+        HotFile file = hot.getOrCreate(Fingerprint.of(data), "app1", "digibib");
+        for (int offset = 0; offset < data.length; offset += 30_000) {
+            int length = Math.min(30_000, data.length - offset);
+            file.append(offset, Arrays.copyOfRange(data, offset, offset + length), length, "/logs/mycore-app.log",
+                Instant.now());
+        }
+        if (close) {
+            file.close(data.length, "/logs/mycore-app.log", Instant.now());
+        }
+        return file;
+    }
+
+    private static byte[] readAll(ArchiveFile file) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        long offset = 0;
+        while (offset < file.meta().length()) {
+            byte[] bytes = file.read(offset, 100_000);
+            out.write(bytes);
+            offset += bytes.length;
+        }
+        return out.toByteArray();
+    }
+
+    private static void await(BooleanSupplier condition) throws InterruptedException {
+        Instant deadline = Instant.now().plusSeconds(30);
+        while (!condition.getAsBoolean()) {
+            if (Instant.now().isAfter(deadline)) {
+                throw new AssertionError("condition not reached");
+            }
+            Thread.sleep(20);
+        }
+    }
+
+    private static String expected(byte[] data) {
+        String[] lines = new String(data, StandardCharsets.UTF_8).split("\n", -1);
+        List<String> out = new ArrayList<>();
+        for (String line : lines) {
+            out.add(TextFunctions.maskIp(line));
+        }
+        return String.join("\n", out);
+    }
+
+    private ParserRegistry parsers() {
+        ParserRegistry parsers = new ParserRegistry(properties, runtime);
+        assertTrue(parsers.load().isEmpty());
+        return parsers;
+    }
+
+    @Test
+    void archivesClosedFileWithShortenedIps() throws Exception {
+        try (HotStore hot = new HotStore(properties, JSON, Clock.systemUTC())) {
+            HotFile file = fill(hot, sample, true);
+            ArchiveStore archive = new ArchiveStore(properties, JSON);
+            LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON);
+            assertTrue(filters.errors().isEmpty(), filters.errors().toString());
+            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, parsers(), runtime)) {
+                await(() -> archive.find(file.fingerprint()).map(a -> a.meta().closed()).orElse(false));
+                assertEquals(0, writer.backlog());
+            }
+            ArchiveFile target = archive.find(file.fingerprint()).orElseThrow();
+            String content = new String(readAll(target), StandardCharsets.UTF_8);
+            assertEquals(expected(sample), content);
+            assertTrue(content.contains("request from 192.0.2.0 and 2001:db8:1::"), content);
+            assertFalse(content.contains("192.0.2.123"));
+
+            ArchiveMeta meta = target.meta();
+            assertEquals(file.relativePath(), target.relativePath());
+            assertEquals(sample.length, meta.sourceLength());
+            assertEquals(content.split("\n").length, meta.lines());
+            assertEquals(List.of("/logs/mycore-app.log"), meta.paths());
+            assertEquals(1, meta.filters().size());
+            assertTrue(meta.filters().getFirst().startsWith("ip-kuerzen@"), meta.filters().toString());
+            assertEquals(0, meta.filterErrors());
+            try (Parser parser = new Parser(runtime, mycore())) {
+                String[] lines = new String(sample, StandardCharsets.UTF_8).split("\n");
+                assertEquals(parser.parse(lines[0]).ts(), meta.from());
+                ParsedEvent last = null;
+                for (int i = lines.length - 1; last == null || last.ts() == null; i--) {
+                    last = parser.isStart(lines[i]) ? parser.parse(lines[i]) : null;
+                }
+                assertEquals(last.ts(), meta.to());
+            }
+            assertTrue(target.frames().size() > 1, "frames " + target.frames().size());
+
+            // reloading after a restart keeps everything
+            ArchiveStore reloaded = new ArchiveStore(properties, JSON);
+            assertEquals(meta, reloaded.find(file.fingerprint()).orElseThrow().meta());
+        }
+    }
+
+    private static ParserScript mycore() throws Exception {
+        return ParserScript.load(runtime, "mycore-log4j", ParserRegistry.template("mycore-log4j"));
+    }
+
+    @Test
+    void dropsLinesAndWritesPlaceholderOnErrors() throws Exception {
+        writeScript("cronjobs-weglassen", """
+            export const meta = { apps: ["digibib"] };
+            export function line(text) {
+                return text.includes("Cronjob") ? null : text;
+            }
+            """);
+        writeScript("kaputt", """
+            export const meta = { apps: ["*"] };
+            export function line(text) {
+                if (text.includes("MCRIPFilter")) {
+                    throw new Error("kaputt");
+                }
+                return text;
+            }
+            """);
+        try (HotStore hot = new HotStore(properties, JSON, Clock.systemUTC())) {
+            HotFile file = fill(hot, sample, true);
+            ArchiveStore archive = new ArchiveStore(properties, JSON);
+            LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON);
+            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, parsers(), runtime)) {
+                await(() -> archive.find(file.fingerprint()).map(a -> a.meta().closed()).orElse(false));
+                assertEquals(1, writer.filterErrors());
+                assertTrue(writer.droppedLines() > 0);
+            }
+            ArchiveFile target = archive.find(file.fingerprint()).orElseThrow();
+            String content = new String(readAll(target), StandardCharsets.UTF_8);
+            assertFalse(content.contains("Cronjob"));
+            assertFalse(content.contains("192.0.2"));
+            long offset = new String(sample, StandardCharsets.UTF_8).indexOf("2026-10-01T09:00:00,000 WARN");
+            assertTrue(content.contains("[zurückgehalten kaputt " + offset + "]\n"), content);
+            assertEquals(1, target.meta().filterErrors());
+            assertEquals(3, target.meta().filters().size(), target.meta().filters().toString());
+        }
+    }
+
+    @Test
+    void pausesWhileAFilterDoesNotLoad() throws Exception {
+        writeScript("syntaxfehler", "export const meta = { apps: [\"*\"] ;");
+        try (HotStore hot = new HotStore(properties, JSON, Clock.systemUTC())) {
+            HotFile file = fill(hot, sample, true);
+            ArchiveStore archive = new ArchiveStore(properties, JSON);
+            LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON);
+            assertEquals(1, filters.errors().size());
+            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, parsers(), runtime)) {
+                Thread.sleep(300);
+                assertTrue(archive.find(file.fingerprint()).isEmpty());
+                assertEquals(1, writer.pausedBy().size());
+
+                Files.delete(properties.scripts().dir().resolve("lifecycle/syntaxfehler.js"));
+                filters.changed(de.gbv.logguy.server.script.ScriptKind.LIFECYCLE, scriptsAfterScan());
+                await(() -> archive.find(file.fingerprint()).map(a -> a.meta().closed()).orElse(false));
+            }
+        }
+    }
+
+    private ScriptStore scriptsAfterScan() throws IOException {
+        scripts.scan();
+        return scripts;
+    }
+
+    @Test
+    void liveFileKeepsTheLastIncompleteLineUntilClosed() throws Exception {
+        int cut = sample.length - 10;
+        byte[] start = Arrays.copyOf(sample, cut);
+        try (HotStore hot = new HotStore(properties, JSON, Clock.systemUTC())) {
+            HotFile file = hot.getOrCreate(Fingerprint.of(sample), "app1", "digibib");
+            file.append(0, start, start.length, "/logs/mycore-app.log", Instant.now());
+            file.flushAged(Instant.now().plusSeconds(120));
+            ArchiveStore archive = new ArchiveStore(properties, JSON);
+            LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON);
+            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, parsers(), runtime)) {
+                long framed = file.framedLength();
+                assertTrue(framed < cut);
+                await(() -> archive.find(file.fingerprint()).map(a -> a.meta().sourceLength() == framed)
+                    .orElse(false));
+                assertFalse(archive.find(file.fingerprint()).orElseThrow().meta().closed());
+
+                file.append(cut, Arrays.copyOfRange(sample, cut, sample.length), sample.length - cut, null,
+                    Instant.now());
+                file.close(sample.length, null, Instant.now());
+                await(() -> archive.find(file.fingerprint()).map(a -> a.meta().closed()).orElse(false));
+            }
+            ArchiveFile target = archive.find(file.fingerprint()).orElseThrow();
+            assertEquals(expected(sample), new String(readAll(target), StandardCharsets.UTF_8));
+        }
+    }
+
+    @Test
+    void recoversFromACrashDuringAFrame() throws Exception {
+        try (HotStore hot = new HotStore(properties, JSON, Clock.systemUTC())) {
+            HotFile file = fill(hot, sample, true);
+            ArchiveStore archive = new ArchiveStore(properties, JSON);
+            LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON);
+            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, parsers(), runtime)) {
+                await(() -> archive.find(file.fingerprint()).map(a -> a.meta().closed()).orElse(false));
+            }
+            ArchiveFile target = archive.find(file.fingerprint()).orElseThrow();
+            ArchiveMeta meta = target.meta();
+            String base = target.relativePath().substring(0, target.relativePath().length() - ".log.zst".length());
+            Path dir = properties.archiveDir();
+            Files.write(dir.resolve(base + ".log.zst"), new byte[] { 1, 2, 3 }, StandardOpenOption.APPEND);
+            Files.writeString(dir.resolve(base + ".idx"), "{\"zst\":", StandardOpenOption.APPEND);
+            ArchiveFile reloaded = new ArchiveStore(properties, JSON).find(file.fingerprint()).orElseThrow();
+            assertEquals(meta, reloaded.meta());
+            assertEquals(target.compressedSize(), Files.size(dir.resolve(base + ".log.zst")));
+            assertEquals(expected(sample), new String(readAll(reloaded), StandardCharsets.UTF_8));
+        }
+    }
+}

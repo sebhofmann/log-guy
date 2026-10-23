@@ -112,7 +112,7 @@ class ScriptServiceTest {
             Map.of("digibib", new AppProperties(null, "mycore-log4j"), "leo", new AppProperties(null, null)),
             List.of(), List.of(), null, null,
             new ScriptProperties(scripts, Duration.ofMillis(200), DataSize.ofKilobytes(16), 1000, 100), null, null,
-            null, null, null, null);
+            null, null, null, null, null);
         store = new ScriptStore(scripts, Clock.systemUTC(), JSON);
         store.scan();
         parsers = new ParserRegistry(properties, runtime, store);
@@ -217,7 +217,7 @@ class ScriptServiceTest {
         assertThrows(AccessDeniedException.class, () -> service.get(LEO_ADMIN, MYCORE));
         assertEquals(List.of("parser/leo"),
             service.list(LEO_ADMIN).stream().map(s -> s.kind() + "/" + s.name()).toList());
-        assertEquals(3, service.list(ROOT).size(), "two parsers and the pseudonym template");
+        assertEquals(4, service.list(ROOT).size(), "two parsers, the lifecycle and the pseudonym template");
     }
 
     @Test

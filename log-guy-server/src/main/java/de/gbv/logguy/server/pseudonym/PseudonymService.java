@@ -80,6 +80,9 @@ public class PseudonymService implements ScriptListener, AutoCloseable {
     public synchronized List<String> load(Map<ScriptId, String> active) {
         Map<ScriptId, String> code = new TreeMap<>();
         for (ScriptId id : Templates.ALWAYS_ACTIVE) {
+            if (id.kind() != ScriptKind.PSEUDONYM) {
+                continue;
+            }
             try {
                 code.put(id, Templates.read(id));
             } catch (IOException e) {

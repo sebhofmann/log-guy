@@ -13,8 +13,9 @@ import de.gbv.logguy.server.script.ScriptStore.ScriptId;
  */
 public final class Templates {
 
-    /** Pseudonymization scripts that are always active unless a file replaces them. */
-    public static final List<ScriptId> ALWAYS_ACTIVE = List.of(new ScriptId(ScriptKind.PSEUDONYM, "standard"));
+    /** Scripts that are always active unless a file replaces them. */
+    public static final List<ScriptId> ALWAYS_ACTIVE = List.of(new ScriptId(ScriptKind.LIFECYCLE, "ip-kuerzen"),
+        new ScriptId(ScriptKind.PSEUDONYM, "standard"));
 
     private Templates() {
     }

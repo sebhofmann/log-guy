@@ -64,6 +64,15 @@ log-guy:
     frame-max-age: 60s
     flush-interval: 5s
     compression-level: 3
+  archive:
+    enabled: true
+    threads: 2
+    poll-interval: 5s
+    compression-level: 9
+    # a file leaves hot/ when its last event is older than this, the index window of an application may not be longer
+    hot-days: 7
+    # written instead of a line whose lifecycle filter failed, the original stays in hot/ for archive refilter
+    placeholder: "[log-guy: Zeile zurückgehalten, Filter {filter} fehlgeschlagen, Offset {offset}]"
   scripts:
     dir: /etc/log-guy/scripts
     event-timeout: 50ms

@@ -18,6 +18,9 @@ import org.springframework.scheduling.annotation.SchedulingConfigurer;
 import org.springframework.scheduling.config.ScheduledTaskRegistrar;
 import org.springframework.scheduling.support.CronTrigger;
 
+import de.gbv.logguy.server.archive.ArchiveStore;
+import de.gbv.logguy.server.archive.ArchiveWriter;
+import de.gbv.logguy.server.archive.LifecycleFilters;
 import de.gbv.logguy.server.audit.AuditLog;
 import de.gbv.logguy.server.config.ConfigReloader;
 import de.gbv.logguy.server.config.LogGuyProperties;
@@ -86,6 +89,51 @@ public class ServerConfig {
             throw new IllegalStateException("parser scripts have errors: " + String.join("; ", errors));
         }
         return new Indexer(properties, store, parsers, runtime, solr::add, clock, json);
+    }
+
+    /**
+     * The files in {@code archive/}.
+     *
+     * @param properties configuration
+     * @param json mapper for the meta data
+     * @return the loaded archive
+     * @throws IOException if the archive cannot be read
+     */
+    @Bean
+    public ArchiveStore archiveStore(LogGuyProperties properties, JsonMapper json) throws IOException {
+        return new ArchiveStore(properties, json);
+    }
+
+    /**
+     * The lifecycle filters, reloaded when scripts change.
+     *
+     * @param runtime the script runtime
+     * @param store the scripts
+     * @param json for passing events to {@code fields(event)}
+     * @return the filters
+     */
+    @Bean
+    public LifecycleFilters lifecycleFilters(ScriptRuntime runtime, ScriptStore store, JsonMapper json) {
+        return new LifecycleFilters(runtime, store, json);
+    }
+
+    /**
+     * Copies lines from {@code hot/} to {@code archive/} through the lifecycle filters.
+     *
+     * @param properties configuration
+     * @param hot the originals
+     * @param archive the archive
+     * @param filters the lifecycle filters
+     * @param parsers the parsers, for the time range of the frames
+     * @param runtime the script runtime
+     * @return the running writer
+     */
+    @Bean(destroyMethod = "close")
+    @ConditionalOnBooleanProperty("log-guy.archive.enabled")
+    public ArchiveWriter archiveWriter(LogGuyProperties properties, HotStore hot, ArchiveStore archive,
+        LifecycleFilters filters, ParserRegistry parsers, ScriptRuntime runtime) {
+        parsers.ensureLoaded();
+        return new ArchiveWriter(properties, hot, archive, filters, parsers, runtime);
     }
 
     /**
@@ -260,6 +308,8 @@ public class ServerConfig {
      * @param properties configuration
      * @param store the hot storage
      * @param indexer the indexer if it runs
+     * @param archive the archive
+     * @param writer the archive writer if it runs
      * @param ingest the stream API
      * @param solr connection to Solr
      * @param clock clock for the last hour
@@ -269,9 +319,11 @@ public class ServerConfig {
      */
     @Bean
     public StatusService statusService(LogGuyProperties properties, HotStore store, ObjectProvider<Indexer> indexer,
-        IngestService ingest, SolrService solr, Clock clock, JsonMapper json, ObjectProvider<BuildProperties> build) {
+        ArchiveStore archive, ObjectProvider<ArchiveWriter> writer, IngestService ingest, SolrService solr, Clock clock,
+        JsonMapper json, ObjectProvider<BuildProperties> build) {
         BuildProperties info = build.getIfAvailable();
-        return new StatusService(properties, store, indexer.getIfAvailable(), ingest, solr, clock, json,
+        return new StatusService(properties, store, indexer.getIfAvailable(), archive, writer.getIfAvailable(), ingest,
+            solr, clock, json,
             info == null ? null : info.getVersion());
     }
 

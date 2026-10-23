@@ -1,4 +1,4 @@
-// The status page: system, indexer, agents, applications and Solr. Reloads itself regularly.
+// The status page: system, indexer, archive, agents, applications and Solr. Reloads itself regularly.
 
 import { getJson } from './api.js';
 import { element, formatNumber, formatTime } from './format.js';
@@ -26,6 +26,7 @@ function render(status) {
     content.replaceChildren(
         system(status.system),
         indexer(status.indexer),
+        archive(status.archive),
         agents(status.agents, status.generated),
         apps(status.apps, status.generated),
         solr(status.solr),
@@ -141,6 +142,26 @@ function indexer(i) {
         ['Parserfehler', formatNumber(i.parseErrors)],
         ['Rückstand', `${bytes(i.backlogBytes)} in ${formatNumber(i.backlogFiles)} Dateien`],
     ]));
+}
+
+function archive(a) {
+    if (!a.enabled) {
+        return section('Archiv', element('p', null, 'Der Archiv-Schreiber ist ausgeschaltet.'));
+    }
+    const children = [];
+    if (a.pausedBy.length > 0) {
+        children.push(element('p', 'error', 'Angehalten, weil Lifecycle-Filter nicht laden: '
+            + a.pausedBy.join('; ')));
+    }
+    children.push(element('p', 'muted', 'Zahlen seit dem Start des Servers, Größe und Dateien aus archive/.'),
+        pairs([
+            ['Archivierte Zeilen', formatNumber(a.lines)],
+            ['Von Filtern weggelassen', formatNumber(a.dropped)],
+            ['Filterfehler (Platzhalter)', formatNumber(a.filterErrors)],
+            ['Rückstand', bytes(a.backlogBytes)],
+            ['Archiv', `${bytes(a.bytes)} in ${formatNumber(a.files)} Dateien`],
+        ]));
+    return section('Archiv', ...children);
 }
 
 function agents(list, now) {
