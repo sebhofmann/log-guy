@@ -84,7 +84,7 @@ Name und Passwort, danach ein Session-Cookie mit `HttpOnly`, `Secure` und `SameS
 | Logs im Original | Archiv |
 | Einsammel-Stand pro Logdatei | `.meta.json` im Archiv |
 | Indexer-Fortschritt | `state/index/<fingerprint>` |
-| Steuer-Token für `log-guy reload` und `log-guy archive refilter` | `state/control.token`, bei jedem Start neu |
+| Steuer-Token für `log-guy reload`, `log-guy archive refilter` und `log-guy reindex` | `state/control.token`, bei jedem Start neu |
 | Meldungen | `state/alerts.ndjson` |
 | Audit-Log | `audit/*.ndjson`, Skript-Änderungen, Reloads und MCP-Aufrufe |
 | Sessions, Pseudonym-Zuordnungen, Suchjobs | nur im RAM |

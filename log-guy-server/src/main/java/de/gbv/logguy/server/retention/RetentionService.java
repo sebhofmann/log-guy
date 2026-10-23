@@ -63,8 +63,9 @@ public class RetentionService {
     /**
      * The delete queries for the current time. Days are counted in the zone of log-guy, an event is kept if it is
      * from today or one of the {@code index-days} days before, so at least {@code index-days} full days are kept.
+     * Events loaded from the archive are kept until their {@code expires} and then deleted.
      *
-     * @return the queries, the global one last
+     * @return the queries, the global one before the one for expired events
      */
     public List<String> queries() {
         Instant now = clock.instant();
@@ -80,11 +81,38 @@ public class RetentionService {
         for (Map.Entry<Integer, List<String>> group : appsByDays.entrySet()) {
             List<String> apps = group.getValue().stream().sorted().toList();
             special.addAll(apps);
-            queries.add(appClause(apps) + " AND ts:[* TO " + limit(now, group.getKey()) + "}");
+            queries.add(keepLoaded(appClause(apps) + " AND ts:[* TO " + limit(now, group.getKey()) + "}", now));
         }
         String global = "ts:[* TO " + limit(now, properties.indexer().indexDays()) + "}";
-        queries.add(special.isEmpty() ? global : "*:* -" + appClause(special) + " AND " + global);
+        queries.add(keepLoaded(special.isEmpty() ? global : "*:* -" + appClause(special) + " AND " + global, now));
+        queries.add(expiredQuery(now));
         return queries;
+    }
+
+    /**
+     * The query for events loaded from the archive whose time in the index is over.
+     *
+     * @param now the current time
+     * @return the query
+     */
+    public static String expiredQuery(Instant now) {
+        return "expires:[* TO " + now + "]";
+    }
+
+    private static String keepLoaded(String query, Instant now) {
+        return "+(" + query + ") -expires:[" + now + " TO *]";
+    }
+
+    /**
+     * The start of the index window of an application: events from there on stay in the index.
+     *
+     * @param app the application
+     * @return the start of the oldest day kept
+     */
+    public Instant windowStart(String app) {
+        AppProperties settings = properties.apps().get(app);
+        Integer days = settings == null ? null : settings.indexDays();
+        return Instant.parse(limit(clock.instant(), days != null ? days : properties.indexer().indexDays()));
     }
 
     private String limit(Instant now, int days) {

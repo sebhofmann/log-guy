@@ -8,7 +8,6 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,7 +27,6 @@ import de.gbv.logguy.server.config.LogGuyProperties.IndexerProperties;
 import de.gbv.logguy.server.hot.FileMeta;
 import de.gbv.logguy.server.hot.HotFile;
 import de.gbv.logguy.server.hot.HotStore;
-import de.gbv.logguy.server.script.FieldDefinition;
 import de.gbv.logguy.server.script.ParsedEvent;
 import de.gbv.logguy.server.script.Parser;
 import de.gbv.logguy.server.script.ParserRegistry;
@@ -73,6 +71,8 @@ public class Indexer implements AutoCloseable {
     private final ThreadLocal<Map<String, Parser>> threadParsers = ThreadLocal.withInitial(HashMap::new);
 
     private final Set<String> missingParsers = ConcurrentHashMap.newKeySet();
+
+    private final Set<String> resets = ConcurrentHashMap.newKeySet();
 
     private final ExecutorService workers;
 
@@ -153,10 +153,14 @@ public class Indexer implements AutoCloseable {
      */
     void scan() {
         for (HotFile file : store.files()) {
-            Cursor cursor = cursors.computeIfAbsent(file.fingerprint(), fp -> new Cursor(file, loadState(fp, file)));
-            if (cursor.file != file || store.find(file.fingerprint()).isEmpty()) {
+            Cursor found = cursors.computeIfAbsent(file.fingerprint(), fp -> new Cursor(file, loadState(fp, file)));
+            if (found.file != file || store.find(file.fingerprint()).isEmpty()) {
                 // deleted from hot/ while this scan ran
-                cursors.remove(file.fingerprint(), cursor);
+                cursors.remove(file.fingerprint(), found);
+                continue;
+            }
+            Cursor cursor = !found.busy && resets.contains(file.fingerprint()) ? reset(found) : found;
+            if (cursor == null) {
                 continue;
             }
             if (cursor.done || cursor.busy || !cursor.hasWork()) {
@@ -174,6 +178,43 @@ public class Indexer implements AutoCloseable {
                 }
             });
         }
+    }
+
+    /**
+     * Indexes a file again from its start, e.g. after a change of the parser script. Its events are deleted from
+     * Solr before, so events whose start moved do not stay twice. Events loaded from the archive stay.
+     *
+     * @param fingerprint fingerprint of the file in {@code hot/}
+     */
+    public void reindex(String fingerprint) {
+        resets.add(fingerprint);
+    }
+
+    /**
+     * Number of files waiting to be indexed again.
+     *
+     * @return files requested by {@link #reindex(String)} and not yet started
+     */
+    public int pendingReindex() {
+        return resets.size();
+    }
+
+    // runs in the scan thread while no worker has the cursor
+    private Cursor reset(Cursor cursor) {
+        String fingerprint = cursor.file.fingerprint();
+        IndexState fresh = new IndexState(0, null, false);
+        try {
+            saveState(fingerprint, fresh);
+            sink.delete(EventDocuments.hotEventsOf(fingerprint));
+        } catch (Exception e) {
+            LOGGER.error("cannot index {} again, trying later", cursor.file.relativePath(), e);
+            return null;
+        }
+        resets.remove(fingerprint);
+        Cursor fresher = new Cursor(cursor.file, fresh);
+        cursors.put(fingerprint, fresher);
+        LOGGER.info("indexing {} again", cursor.file.relativePath());
+        return fresher;
     }
 
     /**
@@ -198,6 +239,7 @@ public class Indexer implements AutoCloseable {
      * @throws IOException if the state file cannot be deleted
      */
     public void forget(String fingerprint) throws IOException {
+        resets.remove(fingerprint);
         cursors.remove(fingerprint);
         Files.deleteIfExists(stateDir.resolve(fingerprint));
     }
@@ -349,29 +391,12 @@ public class Indexer implements AutoCloseable {
         ParsedEvent parsed = parser.parse(event.text());
         Instant ts = parsed.ts() != null ? parsed.ts() : cursor.lastTs;
         cursor.lastTs = ts;
-        SolrInputDocument doc = new SolrInputDocument();
-        doc.setField("id", meta.fingerprint() + ":" + event.offset());
-        doc.setField("app", meta.app());
-        doc.setField("host", meta.host());
-        doc.setField("file", file.relativePath());
-        doc.setField("offset", event.offset());
-        doc.setField("ts", Date.from(ts));
-        doc.setField("message", parsed.message());
-        doc.setField("parser_version", parser.script().version());
         if (parsed.error() != null) {
             parseErrors.incrementAndGet();
             parseErrorsByApp.computeIfAbsent(meta.app(), app -> new AtomicLong()).incrementAndGet();
-            doc.setField("parse_error", parsed.error());
         }
-        for (Map.Entry<String, Object> field : parsed.fields().entrySet()) {
-            FieldDefinition definition = parser.script().fields().get(field.getKey());
-            Object value = field.getValue();
-            if (value instanceof Instant instant) {
-                value = Date.from(instant);
-            }
-            doc.setField(definition.solrField(), value);
-        }
-        return doc;
+        return EventDocuments.create(EventDocuments.hotId(meta.fingerprint(), event.offset()), meta.app(),
+            meta.host(), file.relativePath(), event.offset(), ts, parsed, parser.script());
     }
 
     private IndexState loadState(String fingerprint, HotFile file) {
@@ -418,6 +443,17 @@ public class Indexer implements AutoCloseable {
          * @throws Exception if they cannot be stored, the indexer tries again later
          */
         void add(List<SolrInputDocument> documents) throws Exception;
+
+        /**
+         * Deletes the documents matching a query, needed to index files again. Sinks that cannot delete throw
+         * {@link UnsupportedOperationException}.
+         *
+         * @param query a Lucene query
+         * @throws Exception if they cannot be deleted
+         */
+        default void delete(String query) throws Exception {
+            throw new UnsupportedOperationException("this sink cannot delete");
+        }
     }
 
     /**

@@ -64,8 +64,8 @@ Die Pseudonymisierung gehört in diesen Milestone, weil alles, was den MCP-Endpu
 - [x] Platzhalter bei Filterfehlern, `log-guy archive refilter`
 - [x] `hot/` nach 7 Tagen leeren
 - [x] Archivsuche als Job mit Regex, Fortschritt und Abbruch, in GUI und MCP
-- [ ] Ältere Zeiträume nachindexieren mit Ablaufdatum
-- [ ] Neuindexierung im Index-Fenster nach einer Skriptänderung, `log-guy reindex`, Angebot im Skript-Editor nach dem Aktivieren
+- [x] Ältere Zeiträume nachindexieren mit Ablaufdatum
+- [x] Neuindexierung im Index-Fenster nach einer Skriptänderung, `log-guy reindex`, Angebot im Skript-Editor nach dem Aktivieren
 
 ### M5 Meldungen
 

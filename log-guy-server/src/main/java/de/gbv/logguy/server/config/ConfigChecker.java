@@ -83,6 +83,10 @@ public final class ConfigChecker {
             && !CronExpression.isValidExpression(properties.retention().cron())) {
             errors.add("retention: cron " + properties.retention().cron() + " is not a valid cron expression");
         }
+        if (properties.reindex() != null && !"-".equals(properties.reindex().expireCron())
+            && !CronExpression.isValidExpression(properties.reindex().expireCron())) {
+            errors.add("reindex: expire-cron " + properties.reindex().expireCron() + " is not a valid cron expression");
+        }
         if (properties.serverLog() != null
             && (properties.serverLog().ringSize() < 1 || properties.serverLog().keepDays() < 1)) {
             errors.add("server-log: ring-size and keep-days must be at least 1");

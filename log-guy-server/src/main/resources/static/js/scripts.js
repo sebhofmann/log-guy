@@ -7,6 +7,7 @@ import {
 } from '../vendor/codemirror.esm.js';
 import { ApiError, getJson, sendJson } from './api.js';
 import { element, firstLine, formatNumber, formatTime } from './format.js';
+import { offerReindex } from './reindex.js';
 
 const KINDS = {
     parser: 'Parser', rule: 'Meldungsregeln', lifecycle: 'Lifecycle-Filter', pseudonym: 'Pseudonymisierung',
@@ -380,8 +381,7 @@ async function activate(message, force, confirm) {
     try {
         const params = new URLSearchParams({ force, confirm });
         current = await sendJson('POST', `${path('/activate')}?${params}`);
-        await afterChange(message, 'Aktiviert. Neue Events nutzen ab jetzt diese Fassung. Bereits indexierte Events '
-            + 'bleiben, wie sie sind.');
+        await afterChange(message, 'Aktiviert. Neue Events nutzen ab jetzt diese Fassung.');
     } catch (e) {
         if (e instanceof ApiError && e.status === 409 && window.confirm(`${e.message}\n\nTrotzdem aktivieren?`)) {
             const conflict = e.body?.reason === 'conflict';
@@ -407,7 +407,13 @@ async function rollback(version) {
 async function afterChange(message, text) {
     render(current.draft ? current.draft.code : current.code);
     await reloadList();
-    show(main.querySelector('.script-message'), text, true);
+    const box = main.querySelector('.script-message');
+    show(box, text, true);
+    if (current.kind === 'parser') {
+        const offer = element('div', 'script-reindex');
+        box.after(offer);
+        await offerReindex(offer, current.apps);
+    }
 }
 
 async function reloadFromDisk() {

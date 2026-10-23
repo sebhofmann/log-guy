@@ -112,7 +112,7 @@ class ScriptServiceTest {
             Map.of("digibib", new AppProperties(null, "mycore-log4j"), "leo", new AppProperties(null, null)),
             List.of(), List.of(), null, null,
             new ScriptProperties(scripts, Duration.ofMillis(200), DataSize.ofKilobytes(16), 1000, 100), null, null,
-            null, null, null, null, null);
+            null, null, null, null, null, null);
         store = new ScriptStore(scripts, Clock.systemUTC(), JSON);
         store.scan();
         parsers = new ParserRegistry(properties, runtime, store);

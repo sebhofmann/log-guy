@@ -39,8 +39,11 @@ public class SecurityConfig {
     /** Path of {@code log-guy archive refilter}. */
     public static final String REFILTER_PATH = "/admin/archive/refilter";
 
+    /** Path of {@code log-guy reindex}. */
+    public static final String REINDEX_PATH = "/admin/reindex";
+
     /** Paths that also accept the control token of the command line. */
-    public static final Set<String> CONTROL_PATHS = Set.of(RELOAD_PATH, REFILTER_PATH);
+    public static final Set<String> CONTROL_PATHS = Set.of(RELOAD_PATH, REFILTER_PATH, REINDEX_PATH);
 
     /**
      * Creates the password encoder, Argon2id with the parameters of Spring Security.

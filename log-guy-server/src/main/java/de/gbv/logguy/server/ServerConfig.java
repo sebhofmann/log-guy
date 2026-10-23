@@ -29,6 +29,7 @@ import de.gbv.logguy.server.hot.HotStore;
 import de.gbv.logguy.server.index.Indexer;
 import de.gbv.logguy.server.ingest.IngestService;
 import de.gbv.logguy.server.pseudonym.PseudonymService;
+import de.gbv.logguy.server.reindex.ReindexService;
 import de.gbv.logguy.server.retention.HotCleaner;
 import de.gbv.logguy.server.retention.RetentionService;
 import de.gbv.logguy.server.script.ParserRegistry;
@@ -90,7 +91,7 @@ public class ServerConfig {
         if (!errors.isEmpty()) {
             throw new IllegalStateException("parser scripts have errors: " + String.join("; ", errors));
         }
-        return new Indexer(properties, store, parsers, runtime, solr::add, clock, json);
+        return new Indexer(properties, store, parsers, runtime, solr, clock, json);
     }
 
     /**
@@ -256,11 +257,12 @@ public class ServerConfig {
      *
      * @param properties configuration
      * @param store the hot storage
+     * @param archive the archive, for events loaded from it
      * @return the service
      */
     @Bean
-    public ContextService contextService(LogGuyProperties properties, HotStore store) {
-        return new ContextService(properties, store);
+    public ContextService contextService(LogGuyProperties properties, HotStore store, ArchiveStore archive) {
+        return new ContextService(properties, store, archive);
     }
 
     /**
@@ -323,6 +325,46 @@ public class ServerConfig {
             if (!Scheduled.CRON_DISABLED.equals(properties.retention().cron())) {
                 registrar.addTriggerTask(retention::run,
                     new CronTrigger(properties.retention().cron(), properties.zone()));
+            }
+        };
+    }
+
+    /**
+     * Indexing again from {@code hot/} and loading older days from {@code archive/}.
+     *
+     * @param properties configuration
+     * @param hot the originals
+     * @param archive the archive
+     * @param indexer the indexer, missing if indexing is disabled
+     * @param parsers the parsers
+     * @param runtime the script runtime
+     * @param solr connection to Solr
+     * @param retention knows the index windows
+     * @param clock clock for the expiry
+     * @return the service
+     */
+    @Bean(destroyMethod = "close")
+    public ReindexService reindexService(LogGuyProperties properties, HotStore hot, ArchiveStore archive,
+        ObjectProvider<Indexer> indexer, ParserRegistry parsers, ScriptRuntime runtime, SolrService solr,
+        RetentionService retention, Clock clock) {
+        return new ReindexService(properties, hot, archive, indexer.getIfAvailable(), parsers, runtime, solr,
+            solr::oldestEvent, retention, clock);
+    }
+
+    /**
+     * Deletes loaded events whose expiry date has passed at {@code log-guy.reindex.expire-cron}, never if the cron is
+     * {@code -}.
+     *
+     * @param properties configuration
+     * @param reindex the reindex service
+     * @return the scheduling
+     */
+    @Bean
+    public SchedulingConfigurer expireSchedule(LogGuyProperties properties, ReindexService reindex) {
+        return (ScheduledTaskRegistrar registrar) -> {
+            if (!Scheduled.CRON_DISABLED.equals(properties.reindex().expireCron())) {
+                registrar.addTriggerTask(reindex::expire,
+                    new CronTrigger(properties.reindex().expireCron(), properties.zone()));
             }
         };
     }

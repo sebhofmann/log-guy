@@ -17,6 +17,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import de.gbv.logguy.server.reindex.ReindexException;
 import de.gbv.logguy.server.script.ScriptRequestException;
 
 /**
@@ -58,6 +59,21 @@ public class ApiExceptionHandler {
     @ExceptionHandler(NoSuchElementException.class)
     public ResponseEntity<Map<String, String>> missing(NoSuchElementException e) {
         return error(HttpStatus.NOT_FOUND, e.getMessage());
+    }
+
+    /**
+     * A reindex request that cannot be done.
+     *
+     * @param e the exception
+     * @return 400, or 502 if the index cannot be asked
+     */
+    @ExceptionHandler(ReindexException.class)
+    public ResponseEntity<Map<String, String>> reindex(ReindexException e) {
+        if (e.getCause() != null) {
+            LOGGER.warn("reindex not possible", e);
+            return error(HttpStatus.BAD_GATEWAY, e.getMessage());
+        }
+        return error(HttpStatus.BAD_REQUEST, e.getMessage());
     }
 
     /**

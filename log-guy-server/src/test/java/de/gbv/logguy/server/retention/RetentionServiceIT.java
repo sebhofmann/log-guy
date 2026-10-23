@@ -65,7 +65,7 @@ class RetentionServiceIT {
                 DataSize.ofMegabytes(64), Duration.ofSeconds(5), DataSize.ofMegabytes(1), 7, Duration.ofSeconds(10)),
             new SearchProperties(Duration.ofHours(24), 100, 1000, 300, 8, 10, 100, 20, 500,
                 DataSize.ofKilobytes(512)),
-            new RetentionProperties("0 30 2 * * *", true), null, null, null);
+            new RetentionProperties("0 30 2 * * *", true), null, null, null, null);
         retention = new RetentionService(properties, service, null, Clock.fixed(NOW, ZoneOffset.UTC), null);
     }
 
@@ -97,17 +97,28 @@ class RetentionServiceIT {
         documents.add(document("same-old", "same", NOW.minus(Duration.ofDays(8))));
         documents.add(document("gone-old", "gone", NOW.minus(Duration.ofDays(30))));
         documents.add(document("gone-kept", "gone", NOW));
+        SolrInputDocument loaded = document("loaded-kept", "digibib", NOW.minus(Duration.ofDays(40)));
+        loaded.addField("expires", Date.from(NOW.plus(Duration.ofHours(3))));
+        documents.add(loaded);
+        SolrInputDocument expired = document("loaded-expired", "digibib", NOW.minus(Duration.ofDays(40)));
+        expired.addField("expires", Date.from(NOW.minus(Duration.ofHours(1))));
+        documents.add(expired);
+        SolrInputDocument recent = document("loaded-recent-expired", "digibib", NOW);
+        recent.addField("expires", Date.from(NOW));
+        documents.add(recent);
         service.add(documents);
         service.client().commit();
 
-        assertEquals(List.of("app:(\"short\") AND ts:[* TO 2026-10-20T22:00:00Z}",
-            "*:* -app:(\"short\") AND ts:[* TO 2026-10-15T22:00:00Z}"), retention.queries());
+        assertEquals(List.of(
+            "+(app:(\"short\") AND ts:[* TO 2026-10-20T22:00:00Z}) -expires:[2026-10-23T10:00:00Z TO *]",
+            "+(*:* -app:(\"short\") AND ts:[* TO 2026-10-15T22:00:00Z}) -expires:[2026-10-23T10:00:00Z TO *]",
+            "expires:[* TO 2026-10-23T10:00:00Z]"), retention.queries());
         retention.run();
 
         Set<String> left = new TreeSet<>();
         for (SolrDocument document : service.client().query(new SolrQuery("*:*").setRows(100)).getResults()) {
             left.add((String) document.getFirstValue("id"));
         }
-        assertEquals(Set.of("digibib-kept", "short-kept", "gone-kept"), left);
+        assertEquals(Set.of("digibib-kept", "short-kept", "gone-kept", "loaded-kept"), left);
     }
 }

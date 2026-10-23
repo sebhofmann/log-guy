@@ -13,6 +13,9 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -140,6 +143,72 @@ public class Commands {
         String query = "?all=" + all + (app == null || app.isBlank() ? "" : "&app=" + URLEncoder.encode(app,
             StandardCharsets.UTF_8));
         control(context, SecurityConfig.REFILTER_PATH + query);
+    }
+
+    /**
+     * Lets the running server index a time range of an application again: files of {@code hot/} with the current
+     * parser, the part before the index window from the archive with an expiry date.
+     *
+     * @param context the command context
+     * @param app the application
+     * @param since start of the range, a duration back from now like {@code 14d} or a time like
+     *     {@code 2026-10-01T00:00:00Z}
+     * @param until end of the range in the same form, now if empty
+     * @param source {@code all}, {@code hot} or {@code archive}
+     */
+    @Command(name = "reindex", description = "Index a time range of an application again, older days from the archive")
+    public void reindex(CommandContext context,
+        @Option(longName = "app", description = "the application", required = true) String app,
+        @Option(longName = "since", description = "start, e.g. 14d, 36h or 2026-10-01T00:00:00Z",
+            required = true) String since,
+        @Option(longName = "until", description = "end in the same form, default now", defaultValue = "") String until,
+        @Option(longName = "source", description = "all, hot or archive", defaultValue = "all") String source) {
+        Instant now = Instant.now();
+        Instant from;
+        Instant to;
+        try {
+            from = pointInTime(since, now);
+            to = until == null || until.isBlank() ? null : pointInTime(until, now);
+        } catch (IllegalArgumentException e) {
+            context.outputWriter().println("ERROR " + e.getMessage());
+            context.outputWriter().flush();
+            exitCode.fail();
+            return;
+        }
+        StringBuilder query = new StringBuilder("?app=").append(URLEncoder.encode(app, StandardCharsets.UTF_8))
+            .append("&from=").append(from).append("&source=").append(source.toUpperCase(Locale.ROOT));
+        if (to != null) {
+            query.append("&to=").append(to);
+        }
+        control(context, SecurityConfig.REINDEX_PATH + query);
+    }
+
+    /**
+     * Reads a point in time: a duration back from now with the unit {@code d}, {@code h} or {@code m}, or an ISO
+     * time.
+     *
+     * @param text the text
+     * @param now the current time
+     * @return the point in time
+     * @throws IllegalArgumentException if the text is neither
+     */
+    static Instant pointInTime(String text, Instant now) {
+        String value = text.strip();
+        if (value.matches("\\d+[dhm]")) {
+            long amount = Long.parseLong(value.substring(0, value.length() - 1));
+            Duration back = switch (value.charAt(value.length() - 1)) {
+                case 'd' -> Duration.ofDays(amount);
+                case 'h' -> Duration.ofHours(amount);
+                default -> Duration.ofMinutes(amount);
+            };
+            return now.minus(back);
+        }
+        try {
+            return Instant.parse(value);
+        } catch (DateTimeParseException e) {
+            throw new IllegalArgumentException("neither a duration like 14d nor a time like 2026-10-01T00:00:00Z: "
+                + text, e);
+        }
     }
 
     /**

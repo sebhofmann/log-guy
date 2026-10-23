@@ -1,6 +1,7 @@
 package de.gbv.logguy.server.web;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -25,6 +26,12 @@ import de.gbv.logguy.server.audit.Actor.Via;
 import de.gbv.logguy.server.audit.AuditLog;
 import de.gbv.logguy.server.config.ConfigReloader;
 import de.gbv.logguy.server.config.ConfigReloader.Report;
+import de.gbv.logguy.server.reindex.ReindexException;
+import de.gbv.logguy.server.reindex.ReindexJob;
+import de.gbv.logguy.server.reindex.ReindexJob.Plan;
+import de.gbv.logguy.server.reindex.ReindexJob.State;
+import de.gbv.logguy.server.reindex.ReindexService;
+import de.gbv.logguy.server.reindex.ReindexService.Source;
 import de.gbv.logguy.server.script.ScriptStore.ScriptId;
 import de.gbv.logguy.server.security.ControlTokenFilter;
 import de.gbv.logguy.server.security.CurrentUser;
@@ -44,6 +51,8 @@ public class AdminController {
 
     private static final int MAX_LOG_ENTRIES = 2000;
 
+    private static final long REINDEX_POLL_MILLIS = 500;
+
     private final CurrentUser currentUser;
 
     private final StatusService status;
@@ -56,6 +65,8 @@ public class AdminController {
 
     private final AuditLog audit;
 
+    private final ReindexService reindex;
+
     /**
      * Creates the controller.
      *
@@ -65,15 +76,18 @@ public class AdminController {
      * @param reloader reads configuration and scripts again
      * @param archiveWriter the archive writer, missing if the archive is disabled
      * @param audit the audit log
+     * @param reindex the reindex jobs
      */
     public AdminController(CurrentUser currentUser, StatusService status, ServerLog serverLog,
-        ConfigReloader reloader, ObjectProvider<ArchiveWriter> archiveWriter, AuditLog audit) {
+        ConfigReloader reloader, ObjectProvider<ArchiveWriter> archiveWriter, AuditLog audit,
+        ReindexService reindex) {
         this.currentUser = currentUser;
         this.status = status;
         this.serverLog = serverLog;
         this.reloader = reloader;
         this.archiveWriter = archiveWriter;
         this.audit = audit;
+        this.reindex = reindex;
     }
 
     private Actor actor(Authentication authentication) {
@@ -133,6 +147,39 @@ public class AdminController {
                 "failed", report.failed().size(), "placeholders", report.placeholders()));
         boolean ok = report.failed().isEmpty() && report.pausedBy().isEmpty();
         return ResponseEntity.status(ok ? HttpStatus.OK : HttpStatus.UNPROCESSABLE_CONTENT).body(report);
+    }
+
+    /**
+     * Indexes a time range of an application again, for administrators and for {@code log-guy reindex} with the
+     * control token. Files of {@code hot/} go to the indexer, the part before the index is loaded from the archive.
+     * Waits until the archive part is loaded.
+     *
+     * @param app the application
+     * @param from start of the time range
+     * @param to end of the time range, now if left out
+     * @param source which storage to read
+     * @param authentication the caller
+     * @return the status of the job, 200 if it is done, otherwise 422
+     * @throws ReindexException if there is nothing to do or the request is invalid
+     * @throws InterruptedException if waiting is interrupted
+     */
+    @PostMapping(SecurityConfig.REINDEX_PATH)
+    @ResponseBody
+    public ResponseEntity<ReindexJob.Status> reindex(@RequestParam String app, @RequestParam Instant from,
+        @RequestParam(required = false) Instant to, @RequestParam(defaultValue = "ALL") Source source,
+        Authentication authentication) throws ReindexException, InterruptedException {
+        Actor actor = actor(authentication);
+        Plan plan = reindex.plan(app, from, to, source);
+        ReindexJob job = reindex.start(actor.user() != null ? actor.user() : actor.token(), plan);
+        audit.log(actor, "reindex.start", app, Map.of("from", String.valueOf(plan.from()), "to",
+            String.valueOf(plan.to()), "hotFiles", plan.hotFiles().size(), "archiveFiles",
+            plan.archiveFiles().size()));
+        while (job.running()) {
+            Thread.sleep(REINDEX_POLL_MILLIS);
+        }
+        ReindexJob.Status result = job.status();
+        return ResponseEntity.status(result.state() == State.DONE && result.failed().isEmpty() ? HttpStatus.OK
+            : HttpStatus.UNPROCESSABLE_CONTENT).body(result);
     }
 
     /**

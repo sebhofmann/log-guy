@@ -4,10 +4,12 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
+import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Collection;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -15,6 +17,7 @@ import java.util.zip.ZipOutputStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.solr.client.solrj.SolrClient;
+import org.apache.solr.client.solrj.SolrQuery;
 import org.apache.solr.client.solrj.SolrRequest;
 import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.impl.CloudHttp2SolrClient;
@@ -23,6 +26,8 @@ import org.apache.solr.client.solrj.request.CollectionAdminRequest;
 import org.apache.solr.client.solrj.request.ConfigSetAdminRequest;
 import org.apache.solr.client.solrj.request.GenericSolrRequest;
 import org.apache.solr.client.solrj.response.CollectionAdminResponse;
+import org.apache.solr.client.solrj.util.ClientUtils;
+import org.apache.solr.common.SolrDocumentList;
 import org.apache.solr.common.SolrInputDocument;
 import org.apache.solr.common.cloud.DocCollection;
 import org.apache.solr.common.cloud.Replica;
@@ -34,11 +39,12 @@ import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 
 import de.gbv.logguy.server.config.LogGuyProperties.SolrProperties;
+import de.gbv.logguy.server.index.Indexer.DocumentSink;
 
 /**
  * Connection to the SolrCloud and setup of configset, collection and alias.
  */
-public class SolrService implements AutoCloseable {
+public class SolrService implements DocumentSink, AutoCloseable {
 
     private static final Logger LOGGER = LogManager.getLogger();
 
@@ -87,8 +93,39 @@ public class SolrService implements AutoCloseable {
      * @throws IOException on network errors
      * @throws SolrServerException on errors reported by Solr
      */
-    public void add(Collection<SolrInputDocument> documents) throws IOException, SolrServerException {
+    @Override
+    public void add(List<SolrInputDocument> documents) throws IOException, SolrServerException {
         client.add(properties.alias(), documents);
+    }
+
+    /**
+     * Finds the oldest event of an application, without the events loaded from the archive.
+     *
+     * @param app the application
+     * @return its time, empty if the application has no events
+     * @throws IOException on network errors
+     * @throws SolrServerException on errors reported by Solr
+     */
+    public Optional<Instant> oldestEvent(String app) throws IOException, SolrServerException {
+        SolrQuery query = new SolrQuery("*:*").addFilterQuery("app:" + ClientUtils.escapeQueryChars(app))
+            .addFilterQuery("-expires:[* TO *]").setFields("ts").setRows(1).setSort("ts", SolrQuery.ORDER.asc);
+        SolrDocumentList found = client.query(properties.alias(), query).getResults();
+        if (found.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(((Date) found.getFirst().getFirstValue("ts")).toInstant());
+    }
+
+    /**
+     * Deletes the events matching a query. They disappear with the next soft commit.
+     *
+     * @param query a Lucene query
+     * @throws IOException on network errors
+     * @throws SolrServerException on errors reported by Solr
+     */
+    @Override
+    public void delete(String query) throws IOException, SolrServerException {
+        client.deleteByQuery(properties.alias(), query);
     }
 
     /**

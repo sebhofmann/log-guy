@@ -12,6 +12,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -19,7 +20,9 @@ import java.util.function.BooleanSupplier;
 
 import org.apache.solr.client.solrj.SolrQuery;
 import org.apache.solr.client.solrj.response.QueryResponse;
+import org.apache.solr.client.solrj.util.ClientUtils;
 import org.apache.solr.common.SolrDocument;
+import org.apache.solr.common.SolrInputDocument;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -93,7 +96,7 @@ class IndexerIT {
             solr.properties(),
             new IndexerProperties(true, 2, Duration.ofMillis(100), 500, DataSize.ofKilobytes(64),
                 DataSize.ofMegabytes(64), provisionalAfter, DataSize.ofMegabytes(1), 7, Duration.ofSeconds(10)),
-            null, null, null, null, null);
+            null, null, null, null, null, null);
     }
 
     private int expectedEvents() throws Exception {
@@ -159,6 +162,51 @@ class IndexerIT {
                 await(() -> indexer.indexedEvents() >= expected && indexer.backlog() == 0);
             }
             assertEquals(expected, count("*:*"));
+        }
+    }
+
+    private static SolrInputDocument event(String id, String file) {
+        SolrInputDocument doc = new SolrInputDocument();
+        doc.setField("id", id);
+        doc.setField("app", "digibib");
+        doc.setField("host", "app1");
+        doc.setField("file", file);
+        doc.setField("offset", 17L);
+        doc.setField("ts", new Date());
+        doc.setField("message", "test");
+        return doc;
+    }
+
+    @Test
+    void reindexReplacesTheEventsOfAFileAndKeepsLoadedOnes() throws Exception {
+        LogGuyProperties properties = properties(Duration.ofSeconds(5));
+        String fp = Fingerprint.of(sample);
+        try (HotStore store = new HotStore(properties, JSON, Clock.systemUTC())) {
+            HotFile file = store.getOrCreate(fp, "app1", "digibib");
+            file.append(0, sample, sample.length, null, Instant.now());
+            file.close(sample.length, null, Instant.now());
+            ParserRegistry parsers = new ParserRegistry(properties, runtime);
+            assertTrue(parsers.load().isEmpty());
+            int expected = expectedEvents();
+
+            try (Indexer indexer = new Indexer(properties, store, parsers, runtime, service, Clock.systemUTC(),
+                JSON)) {
+                await(() -> indexer.indexedEvents() >= expected && indexer.backlog() == 0);
+
+                // an event the old parser cut differently and one loaded from the archive with an expiry
+                SolrInputDocument stale = event(fp + ":999999999", file.relativePath());
+                SolrInputDocument loaded = event(fp + ":a17", file.relativePath());
+                loaded.setField("expires", Date.from(Instant.now().plus(Duration.ofHours(3))));
+                service.add(List.of(stale, loaded));
+                assertEquals(expected + 2, count("*:*"));
+
+                indexer.reindex(fp);
+                await(() -> indexer.pendingReindex() == 0 && indexer.indexedEvents() >= 2L * expected
+                    && indexer.backlog() == 0);
+            }
+            assertEquals(expected + 1, count("*:*"));
+            assertEquals(0, count("id:" + ClientUtils.escapeQueryChars(fp + ":999999999")));
+            assertEquals(1, count("expires:*"));
         }
     }
 

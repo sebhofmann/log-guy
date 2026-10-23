@@ -25,6 +25,7 @@ import de.gbv.logguy.server.config.LogGuyProperties.ScriptProperties;
 import de.gbv.logguy.server.hot.FileMeta;
 import de.gbv.logguy.server.hot.HotFile;
 import de.gbv.logguy.server.hot.HotStore;
+import de.gbv.logguy.server.index.EventDocuments;
 import de.gbv.logguy.server.index.EventReader;
 import de.gbv.logguy.server.index.EventReader.RawEvent;
 import de.gbv.logguy.server.pseudonym.PseudonymService;
@@ -347,6 +348,10 @@ public class ScriptTester {
         }
         String id = first.id();
         int separator = id.lastIndexOf(':');
+        if (id.startsWith(EventDocuments.ARCHIVE_MARK, separator + 1)) {
+            throw new ScriptRequestException(Reason.NOT_FOUND,
+                "Das erste Event im Zeitraum wurde aus dem Archiv nachgeladen und liegt nicht in hot/.");
+        }
         HotFile file = hot.find(id.substring(0, separator)).orElseThrow(() -> new ScriptRequestException(
             Reason.NOT_FOUND, "Die Datei des ersten Events liegt nicht mehr in hot/."));
         List<String> lines = readLines(file, Long.parseLong(id.substring(separator + 1)), max);

@@ -11,16 +11,20 @@ import java.util.regex.Pattern;
 
 import org.springframework.security.access.AccessDeniedException;
 
+import de.gbv.logguy.server.archive.ArchiveFile;
+import de.gbv.logguy.server.archive.ArchiveStore;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.Right;
 import de.gbv.logguy.server.config.LogGuyProperties.SearchProperties;
 import de.gbv.logguy.server.hot.FileMeta;
 import de.gbv.logguy.server.hot.HotFile;
 import de.gbv.logguy.server.hot.HotStore;
+import de.gbv.logguy.server.index.EventDocuments;
 import de.gbv.logguy.server.security.LogGuyUser;
 
 /**
- * Reads the original lines around an event directly from {@code hot/}, by the byte offset in the event id.
+ * Reads the original lines around an event directly from {@code hot/}, by the byte offset in the event id. For
+ * events loaded from the archive the lines come from the filtered file in {@code archive/}.
  */
 public class ContextService {
 
@@ -30,15 +34,19 @@ public class ContextService {
 
     private final HotStore store;
 
+    private final ArchiveStore archive;
+
     /**
      * Creates the service.
      *
      * @param properties configuration
      * @param store the hot storage
+     * @param archive the archive, {@code null} if it is disabled
      */
-    public ContextService(LogGuyProperties properties, HotStore store) {
+    public ContextService(LogGuyProperties properties, HotStore store, ArchiveStore archive) {
         this.settings = properties.search();
         this.store = store;
+        this.archive = archive;
     }
 
     /**
@@ -50,25 +58,26 @@ public class ContextService {
      * @param after lines from the start of the event on, {@code null} for the default
      * @return the lines, without ANSI colors
      * @throws IOException if reading fails
-     * @throws NoSuchElementException if the file is not in {@code hot/}
+     * @throws NoSuchElementException if the file is not in {@code hot/} or {@code archive/}
      * @throws AccessDeniedException if the user may not read the application
      */
     public ContextView context(LogGuyUser user, String id, Integer before, Integer after) throws IOException {
         int separator = id.lastIndexOf(':');
+        String position = id.substring(separator + 1);
+        boolean archived = position.startsWith(EventDocuments.ARCHIVE_MARK);
         long offset;
         try {
-            offset = Long.parseLong(id.substring(separator + 1));
+            offset = Long.parseLong(archived ? position.substring(EventDocuments.ARCHIVE_MARK.length()) : position);
         } catch (NumberFormatException e) {
             throw new SearchException("Ungültige Event-ID „" + id + "“.");
         }
         if (separator <= 0 || offset < 0) {
             throw new SearchException("Ungültige Event-ID „" + id + "“.");
         }
-        HotFile file = store.find(id.substring(0, separator))
-            .orElseThrow(() -> new NoSuchElementException("Die Datei des Events liegt nicht mehr in hot/."));
-        FileMeta meta = file.meta();
-        if (!user.mayRead(meta.app())) {
-            throw new AccessDeniedException("app " + meta.app());
+        String fingerprint = id.substring(0, separator);
+        Source file = archived ? archiveSource(fingerprint) : hotSource(fingerprint);
+        if (!user.mayRead(file.app())) {
+            throw new AccessDeniedException("app " + file.app());
         }
         int linesBefore = before == null ? settings.contextLines() : Math.clamp(before, 0, settings.maxContextLines());
         int linesAfter = after == null ? settings.contextLines() : Math.clamp(after, 1, settings.maxContextLines());
@@ -94,10 +103,25 @@ public class ContextService {
         List<String> lines = new ArrayList<>(tail.subList(0, Math.min(tail.size(), linesAfter)));
         boolean atStart = start == 0 && previous.size() == head.size();
         boolean atEnd = complete && lines.size() == tail.size();
-        return new ContextView(id, meta.app(), meta.host(), previous, lines, atStart, atEnd);
+        return new ContextView(id, file.app(), file.host(), previous, lines, atStart, atEnd);
     }
 
-    private static byte[] read(HotFile file, long from, long to) throws IOException {
+    private Source hotSource(String fingerprint) {
+        HotFile file = store.find(fingerprint)
+            .orElseThrow(() -> new NoSuchElementException("Die Datei des Events liegt nicht mehr in hot/."));
+        FileMeta meta = file.meta();
+        return new Source(meta.app(), meta.host(), file.length(), file::read);
+    }
+
+    private Source archiveSource(String fingerprint) {
+        ArchiveFile file = (archive == null ? null : archive.find(fingerprint).orElse(null));
+        if (file == null) {
+            throw new NoSuchElementException("Die Datei des Events liegt nicht im Archiv.");
+        }
+        return new Source(file.meta().app(), file.meta().host(), file.meta().length(), file::read);
+    }
+
+    private static byte[] read(Source file, long from, long to) throws IOException {
         ByteArrayOutputStream out = new ByteArrayOutputStream((int) (to - from));
         long position = from;
         while (position < to) {
@@ -122,6 +146,18 @@ public class ContextService {
         return new ArrayList<>(Arrays.stream(text.split("\r?\n", -1))
             .map(line -> ANSI.matcher(line).replaceAll(""))
             .toList());
+    }
+
+    @FunctionalInterface
+    private interface Reader {
+        byte[] read(long position, int max) throws IOException;
+    }
+
+    private record Source(String app, String host, long length, Reader reader) {
+
+        byte[] read(long position, int max) throws IOException {
+            return reader.read(position, max);
+        }
     }
 
     /**

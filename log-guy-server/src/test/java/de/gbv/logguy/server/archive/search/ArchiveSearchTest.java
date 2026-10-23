@@ -116,7 +116,8 @@ class ArchiveSearchTest {
             List.of(), List.of(), null, null, null, null, null, null, null, null, null,
             new ArchiveProperties(true, 1, Duration.ofSeconds(1), 3, 7, "[x]",
                 new ArchiveSearchProperties(2, 2, Duration.ofDays(1), Duration.ofDays(92), maxHits,
-                    Duration.ofMinutes(10), 0, 5, 200, Duration.ofHours(1))));
+                    Duration.ofMinutes(10), 0, 5, 200, Duration.ofHours(1))),
+            null);
     }
 
     private static FileMeta meta(String fingerprint, String host, String app) {

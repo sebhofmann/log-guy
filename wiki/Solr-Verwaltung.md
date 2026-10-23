@@ -23,7 +23,7 @@ log-guy:
 | `log-guy solr init` | Configset hochladen, Collection `logs_v1` anlegen, Alias `logs` setzen. Schritte, die schon erledigt sind, werden übersprungen, der Befehl darf also mehrfach laufen. |
 | `log-guy solr status` | Größe, Dokumente pro Anwendung, Indexer-Rückstand |
 | `log-guy solr upgrade` | neues Configset hochladen, `logs_v2` aus dem Archiv aufbauen, Alias umschalten, `logs_v1` löschen |
-| `log-guy reindex --app digibib --since 14d` | Zeitraum einer Anwendung aus dem Archiv neu indexieren, z.B. nach einer Skriptänderung |
+| `log-guy reindex --app digibib --since 14d [--until 2d] [--source all\|hot\|archive]` | Zeitraum einer Anwendung neu indexieren: Dateien in `hot/` mit dem aktuellen Parser, der Teil vor dem Index-Fenster aus dem Archiv mit Ablaufdatum, siehe [Suche](Suche.md). `--since` und `--until` nehmen eine Dauer wie `14d`, `36h`, `90m` oder einen Zeitpunkt wie `2025-01-01T00:00:00Z`. Der Befehl wartet, bis das Laden aus dem Archiv fertig ist. |
 
 ### Schema
 

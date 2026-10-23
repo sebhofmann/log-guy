@@ -63,6 +63,22 @@ Ausdrücke mit festem Anfangswort sind so schnell wie Wörter, weil RE2/J dann n
 
 ### Ältere Zeiträume nachindexieren
 
-Wer einen alten Zeitraum mit Feldern und Facetten auswerten will, lässt ihn per `POST /api/v1/reindex` in die Collection laden. Die Dokumente bekommen ein Ablaufdatum `expires`, und der nächtliche Job löscht sie nach 24 Stunden wieder. Im Prototyp hat das Laden von 53 Tagen einer großen Anwendung 7 Minuten gedauert.
+Wer einen alten Zeitraum mit Feldern und Facetten auswerten will, lässt ihn in die Collection laden: auf der Archivseite unter „Zeitraum in den Index laden“, per `POST /api/v1/reindex` mit `{"app", "from", "to", "source": "ARCHIVE"}` oder mit `log-guy reindex --source archive`. Nötig ist das Recht `archive` für die Anwendung.
+
+- Geladen wird nur der Teil vor dem ältesten Event der Anwendung im Index, der Rest ist schon da. Höchstens 92 Tage auf einmal (`log-guy.reindex.max-range`).
+- Gelesen werden nur die Frames, deren Zeitraum den gewünschten trifft, dazu je ein Frame davor und danach, damit Events über Frame-Grenzen ganz bleiben. Events außerhalb des Zeitraums werden verworfen. Der Parser ist der aktuelle der Anwendung.
+- Die Dokumente bekommen ein Ablaufdatum `expires`, 24 Stunden nach dem Start (`log-guy.reindex.expires-after`). Ein stündlicher Job (`log-guy.reindex.expire-cron`) löscht abgelaufene Dokumente, sie verschwinden also spätestens eine Stunde nach dem Ablauf. Die nächtliche Löschung nach Index-Fenster lässt Dokumente mit noch gültigem `expires` stehen.
+- Die ID ist `<fingerprint>:a<Byte-Offset in der gefilterten Archivdatei>`, `file` zeigt auf die Archivdatei. So überschneiden sich geladene Events nie mit denen aus `hot/`, und die Kontextansicht liest die Zeilen aus dem Archiv. Der Skript-Test über einen Zeitraum braucht `hot/` und lehnt solche Events ab.
+- Ein Job läuft im Hintergrund in einem Thread, mit Fortschritt in Bytes, Abbruch per `DELETE /api/v1/reindex/{id}` und den letzten 20 Jobs in der Liste. Eine Archivdatei, die nicht lesbar ist oder während des Ladens neu gefiltert wird, steht unter `failed`, die übrigen werden trotzdem geladen.
+
+Gemessen in der e2e-Umgebung: Die erste Woche von digibib aus dem Backfill, 7 Archivdateien mit 208 MB gefiltert, war vorher aus dem Index gelöscht worden. Sie war in 28 Sekunden wieder geladen, mit genau den 1.021.845 Events, die vorher im Index standen, also etwa 36.000 Events pro Sekunde. Im Prototyp hatte das Laden von 53 Tagen einer großen Anwendung 7 Minuten gedauert, das passt zu dieser Rate.
+
+### Neu indexieren nach einer Skriptänderung
+
+Ein neuer Parser gilt zunächst nur für neue Events. Nach dem Aktivieren bietet der Skript-Editor pro Anwendung des Parsers „neu indexieren“ an. Das gleiche leisten `POST /api/v1/reindex` mit `"source": "HOT"` und `log-guy reindex --source hot`, nötig ist das Recht `scripts`.
+
+- Neu indexiert werden die Dateien in `hot/`, die den Zeitraum treffen, aber nur, wenn der Zeitraum ins Index-Fenster reicht. Ohne `--source` lädt `log-guy reindex` den Teil vor dem Index-Fenster zusätzlich aus dem Archiv.
+- Der Indexer übernimmt die Datei, sobald gerade kein Thread an ihr arbeitet: Er setzt den Fortschritt in `state/index/` auf den Anfang, löscht die Events dieser Datei aus Solr, ausgenommen die aus dem Archiv geladenen, und liest sie neu. Gelöscht wird vorher, weil ein neuer Parser Events anders schneiden kann und alte IDs sonst als Dubletten stehen blieben. Während des Neuaufbaus fehlen deshalb kurz Events der Datei.
+- In der e2e-Umgebung lief das für die 5 Dateien der lokalen MIR-Instanz in unter einer Sekunde, danach standen wieder dieselben 8.584 Events im Index.
 
 [Zur Übersicht](README.md)

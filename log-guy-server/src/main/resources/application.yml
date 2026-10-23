@@ -128,6 +128,13 @@ log-guy:
     # every night at 02:30 in the zone of log-guy, "-" switches the cleanup off
     cron: "0 30 2 * * *"
     expunge-deletes: true
+  reindex:
+    # events loaded from the archive into the index are deleted again after this time
+    expires-after: 24h
+    # deletes loaded events whose time is over, every hour, "-" switches it off
+    expire-cron: "0 15 * * * *"
+    max-range: 92d
+    keep-jobs: 20
   mcp:
     path: /mcp
     session-idle-timeout: 2h

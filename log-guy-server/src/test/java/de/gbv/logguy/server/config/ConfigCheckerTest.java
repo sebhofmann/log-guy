@@ -29,7 +29,7 @@ class ConfigCheckerTest {
     private static LogGuyProperties properties(List<TokenProperties> tokens, List<UserProperties> users) {
         return new LogGuyProperties(Path.of("/tmp"), ZoneId.of("Europe/Berlin"),
             Map.of("digibib", new AppProperties(7, "mycore-log4j"), "digibib-apache", new AppProperties(7, null)),
-            tokens, users, null, null, null, null, null, null, null, null, null, null);
+            tokens, users, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     @Test
@@ -83,6 +83,6 @@ class ConfigCheckerTest {
 
     private static LogGuyProperties retention(String cron) {
         return new LogGuyProperties(Path.of("/tmp"), ZoneId.of("Europe/Berlin"), Map.of(), List.of(), List.of(), null,
-            null, null, null, null, null, new RetentionProperties(cron, true), null, null, null);
+            null, null, null, null, null, new RetentionProperties(cron, true), null, null, null, null);
     }
 }

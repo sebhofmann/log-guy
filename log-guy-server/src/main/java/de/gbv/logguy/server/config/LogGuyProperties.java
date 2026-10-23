@@ -29,12 +29,14 @@ import org.springframework.util.unit.DataSize;
  * @param serverLog the own log of log-guy
  * @param mcp the MCP endpoint
  * @param archive how {@code archive/} is written
+ * @param reindex indexing again from {@code hot/} and loading older days from {@code archive/}
  */
 @ConfigurationProperties("log-guy")
 public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppProperties> apps,
     List<TokenProperties> tokens, List<UserProperties> users, IngestProperties ingest, HotProperties hot,
     ScriptProperties scripts, SolrProperties solr, IndexerProperties indexer, SearchProperties search,
-    RetentionProperties retention, ServerLogProperties serverLog, McpProperties mcp, ArchiveProperties archive) {
+    RetentionProperties retention, ServerLogProperties serverLog, McpProperties mcp, ArchiveProperties archive,
+    ReindexProperties reindex) {
 
     /**
      * Normalizes missing collections to empty ones.
@@ -295,6 +297,18 @@ public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppPropert
      * @param expungeDeletes whether Solr removes deleted documents physically afterwards
      */
     public record RetentionProperties(String cron, boolean expungeDeletes) {
+    }
+
+    /**
+     * Indexing again and loading older days from the archive.
+     *
+     * @param expiresAfter how long events loaded from the archive stay in the index
+     * @param expireCron when events whose time is over are deleted, a Spring cron expression in the zone of log-guy,
+     *     {@code -} for never
+     * @param maxRange longest time range one job may load from the archive
+     * @param keepJobs finished jobs kept for their status
+     */
+    public record ReindexProperties(Duration expiresAfter, String expireCron, Duration maxRange, int keepJobs) {
     }
 
     /**
