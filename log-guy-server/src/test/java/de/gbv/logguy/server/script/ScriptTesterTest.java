@@ -125,7 +125,8 @@ class ScriptTesterTest {
         AuditLog audit = new AuditLog(dir.resolve("audit"), ZoneOffset.UTC, Clock.systemUTC(), JSON);
         ScriptService service = new ScriptService(properties, store, runtime, parsers, List.of(), audit);
         pseudonyms = new PseudonymService(runtime, store, JSON);
-        tester = new ScriptTester(properties, hot, runtime, service, null, parsers, pseudonyms, Clock.systemUTC());
+        tester =
+            new ScriptTester(properties, hot, runtime, service, null, parsers, pseudonyms, null, Clock.systemUTC());
     }
 
     @AfterEach

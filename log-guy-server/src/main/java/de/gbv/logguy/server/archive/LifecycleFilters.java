@@ -1,8 +1,10 @@
 package de.gbv.logguy.server.archive;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -14,7 +16,10 @@ import org.graalvm.polyglot.Context;
 import org.graalvm.polyglot.PolyglotException;
 import org.graalvm.polyglot.Value;
 
+import de.gbv.logguy.server.script.FieldDefinition;
 import de.gbv.logguy.server.script.ModuleInfo;
+import de.gbv.logguy.server.script.ParsedEvent;
+import de.gbv.logguy.server.script.ParserScript;
 import de.gbv.logguy.server.script.ScriptException;
 import de.gbv.logguy.server.script.ScriptKind;
 import de.gbv.logguy.server.script.ScriptListener;
@@ -138,6 +143,122 @@ public class LifecycleFilters implements ScriptListener {
     }
 
     /**
+     * Runs a filter that is not active against test lines and events, without changing anything.
+     *
+     * @param name name of the script
+     * @param code the module
+     * @param source description of the test source
+     * @param lines the lines for {@code line(text)}
+     * @param events the parsed events for {@code fields(event)}, may be empty
+     * @param maxSamples most examples of each kind in the result
+     * @return what the filter changed
+     * @throws ScriptException if the module is not a valid filter
+     */
+    public LifecycleTestResult test(String name, String code, String source, List<String> lines,
+        List<Map<String, Object>> events, int maxSamples) throws ScriptException {
+        ModuleInfo info = ModuleInfo.check(runtime, ScriptKind.LIFECYCLE, name, code);
+        Filter filter = Filter.load(runtime, json, new Definition(name, code, ScriptStore.hash(code), info.apps()));
+        try {
+            int changed = 0;
+            int dropped = 0;
+            int errors = 0;
+            List<LineChange> samples = new ArrayList<>();
+            List<LineChange> failed = new ArrayList<>();
+            if (filter.filtersLines()) {
+                for (int i = 0; i < lines.size(); i++) {
+                    String before = lines.get(i);
+                    LineResult result = filter.line(before);
+                    LineChange change = new LineChange(i + 1, before, result.text(), result.error());
+                    if (result.error() != null) {
+                        errors++;
+                        add(failed, change, maxSamples);
+                    } else if (result.text() == null) {
+                        dropped++;
+                        add(samples, change, maxSamples);
+                    } else if (!result.text().equals(before)) {
+                        changed++;
+                        add(samples, change, maxSamples);
+                    }
+                }
+            }
+            int eventsChanged = 0;
+            int eventErrors = 0;
+            List<EventChange> eventSamples = new ArrayList<>();
+            if (filter.filtersFields()) {
+                for (int i = 0; i < events.size(); i++) {
+                    Map<String, Object> before = events.get(i);
+                    try {
+                        Map<String, Object> after = filter.fields(new LinkedHashMap<>(before));
+                        if (!after.equals(json.readValue(json.writeValueAsString(before), MAP))) {
+                            eventsChanged++;
+                            add(eventSamples, new EventChange(i + 1, before, after, null), maxSamples);
+                        }
+                    } catch (ScriptException e) {
+                        eventErrors++;
+                        add(eventSamples, new EventChange(i + 1, before, null, e.getMessage()), maxSamples);
+                    }
+                }
+            }
+            return new LifecycleTestResult(source, info.apps(), filter.filtersLines(), filter.filtersFields(),
+                lines.size(), changed, dropped, errors, samples, failed, events.size(), eventsChanged, eventErrors,
+                eventSamples);
+        } finally {
+            filter.close();
+        }
+    }
+
+    private static <T> void add(List<T> list, T value, int max) {
+        if (list.size() < max) {
+            list.add(value);
+        }
+    }
+
+    /**
+     * A line of a test that a filter changed, dropped or failed on.
+     *
+     * @param line number of the line, from 1
+     * @param before the line
+     * @param after the new line, {@code null} if dropped or failed
+     * @param error why the filter failed, {@code null} if it did not
+     */
+    public record LineChange(int line, String before, String after, String error) {
+    }
+
+    /**
+     * An event of a test whose fields a filter changed or failed on.
+     *
+     * @param event number of the event, from 1
+     * @param before the event
+     * @param after the changed event, {@code null} if the filter failed
+     * @param error why the filter failed, {@code null} if it did not
+     */
+    public record EventChange(int event, Map<String, Object> before, Map<String, Object> after, String error) {
+    }
+
+    /**
+     * Result of a test of a lifecycle filter.
+     *
+     * @param source the test source
+     * @param apps the application patterns of the filter
+     * @param filtersLines whether the filter exports {@code line(text)}
+     * @param filtersFields whether the filter exports {@code fields(event)}
+     * @param lines lines tested
+     * @param changed lines changed
+     * @param dropped lines left out of the archive
+     * @param errors lines the filter failed on, replaced by the placeholder in the archive
+     * @param samples the first changed or dropped lines
+     * @param failed the first lines the filter failed on
+     * @param events events tested with {@code fields(event)}
+     * @param eventsChanged events whose fields changed
+     * @param eventErrors events the filter failed on
+     * @param eventSamples the first changed events and failures
+     */
+    public record LifecycleTestResult(String source, List<String> apps, boolean filtersLines,
+        boolean filtersFields, int lines, int changed, int dropped, int errors, List<LineChange> samples,
+        List<LineChange> failed, int events, int eventsChanged, int eventErrors, List<EventChange> eventSamples) {
+    }
+
+    /**
      * Code of a filter with its applications.
      *
      * @param name name of the script
@@ -201,6 +322,66 @@ public class LifecycleFilters implements ScriptListener {
             }
             return byApp.computeIfAbsent(app, a -> filters.stream().filter(f -> f.definition.appliesTo(a))
                 .toList());
+        }
+
+        /**
+         * Runs {@code fields(event)} of all filters of the application on a parsed event, on its way into the
+         * index. If a filter fails, the message is replaced by the placeholder and the fields are dropped, so
+         * nothing the filter should have removed reaches the index.
+         *
+         * @param app the application
+         * @param host the host
+         * @param parsed the event from the parser
+         * @param script the parser, for the declared fields
+         * @param placeholder replaces the message if a filter fails, {@code {filter}} is the name of the filter
+         * @return the changed event, the same if no filter changes fields
+         * @throws ScriptException if a filter cannot be loaded
+         */
+        public ParsedEvent fields(String app, String host, ParsedEvent parsed, ParserScript script,
+            String placeholder) throws ScriptException {
+            List<Filter> active = forApp(app);
+            if (active.stream().noneMatch(Filter::filtersFields)) {
+                return parsed;
+            }
+            Map<String, Object> event = new LinkedHashMap<>();
+            event.put("app", app);
+            event.put("host", host);
+            if (parsed.ts() != null) {
+                event.put("ts", parsed.ts().toString());
+            }
+            event.put("message", parsed.message());
+            parsed.fields().forEach((name, value) -> event.put(name, value instanceof Instant instant
+                ? instant.toString() : value));
+            Map<String, Object> changed = event;
+            for (Filter filter : active) {
+                if (!filter.filtersFields()) {
+                    continue;
+                }
+                try {
+                    changed = filter.fields(changed);
+                } catch (ScriptException e) {
+                    return withheld(parsed, filter, placeholder, e.getMessage());
+                }
+            }
+            Map<String, Object> fields = new HashMap<>();
+            for (FieldDefinition definition : script.fields().values()) {
+                try {
+                    Object value = definition.type().convert(changed.get(definition.name()));
+                    if (value != null) {
+                        fields.put(definition.name(), value);
+                    }
+                } catch (RuntimeException e) {
+                    Filter last = active.stream().filter(Filter::filtersFields).reduce((a, b) -> b).orElseThrow();
+                    return withheld(parsed, last, placeholder, last.label() + ": invalid field "
+                        + definition.name() + ": " + e.getMessage());
+                }
+            }
+            Object message = changed.get("message");
+            return new ParsedEvent(parsed.ts(), message == null ? "" : message.toString(), fields, parsed.error());
+        }
+
+        private static ParsedEvent withheld(ParsedEvent parsed, Filter filter, String placeholder, String error) {
+            return new ParsedEvent(parsed.ts(), placeholder.replace("{filter}", filter.name()), Map.of(), error);
         }
 
         /**

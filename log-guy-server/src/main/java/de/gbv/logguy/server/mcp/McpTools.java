@@ -33,6 +33,7 @@ import de.gbv.logguy.server.audit.Actor.Via;
 import de.gbv.logguy.server.audit.AuditLog;
 import de.gbv.logguy.server.config.LogGuyProperties.McpProperties;
 import de.gbv.logguy.server.pseudonym.PseudonymService;
+import de.gbv.logguy.server.archive.LifecycleFilters.LifecycleTestResult;
 import de.gbv.logguy.server.pseudonym.PseudonymService.PseudonymTestResult;
 import de.gbv.logguy.server.pseudonym.Pseudonyms;
 import de.gbv.logguy.server.script.ScriptController;
@@ -512,6 +513,18 @@ public class McpTools {
             out.put("heldBack", test.heldBack());
             out.put("pseudonyms", test.pseudonyms());
             out.put("suspicious", suspicious);
+            return out;
+        }
+        if (result instanceof LifecycleTestResult test) {
+            // only numbers, lifecycle filters are changed by humans
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("lines", test.lines());
+            out.put("changed", test.changed());
+            out.put("dropped", test.dropped());
+            out.put("errors", test.errors());
+            out.put("events", test.events());
+            out.put("eventsChanged", test.eventsChanged());
+            out.put("eventErrors", test.eventErrors());
             return out;
         }
         throw new ScriptRequestException(ScriptRequestException.Reason.INVALID,

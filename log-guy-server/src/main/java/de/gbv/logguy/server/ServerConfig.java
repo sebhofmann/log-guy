@@ -77,6 +77,7 @@ public class ServerConfig {
      * @param store the hot storage
      * @param parsers the parser scripts
      * @param runtime the script runtime
+     * @param filters change the fields of events with {@code fields(event)}
      * @param solr connection to Solr
      * @param clock clock for provisional events
      * @param json mapper for state files
@@ -86,12 +87,13 @@ public class ServerConfig {
     @Bean(destroyMethod = "close")
     @ConditionalOnBooleanProperty("log-guy.indexer.enabled")
     public Indexer indexer(LogGuyProperties properties, HotStore store, ParserRegistry parsers,
-        ScriptRuntime runtime, SolrService solr, Clock clock, JsonMapper json) throws IOException {
+        ScriptRuntime runtime, LifecycleFilters filters, SolrService solr, Clock clock, JsonMapper json)
+        throws IOException {
         List<String> errors = parsers.load();
         if (!errors.isEmpty()) {
             throw new IllegalStateException("parser scripts have errors: " + String.join("; ", errors));
         }
-        return new Indexer(properties, store, parsers, runtime, solr, clock, json);
+        return new Indexer(properties, store, parsers, runtime, filters, solr, clock, json);
     }
 
     /**
@@ -243,13 +245,15 @@ public class ServerConfig {
      * @param search the search
      * @param parsers the parsers, to turn lines into events for other kinds
      * @param pseudonyms runs pseudonymization tests
+     * @param lifecycle runs tests of lifecycle filters
      * @param clock the clock
      * @return the tester
      */
     @Bean
     public ScriptTester scriptTester(LogGuyProperties properties, HotStore store, ScriptRuntime runtime,
-        ScriptService scripts, SearchService search, ParserRegistry parsers, PseudonymService pseudonyms, Clock clock) {
-        return new ScriptTester(properties, store, runtime, scripts, search, parsers, pseudonyms, clock);
+        ScriptService scripts, SearchService search, ParserRegistry parsers, PseudonymService pseudonyms,
+        LifecycleFilters lifecycle, Clock clock) {
+        return new ScriptTester(properties, store, runtime, scripts, search, parsers, pseudonyms, lifecycle, clock);
     }
 
     /**
@@ -338,6 +342,7 @@ public class ServerConfig {
      * @param indexer the indexer, missing if indexing is disabled
      * @param parsers the parsers
      * @param runtime the script runtime
+     * @param filters change the fields of loaded events
      * @param solr connection to Solr
      * @param retention knows the index windows
      * @param clock clock for the expiry
@@ -345,9 +350,9 @@ public class ServerConfig {
      */
     @Bean(destroyMethod = "close")
     public ReindexService reindexService(LogGuyProperties properties, HotStore hot, ArchiveStore archive,
-        ObjectProvider<Indexer> indexer, ParserRegistry parsers, ScriptRuntime runtime, SolrService solr,
-        RetentionService retention, Clock clock) {
-        return new ReindexService(properties, hot, archive, indexer.getIfAvailable(), parsers, runtime, solr,
+        ObjectProvider<Indexer> indexer, ParserRegistry parsers, ScriptRuntime runtime, LifecycleFilters filters,
+        SolrService solr, RetentionService retention, Clock clock) {
+        return new ReindexService(properties, hot, archive, indexer.getIfAvailable(), parsers, runtime, filters, solr,
             solr::oldestEvent, retention, clock);
     }
 

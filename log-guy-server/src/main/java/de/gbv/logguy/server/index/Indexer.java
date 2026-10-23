@@ -22,6 +22,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.solr.common.SolrInputDocument;
 
+import de.gbv.logguy.server.archive.LifecycleFilters;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.IndexerProperties;
 import de.gbv.logguy.server.hot.FileMeta;
@@ -55,6 +56,16 @@ public class Indexer implements AutoCloseable {
     private final ParserRegistry parsers;
 
     private final ScriptRuntime runtime;
+
+    private final LifecycleFilters filters;
+
+    private final String fieldPlaceholder;
+
+    private final ThreadLocal<LifecycleFilters.Runner> filterRunners;
+
+    private final Set<LifecycleFilters.Runner> allFilterRunners = ConcurrentHashMap.newKeySet();
+
+    private volatile List<String> pausedBy = List.of();
 
     private final DocumentSink sink;
 
@@ -95,17 +106,25 @@ public class Indexer implements AutoCloseable {
      * @param store the hot storage
      * @param parsers the parser scripts
      * @param runtime the script runtime
+     * @param filters change the fields of events with {@code fields(event)}, {@code null} for none
      * @param sink where documents go, usually Solr
      * @param clock clock for provisional events
      * @param json mapper for state files
      * @throws IOException if the state directory cannot be created
      */
     public Indexer(LogGuyProperties properties, HotStore store, ParserRegistry parsers, ScriptRuntime runtime,
-        DocumentSink sink, Clock clock, JsonMapper json) throws IOException {
+        LifecycleFilters filters, DocumentSink sink, Clock clock, JsonMapper json) throws IOException {
         this.settings = properties.indexer();
         this.store = store;
         this.parsers = parsers;
         this.runtime = runtime;
+        this.filters = filters;
+        this.fieldPlaceholder = properties.archive() == null ? "" : properties.archive().fieldPlaceholder();
+        this.filterRunners = ThreadLocal.withInitial(() -> {
+            LifecycleFilters.Runner runner = filters.runner();
+            allFilterRunners.add(runner);
+            return runner;
+        });
         this.sink = sink;
         this.clock = clock;
         this.json = json;
@@ -152,6 +171,19 @@ public class Indexer implements AutoCloseable {
      * Submits every file with work to the worker threads. Each file is processed by one worker at a time.
      */
     void scan() {
+        List<String> errors = filters == null ? List.of() : filters.errors();
+        if (!errors.isEmpty()) {
+            // fields(event) of a broken filter cannot run, events must not reach the index without it
+            if (!errors.equals(pausedBy)) {
+                LOGGER.error("indexer paused, lifecycle filters cannot be loaded: {}", errors);
+            }
+            pausedBy = errors;
+            return;
+        }
+        if (!pausedBy.isEmpty()) {
+            LOGGER.info("indexer continues, lifecycle filters are loaded again");
+            pausedBy = List.of();
+        }
         for (HotFile file : store.files()) {
             Cursor found = cursors.computeIfAbsent(file.fingerprint(), fp -> new Cursor(file, loadState(fp, file)));
             if (found.file != file || store.find(file.fingerprint()).isEmpty()) {
@@ -387,8 +419,11 @@ public class Indexer implements AutoCloseable {
     }
 
     private SolrInputDocument document(HotFile file, FileMeta meta, Parser parser, EventReader.RawEvent event,
-        Cursor cursor) {
+        Cursor cursor) throws ScriptException {
         ParsedEvent parsed = parser.parse(event.text());
+        if (filters != null) {
+            parsed = filterRunners.get().fields(meta.app(), meta.host(), parsed, parser.script(), fieldPlaceholder);
+        }
         Instant ts = parsed.ts() != null ? parsed.ts() : cursor.lastTs;
         cursor.lastTs = ts;
         if (parsed.error() != null) {
@@ -428,6 +463,7 @@ public class Indexer implements AutoCloseable {
             workers.shutdownNow();
         }
         allParsers.forEach(Parser::close);
+        allFilterRunners.forEach(LifecycleFilters.Runner::close);
     }
 
     /**

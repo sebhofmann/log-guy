@@ -19,6 +19,8 @@ import java.util.TreeSet;
 import org.apache.solr.client.solrj.SolrServerException;
 import org.springframework.security.access.AccessDeniedException;
 
+import de.gbv.logguy.server.archive.LifecycleFilters;
+import de.gbv.logguy.server.archive.LifecycleFilters.LifecycleTestResult;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.Right;
 import de.gbv.logguy.server.config.LogGuyProperties.ScriptProperties;
@@ -69,6 +71,8 @@ public class ScriptTester {
 
     private final PseudonymService pseudonyms;
 
+    private final LifecycleFilters lifecycle;
+
     private final Clock clock;
 
     /**
@@ -81,10 +85,12 @@ public class ScriptTester {
      * @param search the search, to find the start of a time range
      * @param parsers the parsers, to turn lines into events for scripts that are no parsers
      * @param pseudonyms runs tests of pseudonymization scripts
+     * @param lifecycle runs tests of lifecycle filters
      * @param clock clock for the time of a test
      */
     public ScriptTester(LogGuyProperties properties, HotStore hot, ScriptRuntime runtime, ScriptService scripts,
-        SearchService search, ParserRegistry parsers, PseudonymService pseudonyms, Clock clock) {
+        SearchService search, ParserRegistry parsers, PseudonymService pseudonyms, LifecycleFilters lifecycle,
+        Clock clock) {
         this.properties = properties;
         this.settings = properties.scripts();
         this.hot = hot;
@@ -93,6 +99,7 @@ public class ScriptTester {
         this.search = search;
         this.parsers = parsers;
         this.pseudonyms = pseudonyms;
+        this.lifecycle = lifecycle;
         this.clock = clock;
     }
 
@@ -112,6 +119,7 @@ public class ScriptTester {
         return switch (id.kind()) {
             case PARSER -> testParser(user, id, code, active, source);
             case PSEUDONYM -> testPseudonym(user, id, code, active, source);
+            case LIFECYCLE -> testLifecycle(user, id, code, active, source);
             default -> throw new ScriptRequestException(Reason.INVALID,
                 "Für Skripte der Art " + id.kind().dir() + " gibt es noch keinen Test.");
         };
@@ -179,6 +187,37 @@ public class ScriptTester {
     }
 
     /**
+     * Tests a lifecycle filter: {@code line(text)} with the lines, {@code fields(event)} with the lines parsed by
+     * the parser of their application.
+     *
+     * @param user the user, needs the right to edit the script and to read the source
+     * @param id the filter
+     * @param code code to test, {@code null} for the draft or the active version
+     * @param active test the active version even if there is a draft
+     * @param source the test source
+     * @return the result
+     * @throws IOException if the source cannot be read
+     */
+    public LifecycleTestResult testLifecycle(LogGuyUser user, ScriptId id, String code, boolean active,
+        TestSource source) throws IOException {
+        if (id.kind() != ScriptKind.LIFECYCLE) {
+            throw new ScriptRequestException(Reason.INVALID, "Kein Lifecycle-Filter: " + id);
+        }
+        String tested = scripts.codeForTest(user, id, code, active);
+        Lines lines = lines(user, source);
+        LifecycleTestResult result;
+        try {
+            result = lifecycle.test(id.name(), tested, lines.label(), lines.lines(), events(lines),
+                settings.testEvents());
+        } catch (ScriptException e) {
+            throw new ScriptRequestException(Reason.INVALID, "Das Skript ist fehlerhaft: " + e.getMessage());
+        }
+        scripts.recordTest(id, tested, new TestSummary(clock.instant(), lines.label(), result.lines(),
+            result.errors() + result.eventErrors()));
+        return result;
+    }
+
+    /**
      * Turns test lines into events as the search returns them, with the parser of the application. Without a
      * parser every line is an event with only a message.
      *
@@ -187,6 +226,9 @@ public class ScriptTester {
      */
     private List<Map<String, Object>> events(Lines lines) {
         List<Map<String, Object>> events = new ArrayList<>();
+        if (lines.lines().isEmpty()) {
+            return events;
+        }
         String app = lines.app() == null ? "" : lines.app();
         Optional<ParserScript> script = lines.app() == null ? Optional.empty() : parsers.forApp(lines.app());
         if (script.isEmpty()) {

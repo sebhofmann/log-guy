@@ -201,10 +201,12 @@ public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppPropert
      * @param hotDays days a file stays in {@code hot/} after its last event
      * @param placeholder written instead of a line whose filter failed, {@code {filter}} and {@code {offset}} are
      *     replaced
+     * @param fieldPlaceholder indexed instead of the message of an event whose {@code fields(event)} failed,
+     *     {@code {filter}} is replaced
      * @param search limits of the archive search
      */
     public record ArchiveProperties(boolean enabled, int threads, Duration pollInterval, int compressionLevel,
-        int hotDays, String placeholder, ArchiveSearchProperties search) {
+        int hotDays, String placeholder, String fieldPlaceholder, ArchiveSearchProperties search) {
     }
 
     /**

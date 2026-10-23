@@ -502,8 +502,7 @@ async function test(source, app, lines, file, text, result) {
     result.replaceChildren(element('p', 'muted', 'Test läuft …'));
     try {
         const outcome = await sendJson('POST', path('/test'), body);
-        result.replaceChildren(...('sample' in outcome && 'declared' in outcome
-            ? parserResult(outcome) : pseudonymResult(outcome)));
+        result.replaceChildren(...resultNodes(outcome));
         if (current.draft && current.draft.code === body.code) {
             current = await getJson(path(''));
             main.querySelector('.script-info').replaceChildren(...infoLines());
@@ -511,6 +510,57 @@ async function test(source, app, lines, file, text, result) {
     } catch (e) {
         result.replaceChildren(element('p', 'error', e.message));
     }
+}
+
+function resultNodes(outcome) {
+    if ('filtersLines' in outcome) {
+        return lifecycleResult(outcome);
+    }
+    return 'sample' in outcome && 'declared' in outcome ? parserResult(outcome) : pseudonymResult(outcome);
+}
+
+function lifecycleResult(outcome) {
+    const nodes = [];
+    if (outcome.filtersLines) {
+        nodes.push(element('p', outcome.errors ? 'warn' : 'ok', `${outcome.source}: ${formatNumber(outcome.lines)} `
+            + `Zeilen, ${formatNumber(outcome.changed)} geändert, ${formatNumber(outcome.dropped)} gelöscht, `
+            + `${formatNumber(outcome.errors)} Fehler`));
+        if (outcome.errors) {
+            nodes.push(element('p', 'muted', 'Bei einem Fehler steht im Archiv statt der Zeile der Platzhalter.'));
+        }
+        const changes = [...outcome.failed, ...outcome.samples];
+        if (changes.length) {
+            const table = element('table', 'data test-events');
+            table.append(row('th', ['Zeile', 'Vorher', 'Nachher']));
+            for (const change of changes) {
+                const after = change.error ? `Fehler: ${change.error}` : change.after ?? 'gelöscht';
+                const tr = row('td', [change.line, change.before, after]);
+                if (change.error || change.after === null) {
+                    tr.classList.add('failed');
+                }
+                table.append(tr);
+            }
+            nodes.push(element('h3', null, 'Beispiele vorher und nachher'), table);
+        }
+    }
+    if (outcome.filtersFields) {
+        nodes.push(element('p', outcome.eventErrors ? 'warn' : 'ok', `fields(event): ${formatNumber(outcome.events)} `
+            + `Events, ${formatNumber(outcome.eventsChanged)} geändert, ${formatNumber(outcome.eventErrors)} Fehler`));
+        if (outcome.eventSamples.length) {
+            const table = element('table', 'data test-events');
+            table.append(row('th', ['Event', 'Vorher', 'Nachher']));
+            for (const change of outcome.eventSamples) {
+                const tr = row('td', [change.event, JSON.stringify(change.before),
+                    change.error ? `Fehler: ${change.error}` : JSON.stringify(change.after)]);
+                if (change.error) {
+                    tr.classList.add('failed');
+                }
+                table.append(tr);
+            }
+            nodes.push(element('h3', null, 'Geänderte Events'), table);
+        }
+    }
+    return nodes;
 }
 
 function parserResult(outcome) {

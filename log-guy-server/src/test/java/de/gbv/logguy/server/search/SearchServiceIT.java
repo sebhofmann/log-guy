@@ -123,7 +123,7 @@ class SearchServiceIT {
         file.close(SAMPLE.length, null, Instant.now());
         ParserRegistry parsers = new ParserRegistry(properties, runtime);
         assertTrue(parsers.load().isEmpty());
-        try (Indexer indexer = new Indexer(properties, store, parsers, runtime, service::add, Clock.systemUTC(),
+        try (Indexer indexer = new Indexer(properties, store, parsers, runtime, null, service::add, Clock.systemUTC(),
             JSON)) {
             Instant deadline = Instant.now().plusSeconds(60);
             while (indexer.backlog() > 0 || indexer.indexedEvents() == 0) {

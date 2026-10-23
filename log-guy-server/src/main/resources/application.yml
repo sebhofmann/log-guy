@@ -76,6 +76,7 @@ log-guy:
     hot-days: 7
     # written instead of a line whose lifecycle filter failed, the original stays in hot/ for archive refilter
     placeholder: "[log-guy: Zeile zurückgehalten, Filter {filter} fehlgeschlagen, Offset {offset}]"
+    field-placeholder: "[log-guy: Event zurückgehalten, Filter {filter} fehlgeschlagen]"
     search:
       threads: 4
       max-jobs: 2

@@ -23,6 +23,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.solr.common.SolrInputDocument;
 
 import de.gbv.logguy.server.archive.ArchiveFile;
+import de.gbv.logguy.server.archive.LifecycleFilters;
 import de.gbv.logguy.server.archive.ArchiveFrame;
 import de.gbv.logguy.server.archive.ArchiveMeta;
 import de.gbv.logguy.server.archive.ArchiveStore;
@@ -70,6 +71,8 @@ public class ReindexService implements AutoCloseable {
 
     private final ScriptRuntime runtime;
 
+    private final LifecycleFilters filters;
+
     private final DocumentSink sink;
 
     private final OldestEvent oldest;
@@ -92,13 +95,14 @@ public class ReindexService implements AutoCloseable {
      * @param indexer the indexer, {@code null} if indexing is disabled
      * @param parsers the parser scripts
      * @param runtime the script runtime
+     * @param filters change the fields of loaded events with {@code fields(event)}, {@code null} for none
      * @param sink where loaded events go, usually Solr
      * @param oldest finds the oldest event of an application in the index
      * @param retention knows the index window of each application
      * @param clock clock for expiry and the limits
      */
     public ReindexService(LogGuyProperties properties, HotStore hot, ArchiveStore archive, Indexer indexer,
-        ParserRegistry parsers, ScriptRuntime runtime, DocumentSink sink, OldestEvent oldest,
+        ParserRegistry parsers, ScriptRuntime runtime, LifecycleFilters filters, DocumentSink sink, OldestEvent oldest,
         RetentionService retention, Clock clock) {
         this.properties = properties;
         this.settings = properties.reindex();
@@ -107,6 +111,7 @@ public class ReindexService implements AutoCloseable {
         this.indexer = indexer;
         this.parsers = parsers;
         this.runtime = runtime;
+        this.filters = filters;
         this.sink = sink;
         this.oldest = oldest;
         this.retention = retention;
@@ -283,7 +288,8 @@ public class ReindexService implements AutoCloseable {
             job.finish(State.FAILED, "Der Parser der Anwendung ist nicht mehr vorhanden.", clock.instant());
             return;
         }
-        try (Parser parser = new Parser(runtime, script)) {
+        try (Parser parser = new Parser(runtime, script);
+            LifecycleFilters.Runner runner = filters == null ? null : filters.runner()) {
             for (String fingerprint : plan.archiveFiles()) {
                 if (job.cancelled()) {
                     break;
@@ -294,7 +300,7 @@ public class ReindexService implements AutoCloseable {
                     continue;
                 }
                 try {
-                    load(job, file, parser);
+                    load(job, file, parser, runner);
                 } catch (IOException e) {
                     LOGGER.error("reindex {}: cannot read {}", job.id(), file.relativePath(), e);
                     job.fail(file.relativePath());
@@ -307,14 +313,15 @@ public class ReindexService implements AutoCloseable {
             LOGGER.info("reindex {} {}: {} events loaded", job.id(), cancelled ? "cancelled" : "done",
                 job.status().events());
         } catch (ScriptException e) {
-            job.finish(State.FAILED, "Der Parser ist fehlerhaft: " + e.getMessage(), clock.instant());
+            job.finish(State.FAILED, "Ein Skript ist fehlerhaft: " + e.getMessage(), clock.instant());
         } catch (Exception e) {
             LOGGER.error("reindex {} failed", job.id(), e);
             job.finish(State.FAILED, "Fehler beim Laden: " + e.getMessage(), clock.instant());
         }
     }
 
-    private void load(ReindexJob job, ArchiveFile file, Parser parser) throws Exception {
+    private void load(ReindexJob job, ArchiveFile file, Parser parser, LifecycleFilters.Runner runner)
+        throws Exception {
         Plan plan = job.plan();
         List<ArchiveFrame> frames = file.frames();
         FrameRange range = FrameRange.of(frames, plan.archiveFrom(), plan.archiveTo());
@@ -322,7 +329,7 @@ public class ReindexService implements AutoCloseable {
             return;
         }
         ArchiveMeta meta = file.meta();
-        Loader loader = new Loader(job, file, meta, parser, range.first() > 0);
+        Loader loader = new Loader(job, file, meta, parser, runner, range.first() > 0);
         EventReader reader = new EventReader(frames.get(range.first()).raw(),
             (int) properties.indexer().maxEventSize().toBytes());
         for (int i = range.first(); i <= range.last() && !job.cancelled(); i++) {
@@ -417,6 +424,8 @@ public class ReindexService implements AutoCloseable {
 
         private final Parser parser;
 
+        private final LifecycleFilters.Runner runner;
+
         private final Date expires;
 
         private final List<SolrInputDocument> batch = new ArrayList<>();
@@ -425,11 +434,13 @@ public class ReindexService implements AutoCloseable {
 
         private Instant lastTs;
 
-        private Loader(ReindexJob job, ArchiveFile file, ArchiveMeta meta, Parser parser, boolean checkStart) {
+        private Loader(ReindexJob job, ArchiveFile file, ArchiveMeta meta, Parser parser,
+            LifecycleFilters.Runner runner, boolean checkStart) {
             this.job = job;
             this.file = file;
             this.meta = meta;
             this.parser = parser;
+            this.runner = runner;
             this.checkStart = checkStart;
             this.expires = Date.from(job.expires());
         }
@@ -452,6 +463,10 @@ public class ReindexService implements AutoCloseable {
             Plan plan = job.plan();
             if (ts.isBefore(plan.archiveFrom()) || !ts.isBefore(plan.archiveTo())) {
                 return;
+            }
+            if (runner != null) {
+                parsed = runner.fields(meta.app(), meta.host(), parsed, parser.script(),
+                    properties.archive().fieldPlaceholder());
             }
             SolrInputDocument doc = EventDocuments.create(EventDocuments.archiveId(meta.fingerprint(),
                 event.offset()), meta.app(), meta.host(), file.relativePath(), event.offset(), ts, parsed,

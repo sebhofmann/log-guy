@@ -117,7 +117,7 @@ class ReindexServiceTest {
             new IndexerProperties(true, 2, Duration.ofMillis(100), 50, DataSize.ofKilobytes(64),
                 DataSize.ofMegabytes(64), Duration.ofSeconds(5), DataSize.ofMegabytes(1), 7, Duration.ofSeconds(10)),
             null, null, null, null,
-            new ArchiveProperties(true, 2, Duration.ofMillis(50), 3, 7, "[x]", null),
+            new ArchiveProperties(true, 2, Duration.ofMillis(50), 3, 7, "[x]", "[f {filter}]", null),
             new ReindexProperties(Duration.ofHours(24), "-", Duration.ofDays(92), 5));
         hot = new HotStore(properties, JSON, Clock.systemUTC());
         archive = new ArchiveStore(properties, JSON);
@@ -172,7 +172,8 @@ class ReindexServiceTest {
     private ReindexService service(Instant now, Optional<Instant> oldest) {
         Clock clock = Clock.fixed(now, ZoneOffset.UTC);
         RetentionService retention = new RetentionService(properties, null, null, clock, null);
-        return new ReindexService(properties, hot, archive, null, parsers, runtime, sink, app -> oldest, retention,
+        return new ReindexService(properties, hot, archive, null, parsers, runtime, null, sink, app -> oldest,
+            retention,
             clock);
     }
 

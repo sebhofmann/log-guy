@@ -138,8 +138,9 @@ class IndexerIT {
             assertTrue(parsers.load().isEmpty());
             int expected = expectedEvents();
 
-            try (Indexer indexer = new Indexer(properties, store, parsers, runtime, service::add, Clock.systemUTC(),
-                JSON)) {
+            try (Indexer indexer =
+                new Indexer(properties, store, parsers, runtime, null, service::add, Clock.systemUTC(),
+                    JSON)) {
                 await(() -> indexer.indexedEvents() >= expected && indexer.backlog() == 0);
             }
             assertEquals(expected, count("*:*"));
@@ -157,8 +158,9 @@ class IndexerIT {
 
             // a second run from scratch overwrites the same documents
             Files.list(dataDir.resolve("state/index")).forEach(p -> p.toFile().delete());
-            try (Indexer indexer = new Indexer(properties, store, parsers, runtime, service::add, Clock.systemUTC(),
-                JSON)) {
+            try (Indexer indexer =
+                new Indexer(properties, store, parsers, runtime, null, service::add, Clock.systemUTC(),
+                    JSON)) {
                 await(() -> indexer.indexedEvents() >= expected && indexer.backlog() == 0);
             }
             assertEquals(expected, count("*:*"));
@@ -189,7 +191,7 @@ class IndexerIT {
             assertTrue(parsers.load().isEmpty());
             int expected = expectedEvents();
 
-            try (Indexer indexer = new Indexer(properties, store, parsers, runtime, service, Clock.systemUTC(),
+            try (Indexer indexer = new Indexer(properties, store, parsers, runtime, null, service, Clock.systemUTC(),
                 JSON)) {
                 await(() -> indexer.indexedEvents() >= expected && indexer.backlog() == 0);
 
@@ -230,12 +232,13 @@ class IndexerIT {
                 }
                 service.add(docs);
             };
-            try (Indexer indexer = new Indexer(properties, store, parsers, runtime, failing, Clock.systemUTC(),
+            try (Indexer indexer = new Indexer(properties, store, parsers, runtime, null, failing, Clock.systemUTC(),
                 JSON)) {
                 await(() -> calls.get() > 2);
             }
-            try (Indexer indexer = new Indexer(properties, store, parsers, runtime, service::add, Clock.systemUTC(),
-                JSON)) {
+            try (Indexer indexer =
+                new Indexer(properties, store, parsers, runtime, null, service::add, Clock.systemUTC(),
+                    JSON)) {
                 await(() -> indexer.backlog() == 0 && countUnchecked("*:*") == expected);
             }
         }
@@ -262,8 +265,9 @@ class IndexerIT {
             file.append(0, first, first.length, null, Instant.now());
             ParserRegistry parsers = new ParserRegistry(properties, runtime);
             assertTrue(parsers.load().isEmpty());
-            try (Indexer indexer = new Indexer(properties, store, parsers, runtime, service::add, Clock.systemUTC(),
-                JSON)) {
+            try (Indexer indexer =
+                new Indexer(properties, store, parsers, runtime, null, service::add, Clock.systemUTC(),
+                    JSON)) {
                 await(() -> indexer.indexedEvents() >= 1);
                 assertEquals(1, count("id:\"" + fp + ":0\""));
                 assertEquals(0, count("exc_ss:\"java.io.IOException\""));
