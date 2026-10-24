@@ -69,11 +69,13 @@ Die Pseudonymisierung gehört in diesen Milestone, weil alles, was den MCP-Endpu
 
 ### M5 Meldungen
 
-- [ ] Regel-Module mit `meta`, `check`, `message`
-- [ ] Zähler für Schwellen und Zeitgeber für Stille in Java, `cooldown`
-- [ ] Zustände offen, quittiert, erledigt in `state/alerts.ndjson`
-- [ ] GUI: Glocke und Meldungsseite, Regeln gegen die letzten 24 Stunden testen
-- [ ] API mit Stream, MCP-Tool `list_alerts`
+- [x] Regel-Module mit `meta`, `check`, `message`
+- [x] Zähler für Schwellen und Zeitgeber für Stille in Java, `cooldown`
+- [x] Zustände offen, quittiert, erledigt in `state/alerts.ndjson`
+- [x] GUI: Glocke und Meldungsseite, Regeln gegen die letzten 24 Stunden testen
+- [x] API mit Stream, MCP-Tool `list_alerts`
+
+M5 ist erfüllt mit einer Regel „Connection Pool voll“ auf nachgestellten Hikari-Warnungen in einer Live-Datei von digibib, weil die Logs aus `prod-logs/` älter als die 1 Stunde sind, ab der Regeln greifen. Gegen die echten Logs lief die Regel im Regeltest. Benachrichtigungen schreibt log-guy bis M6 nur ins Server-Log.
 
 ### M6 Produktivbetrieb
 

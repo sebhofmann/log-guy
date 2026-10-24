@@ -20,7 +20,7 @@ Die Hauptansicht besteht aus einer Filterleiste oben, links den Facetten und rec
 | Server-Log | das eigene Log von log-guy, live mitlaufend, filterbar nach Level und Komponente. Das Log-Level einzelner Komponenten lässt sich zur Laufzeit ändern, wie im Logging-Bereich von Solr. Nur mit Recht admin. |
 | Anmeldung | Name und Passwort |
 | Skript-Editor | Parser, Meldungsregeln, Lifecycle-Filter und Pseudonymisierung bearbeiten. Testquelle wählen: Anwendung, Logdatei im Archiv oder eingefügte Zeilen. JavaScript-Modul im Editor ändern und ausführen. Ergebnis als Tabelle: ein Event pro Zeile, eine Spalte pro Feld. Markiert werden Zeilen ohne Event-Anfang, Skriptfehler und nicht deklarierte Felder, dazu Events pro Sekunde. Speichern und Aktivieren mit Recht scripts, frühere Fassungen vergleichen und zurückrollen, Entwürfe aus MCP prüfen und freigeben, nach dem Aktivieren eines Parsers das Neuindexieren des Index-Fensters pro Anwendung anbieten. |
-| Meldungen | offene und quittierte Meldungen, quittieren, Sprung zu den auslösenden Events. Regeln als JavaScript bearbeiten und gegen die letzten 24 Stunden testen, bevor sie scharf geschaltet werden. |
+| Meldungen | Seite `/alerts`: Meldungen nach Zustand offen, quittiert, erledigt oder alle, mit Regel, Anwendung, Text, erster Zeile des Events, Anzahl und Zustand. Offene Meldungen lassen sich quittieren, „Events ansehen“ öffnet die Suche fünf Minuten vor bis fünf Minuten nach der Meldung mit dem ersten Event aufgeklappt. Darunter die aktiven Regeln mit Bedingung, Cooldown, Zielen und Skriptfehlern. Regeln bearbeitet und testet man im Skript-Editor. |
 
 ### Umsetzung
 
@@ -34,6 +34,8 @@ Die Hauptansicht besteht aus einer Filterleiste oben, links den Facetten und rec
 - Status und Server-Log liegen unter `/admin/` und holen ihre Daten als JSON von `/admin/api/status` und `/admin/api/log`. Die Status-Seite lädt alle 15 Sekunden neu, das Server-Log fragt alle 2 Sekunden nach neuen Einträgen.
 - Das Log-Level ändert die Seite über den Actuator-Endpunkt `/actuator/loggers`. Änderungen gelten bis zum Neustart.
 - Den Rückstand eines Agenten kennt der Server nicht, weil der Agent nur Daten schickt und keinen Stand meldet. Die Status-Seite zeigt deshalb pro Agent, wann er zuletzt gesehen wurde (seit dem Start des Servers), wann zuletzt Daten seines Hosts ankamen und wie viele seiner Dateien noch offen sind. Ein Rückstand pro Agent wäre eine Erweiterung des Protokolls.
+- Die Glocke im Kopf jeder Seite zeigt die Zahl der offenen Meldungen, die der Nutzer sehen darf. Sie hängt per `EventSource` am Stream `/api/v1/alerts/stream` und zählt ohne Neuladen mit. Die Meldungsseite lädt bei jeder Änderung aus dem Stream neu.
+- Im Skript-Editor hat eine Meldungsregel statt der Parser-Testquelle einen Regeltest: Anwendung oder alle Anwendungen der Regel, Zeitraum, vorbelegt mit den letzten 24 Stunden. Ergebnis sind gelesene Events, Treffer, Meldungen mit Zustand und die Benachrichtigungen mit Zeitpunkt, also geöffnet, Zusammenfassung und erledigt, dazu Beispiele der Treffer und Skriptfehler.
 - Die Content-Security-Policy verbietet Inline-Skripte und `style`-Attribute. Styles setzt JavaScript nur über das CSSOM.
 - Später möglich: Live-Modus, der neue Events per Server-Sent Events oben ins Logfenster schiebt.
 

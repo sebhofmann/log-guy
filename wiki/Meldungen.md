@@ -7,7 +7,7 @@ Jede Meldungsregel ist ein kleines JavaScript-Modul. Die Regeln prüfen jedes Ev
 | Art | löst aus, wenn | Beispiel |
 | --- | --- | --- |
 | Treffer | ein Event passt | `SQLTransientConnectionException: HikariPool-1 - Connection is not available` |
-| Schwelle | mindestens N passende Events in einem Zeitfenster | mehr als 50 `ERROR` in 5 Minuten pro Anwendung |
+| Schwelle | mindestens N passende Events in einem Zeitfenster | mindestens 50 `ERROR` in 5 Minuten pro Anwendung |
 | Stille | eine Anwendung länger nichts geloggt hat | `digibib` seit 30 Minuten ohne Event, Anwendung oder Agent hängt |
 
 ### Regeln in JavaScript
@@ -88,5 +88,34 @@ log-guy:
 | GUI | Glocke mit offenen Meldungen, ein Klick springt zu den auslösenden Events |
 
 Eine Meldung ist `offen`, `quittiert` oder `erledigt`. Erledigt ist sie, wenn eine Schwellen- oder Stille-Regel wieder unter ihrer Grenze liegt. Meldungen sieht nur, wer die Anwendung lesen darf. Der Zustand liegt in `state/alerts.ndjson`, eine Datenbank braucht es auch hier nicht.
+
+### Umsetzung
+
+- Regeln liegen als Skripte der Art `rule` unter `scripts/rule/<name>.js` und werden wie Parser im Skript-Editor bearbeitet, versioniert und aktiviert. Eine Regel, die nicht lädt, steht mit Fehler in der Regelliste, die übrigen laufen weiter. Jeder Indexer-Thread hat einen eigenen GraalJS-Kontext pro Regel.
+- `meta.apps` nimmt Namen und `*`. Eine Schwelle zählt immer pro Anwendung. `threshold.per` nennt optional ein weiteres Feld, z.B. `per: "ip"`, dann zählt sie pro Anwendung und Wert, und die Meldung trägt den Wert als Gruppe. `per: "app"` ist dasselbe wie ohne.
+- Zähler, Zeitfenster, Stille und Cooldown stecken in `AlertEngine` ohne I/O. Die Zeit wird hineingereicht, deshalb läuft live und im Regeltest dieselbe Logik. Live prüft ein Thread alle 2 Sekunden (`tick-interval`) Schwellen, Stille und abgelaufene Cooldowns.
+- Treffer: Der erste Treffer öffnet eine Meldung und benachrichtigt sofort. Weitere Treffer zählen in dieselbe Meldung, nach Ablauf des Cooldowns geht eine Zusammenfassung raus. Eine Treffer-Meldung wird nie von selbst erledigt. Quittieren beendet sie, der nächste Treffer öffnet eine neue Meldung.
+- Schwelle und Stille: Quittieren schaltet nur die Benachrichtigungen ab, die Meldung bleibt aktiv, bis die Grenze wieder unterschritten ist bzw. wieder ein Event kommt. Dann ist sie erledigt und meldet das. Wird eine Regel gelöscht oder ändert sie ihre Art, werden ihre Schwellen- und Stille-Meldungen erledigt.
+- Nur Events, die höchstens `max-age` (1 Stunde) alt sind, werden geprüft. Backfill, Nachindexieren aus dem Archiv und Neuindexieren lösen so nichts aus.
+- Vorläufig indexierte Events werden schon geprüft. Damit das endgültige Event nicht noch einmal trifft, merkt sich der Indexer pro Datei, welche Regeln auf welches vorläufige Event getroffen haben, auch über einen Neustart hinweg, siehe [Speicherung](Speicherung.md).
+- `state/alerts.ndjson` bekommt pro Änderung eine Zeile, die letzte Zeile einer ID gilt. Beim Start wird die Datei verdichtet. Erledigte und quittierte Meldungen werden nach `keep` (30 Tage) verworfen. Texte sind auf `max-text` (500 Zeichen) gekürzt.
+- Sichtbarkeit: Wer eine Anwendung lesen darf, auch nur pseudonymisiert, sieht ihre Meldungen und darf sie quittieren. Bei `read_pseudonymized` laufen Text und Eventzeile durch die Pseudonymisierung mit den Pseudonymen der Sitzung, wie in der Suche. Die Regelliste zeigt nur Regeln, die mindestens eine lesbare Anwendung betreffen.
+- API: `GET /api/v1/alerts?state=open|acked|resolved|all`, `POST /api/v1/alerts/{id}/ack`, `GET /api/v1/alerts/rules` mit Regeln und Ladefehlern. `GET /api/v1/alerts/stream` ist ein Server-Sent-Events-Stream: Jedes Event `state` trägt Änderungszähler, Zahl der offenen Meldungen und Meldungen: zu Beginn alle offenen, danach die geänderten. Dazu alle 15 Sekunden ein Kommentar als Ping. Nach 10 Minuten (`stream-duration`) endet der Stream, `EventSource` verbindet sich selbst neu.
+- In Spring Framework 7 ignoriert der Ausgabestrom einer `StreamingResponseBody` `flush()`. Stream und Archivsuche leiten `flush()` deshalb auf die Servlet-Antwort um (`FlushingBody`), sonst kämen die Events erst am Ende an.
+- MCP: Tool `list_alerts` mit Zustand und Höchstzahl, neueste zuerst, pseudonymisiert wie alles andere.
+- Benachrichtigungen gehen an einen `Notifier`. Bis Mail und Webhooks in M6 kommen, schreibt `LoggingNotifier` sie ins Server-Log. `log-guy.alerts.enabled: false` schaltet die Prüfung ab.
+
+### Regeltest
+
+Der Regeltest im Skript-Editor spielt die Events eines Zeitraums aus Solr in Zeitreihenfolge durch eine frische `AlertEngine`, mit dem Code aus dem Editor. Die Uhr folgt den Zeitstempeln der Events, und zwischen zwei Events wird wie live in jedem Intervall geprüft, damit Zusammenfassungen und Stille zur richtigen Zeit kommen. `max-age` gilt hier nicht. Ergebnis: gelesene Events, Treffer, Meldungen, Benachrichtigungen nach Art und Zeit, Beispiele und Skriptfehler. Gelesen werden höchstens `test-max-events` (2 Millionen), sonst ist das Ergebnis als gekürzt markiert.
+
+Gemessen gegen den Backfill von `prod-logs/` (Regel „mindestens 3 `ERROR` in 1 Minute“, ein Solr mit 4 GB Heap):
+
+| Zeitraum | Events | Dauer |
+| --- | --- | --- |
+| digibib, 1 Tag | 484.858 | 31 s |
+| digibib, 7 Tage | 1.488.760 | 112 s |
+
+Das sind etwa 15.000 Events pro Sekunde. Der Test über die letzten 24 Stunden einer Anwendung mit dem Volumen von digibib dauert also eine halbe Minute.
 
 [Zur Übersicht](README.md)

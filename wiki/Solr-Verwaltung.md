@@ -59,7 +59,7 @@ Alle außer `message` und `*_t` haben DocValues für Facetten und Sortierung. Ge
 - `BEST_COMPRESSION` für gespeicherte Felder, wie im Prototyp gemessen
 - `autoCommit` alle 60 s ohne neuen Searcher, `autoSoftCommit` alle 15 s
 - `timeAllowed` (20 s) und `cpuAllowed` (15 s) als Defaults im Such-Handler
-- Circuit Breakers für Speicher (80 %) und CPU (90 %), damit Log-Suchen die MIR-Collections nicht ausbremsen
+- Circuit Breaker für CPU (90 %), damit Log-Suchen die MIR-Collections nicht ausbremsen. Der Breaker für Speicher steht auf 100 % und ist damit aus: Bis Solr 9.10 mittelt er den ganzen Heap samt Müll über 30 Sekunden. Gemessen mit 4 GB Heap und 219 Millionen Dokumenten: Im Leerlauf bleibt Eden voll, der Heap steht bei 85 bis 87 %, und der Breaker lehnte jede Suche mit 429 ab, bis er abgeschaltet war. Neuere Solr-Versionen messen die Old Generation nach der letzten GC. Dort lässt er sich mit `logguy.memoryCircuitBreaker` auf z.B. 80 % setzen.
 - `deletesPctAllowed` 25 % in der `TieredMergePolicy`
 - Alle Werte lassen sich als Collection-Properties wie `logguy.timeAllowed` ändern, ohne neues Configset.
 

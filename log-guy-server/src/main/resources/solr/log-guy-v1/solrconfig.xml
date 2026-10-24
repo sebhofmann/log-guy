@@ -38,8 +38,10 @@
   </updateHandler>
 
   <!-- log searches must not slow down the MIR collections on the same nodes -->
+  <!-- off with 100: up to Solr 9.10 the memory breaker averages the whole heap including garbage, an idle node
+       keeps a full eden and rejects every search; later versions measure the old generation after a GC -->
   <circuitBreaker class="org.apache.solr.util.circuitbreaker.MemoryCircuitBreaker">
-    <double name="threshold">${logguy.memoryCircuitBreaker:80}</double>
+    <double name="threshold">${logguy.memoryCircuitBreaker:100}</double>
   </circuitBreaker>
   <circuitBreaker class="org.apache.solr.util.circuitbreaker.CPUCircuitBreaker">
     <double name="threshold">${logguy.cpuCircuitBreaker:90}</double>
