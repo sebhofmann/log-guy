@@ -25,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 
 import de.gbv.logguy.server.archive.search.ArchiveSearchJob.Owner;
@@ -35,6 +36,7 @@ import de.gbv.logguy.server.audit.AuditLog;
 import de.gbv.logguy.server.pseudonym.Pseudonyms;
 import de.gbv.logguy.server.security.CurrentUser;
 import de.gbv.logguy.server.security.LogGuyUser;
+import de.gbv.logguy.server.web.FlushingBody;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -152,15 +154,17 @@ public class ArchiveSearchController {
      * @param offset index of the first hit
      * @param follow whether to wait for further hits
      * @param accept the accepted media types
+     * @param response the servlet response, flushed after each chunk
      * @return the stream
      */
     @GetMapping("/{id}/results")
     public ResponseEntity<StreamingResponseBody> results(@PathVariable String id,
         @RequestParam(defaultValue = "0") int offset, @RequestParam(defaultValue = "true") boolean follow,
-        @RequestHeader(name = "Accept", required = false) String accept) {
+        @RequestHeader(name = "Accept", required = false) String accept, HttpServletResponse response) {
         ArchiveSearchJob job = search.job(owner(currentUser.get()), id);
         boolean sse = accept != null && accept.contains(MediaType.TEXT_EVENT_STREAM_VALUE);
-        StreamingResponseBody body = out -> stream(job, Math.max(0, offset), follow, sse, out);
+        StreamingResponseBody body = FlushingBody.of(response,
+            out -> stream(job, Math.max(0, offset), follow, sse, out));
         return ResponseEntity.ok()
             .contentType(sse ? MediaType.TEXT_EVENT_STREAM : MediaType.parseMediaType(NDJSON + ";charset=UTF-8"))
             .header("Cache-Control", "no-store").header("X-Accel-Buffering", "no").body(body);

@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 
 import de.gbv.logguy.server.alert.Alert.State;
@@ -33,6 +34,7 @@ import de.gbv.logguy.server.pseudonym.Pseudonyms;
 import de.gbv.logguy.server.search.SearchException;
 import de.gbv.logguy.server.security.CurrentUser;
 import de.gbv.logguy.server.security.LogGuyUser;
+import de.gbv.logguy.server.web.FlushingBody;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -99,13 +101,14 @@ public class AlertController {
      * alerts, each with the number of open alerts. Comments keep the connection open, it ends after
      * {@code stream-duration} and the client connects again.
      *
+     * @param response the servlet response, flushed after each event
      * @return the stream
      */
     @GetMapping("/stream")
-    public ResponseEntity<StreamingResponseBody> stream() {
+    public ResponseEntity<StreamingResponseBody> stream(HttpServletResponse response) {
         LogGuyUser user = currentUser.get();
         Pseudonyms session = session(user);
-        StreamingResponseBody body = out -> stream(user, session, out);
+        StreamingResponseBody body = FlushingBody.of(response, out -> stream(user, session, out));
         return ResponseEntity.ok().contentType(MediaType.TEXT_EVENT_STREAM).header("Cache-Control", "no-store")
             .header("X-Accel-Buffering", "no").body(body);
     }
