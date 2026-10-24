@@ -184,16 +184,28 @@ public class AlertService implements EventChecker, AutoCloseable {
     }
 
     /**
-     * The alerts a user may see.
+     * The alerts a user may see: those of the applications the user may read, in plain text or pseudonymized.
+     * The texts are pseudonymized by {@link AlertTexts}.
      *
      * @param user the user
      * @param state only alerts in this state, {@code null} for all
      * @return the alerts, newest first
      */
     public List<Alert> list(LogGuyUser user, State state) {
-        return engine.read(all -> all.stream().filter(alert -> user.mayRead(alert.app()))
+        return engine.read(all -> all.stream().filter(alert -> maySee(user, alert))
             .filter(alert -> state == null || alert.state() == state)
             .sorted(Comparator.comparing(Alert::opened).reversed()).toList());
+    }
+
+    /**
+     * Whether a user may see an alert: if the user may read its application, in plain text or pseudonymized.
+     *
+     * @param user the user
+     * @param alert the alert
+     * @return true if the alert is visible
+     */
+    public static boolean maySee(LogGuyUser user, Alert alert) {
+        return user.asPseudonymized().mayRead(alert.app());
     }
 
     /**
@@ -204,11 +216,11 @@ public class AlertService implements EventChecker, AutoCloseable {
      */
     public long openCount(LogGuyUser user) {
         return engine.read(all -> all.stream().filter(alert -> alert.state() == State.OPEN)
-            .filter(alert -> user.mayRead(alert.app())).count());
+            .filter(alert -> maySee(user, alert)).count());
     }
 
     /**
-     * Acknowledges an alert. Everybody who may read the application may acknowledge its alerts.
+     * Acknowledges an alert. Everybody who may see an alert may acknowledge its alerts.
      *
      * @param user the user
      * @param actor who acknowledges, for the audit log
@@ -217,7 +229,7 @@ public class AlertService implements EventChecker, AutoCloseable {
      */
     public Alert ack(LogGuyUser user, Actor actor, String id) {
         Alert alert = engine.alert(id);
-        if (alert == null || !user.mayRead(alert.app())) {
+        if (alert == null || !maySee(user, alert)) {
             return null;
         }
         if (alert.state() != State.OPEN) {

@@ -132,7 +132,7 @@ public class AlertController {
                     continue;
                 }
                 seq = changed.stream().mapToLong(Alert::seq).max().orElse(seq);
-                List<Alert> readable = changed.stream().filter(alert -> user.mayRead(alert.app())).toList();
+                List<Alert> readable = changed.stream().filter(alert -> AlertService.maySee(user, alert)).toList();
                 if (!readable.isEmpty()) {
                     write(out, user, session, seq, readable);
                 }
@@ -178,7 +178,7 @@ public class AlertController {
     @GetMapping("/rules")
     public AlertService.RuleStatus rules() {
         LogGuyUser user = currentUser.get();
-        Set<String> readable = user.readableApps(properties.apps().keySet());
+        Set<String> readable = user.asPseudonymized().readableApps(properties.apps().keySet());
         AlertService.RuleStatus status = alerts.ruleStatus();
         List<AlertService.RuleInfo> visible = status.rules().stream()
             .filter(rule -> user.isAdmin() || rule.apps().stream()
