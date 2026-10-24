@@ -1,0 +1,107 @@
+{
+  "authentication": {
+    "blockUnknown": true,
+    "class": "solr.BasicAuthPlugin",
+    "forwardCredentials": false,
+    "credentials": {
+      "admin": "ADMIN_HASH",
+      "log-guy": "LOG_GUY_HASH"
+    }
+  },
+  "authorization": {
+    "class": "solr.RuleBasedAuthorizationPlugin",
+    "user-role": {
+      "admin": [
+        "admin",
+        "logguy"
+      ],
+      "log-guy": [
+        "logguy"
+      ]
+    },
+    "permissions": [
+      {
+        "name": "logguy-configs",
+        "collection": null,
+        "path": "/admin/configs",
+        "params": {
+          "action": [
+            "LIST"
+          ]
+        },
+        "role": "logguy"
+      },
+      {
+        "name": "logguy-configs-own",
+        "collection": null,
+        "path": "/admin/configs",
+        "params": {
+          "name": [
+            "REGEX:^log-guy-[a-z0-9]+$"
+          ]
+        },
+        "role": "logguy"
+      },
+      {
+        "name": "logguy-alias",
+        "collection": null,
+        "path": "/admin/collections",
+        "params": {
+          "action": [
+            "CREATEALIAS"
+          ],
+          "name": [
+            "logs"
+          ],
+          "collections": [
+            "REGEX:^logs_v[0-9]+$"
+          ]
+        },
+        "role": "logguy"
+      },
+      {
+        "name": "logguy-collections",
+        "collection": null,
+        "path": "/admin/collections",
+        "params": {
+          "action": [
+            "REGEX:^(?!CREATEALIAS$).*$"
+          ],
+          "name": [
+            "REGEX:^logs(_v[0-9]+)?$"
+          ]
+        },
+        "role": "logguy"
+      },
+      {
+        "name": "logguy-collections-read",
+        "collection": null,
+        "path": "/admin/collections",
+        "params": {
+          "action": [
+            "LIST",
+            "CLUSTERSTATUS",
+            "LISTALIASES",
+            "COLSTATUS"
+          ]
+        },
+        "role": "logguy"
+      },
+      {
+        "name": "logguy-data",
+        "collection": [
+          "logs",
+          "logs_v1",
+          "logs_v2",
+          "logs_v3"
+        ],
+        "path": "/*",
+        "role": "logguy"
+      },
+      {
+        "name": "all",
+        "role": "admin"
+      }
+    ]
+  }
+}

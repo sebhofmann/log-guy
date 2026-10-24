@@ -82,7 +82,7 @@ M5 ist erfüllt mit einer Regel „Connection Pool voll“ auf nachgestellten Hi
 - [x] Mail per SMTP und Webhooks
 - [ ] Agent-Container für alle Anwendungen ausrollen, Rechte auf die Log-Verzeichnisse
 - [ ] Parser für die übrigen Logformate, per LLM oder von Hand
-- [ ] Solr absichern: eigener Nutzer, `timeAllowed`, `cpuAllowed`, Circuit Breakers
+- [x] Solr absichern: eigener Nutzer, `timeAllowed`, `cpuAllowed`, Circuit Breakers
 - [ ] Backups von `archive/`, `state/`, `audit/` und `/etc/log-guy/`
 
 Später: LDAP, Live-Modus in der GUI.
@@ -93,7 +93,7 @@ Später: LDAP, Live-Modus in der GUI.
 - [ ] Welche Hilfsfunktionen soll log-guy zum Start in Java anbieten, z.B. stripAnsi, findExceptions, maskIp?
 - [ ] Auf welchem Server läuft log-guy, und wo liegen `hot/` und `archive/`?
 - [ ] Welche Meldungsregeln brauchen wir zum Start, und wer bekommt die Mails?
-- [ ] Eigener Solr-Nutzer für log-guy, der nur auf `logs*` und das eigene Configset zugreifen darf?
+- [x] Eigener Solr-Nutzer für log-guy, der nur auf `logs*` und das eigene Configset zugreifen darf? Ja, die Regeln stehen in Solr-Verwaltung.
 
 ### Entschieden
 

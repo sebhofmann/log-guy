@@ -6,11 +6,14 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 
+import org.testcontainers.containers.Container.ExecResult;
 import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.images.builder.Transferable;
 import org.testcontainers.utility.DockerImageName;
 
 import de.gbv.logguy.server.config.LogGuyProperties.SolrProperties;
@@ -33,8 +36,18 @@ public final class SolrTestContainer implements AutoCloseable {
      *
      * @throws Exception if Solr does not come up
      */
-    @SuppressWarnings("resource")
     public SolrTestContainer() throws Exception {
+        this(null);
+    }
+
+    /**
+     * Starts Solr, waits until it answers and switches on authentication and authorization.
+     *
+     * @param securityJson content of {@code security.json}, {@code null} for an open Solr
+     * @throws Exception if Solr does not come up
+     */
+    @SuppressWarnings("resource")
+    public SolrTestContainer(String securityJson) throws Exception {
         port = freePort();
         container = new GenericContainer<>(DockerImageName.parse(IMAGE))
             .withNetworkMode("host")
@@ -44,6 +57,15 @@ public final class SolrTestContainer implements AutoCloseable {
             .withCommand("solr-foreground", "-c");
         container.start();
         waitUntilReady();
+        if (securityJson != null) {
+            container.copyFileToContainer(Transferable.of(securityJson), "/tmp/security.json");
+            ExecResult result = container.execInContainer("solr", "zk", "cp", "file:/tmp/security.json",
+                "zk:/security.json", "-z", "localhost:" + (port + 1000));
+            if (result.getExitCode() != 0) {
+                throw new IllegalStateException("security.json not uploaded: " + result.getStderr());
+            }
+            waitForStatus(401);
+        }
     }
 
     /**
@@ -57,6 +79,18 @@ public final class SolrTestContainer implements AutoCloseable {
     }
 
     /**
+     * Connection settings for this Solr with a user.
+     *
+     * @param user the Solr user
+     * @param passwordFile file with its password
+     * @return settings with replication factor 1
+     */
+    public SolrProperties properties(String user, Path passwordFile) {
+        return new SolrProperties(List.of(baseUrl()), user, passwordFile, "log-guy-v1", "logs_v1", "logs", 1,
+            Duration.ofSeconds(60));
+    }
+
+    /**
      * Base URL of the node.
      *
      * @return e.g. {@code http://localhost:32123/solr}
@@ -66,13 +100,17 @@ public final class SolrTestContainer implements AutoCloseable {
     }
 
     private void waitUntilReady() throws Exception {
+        waitForStatus(200);
+    }
+
+    private void waitForStatus(int status) throws Exception {
         HttpClient client = HttpClient.newHttpClient();
         HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl() + "/admin/collections?action=LIST"))
             .build();
         Instant deadline = Instant.now().plusSeconds(120);
         while (Instant.now().isBefore(deadline)) {
             try {
-                if (client.send(request, HttpResponse.BodyHandlers.discarding()).statusCode() == 200) {
+                if (client.send(request, HttpResponse.BodyHandlers.discarding()).statusCode() == status) {
                     return;
                 }
             } catch (IOException e) {
@@ -80,7 +118,7 @@ public final class SolrTestContainer implements AutoCloseable {
             }
             Thread.sleep(500);
         }
-        throw new IllegalStateException("Solr did not start: " + container.getLogs());
+        throw new IllegalStateException("Solr did not answer with " + status + ": " + container.getLogs());
     }
 
     private static int freePort() throws IOException {

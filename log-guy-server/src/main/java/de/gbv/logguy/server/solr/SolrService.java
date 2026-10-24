@@ -195,15 +195,12 @@ public class SolrService implements DocumentSink, AutoCloseable {
                 String error = null;
                 if (replica.getState() == Replica.State.ACTIVE) {
                     try {
-                        NamedList<?> metrics = coreMetrics(replica.getBaseUrl());
-                        String prefix = collection + "_" + slice.getName() + "_";
-                        String core = replica.getCoreName();
-                        String key = "solr.core." + collection + "." + slice.getName() + "."
-                            + (core.startsWith(prefix) ? core.substring(prefix.length()) : core);
-                        Object values = metrics == null ? null : metrics.get(key);
-                        size = number(entry(values, "INDEX.sizeInBytes"));
-                        docs = number(entry(values, "SEARCHER.searcher.numDocs"));
-                        deleted = number(entry(values, "SEARCHER.searcher.deletedDocs"));
+                        Object beans = coreStats(replica.getBaseUrl(), replica.getCoreName());
+                        Object core = entry(entry(beans, "core"), "stats");
+                        Object searcher = entry(entry(beans, "searcher"), "stats");
+                        size = number(entry(core, "INDEX.sizeInBytes"));
+                        docs = number(entry(searcher, "SEARCHER.searcher.numDocs"));
+                        deleted = number(entry(searcher, "SEARCHER.searcher.deletedDocs"));
                     } catch (IOException | SolrServerException | RuntimeException e) {
                         error = e.getMessage();
                     }
@@ -215,14 +212,19 @@ public class SolrService implements DocumentSink, AutoCloseable {
         return result;
     }
 
-    private NamedList<?> coreMetrics(String baseUrl) throws IOException, SolrServerException {
+    /**
+     * Statistics of one core from its own {@code admin/mbeans}, not from {@code /admin/metrics}: a Solr user
+     * restricted to the log collections may read the former, the latter shows every collection of the node.
+     */
+    private Object coreStats(String baseUrl, String core) throws IOException, SolrServerException {
         ModifiableSolrParams params = new ModifiableSolrParams();
-        params.set("group", "core");
-        params.set("prefix", "INDEX.sizeInBytes,SEARCHER.searcher.numDocs,SEARCHER.searcher.deletedDocs");
-        GenericSolrRequest request = new GenericSolrRequest(SolrRequest.METHOD.GET, "/admin/metrics", params)
-            .setRequiresCollection(false);
-        request.setBasePath(baseUrl);
-        return (NamedList<?>) client.request(request).get("metrics");
+        params.set("stats", true);
+        params.set("cat", "CORE");
+        params.add("key", "core", "searcher");
+        GenericSolrRequest request = new GenericSolrRequest(SolrRequest.METHOD.GET, "/admin/mbeans", params)
+            .setRequiresCollection(true);
+        NamedList<Object> response = client.getHttpClient().requestWithBaseUrl(baseUrl, core, request).getResponse();
+        return entry(response.get("solr-mbeans"), "CORE");
     }
 
     private static Object entry(Object container, String key) {

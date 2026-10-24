@@ -25,6 +25,58 @@ log-guy:
 | `log-guy solr upgrade` | neues Configset hochladen, `logs_v2` aus dem Archiv aufbauen, Alias umschalten, `logs_v1` löschen |
 | `log-guy reindex --app digibib --since 14d [--until 2d] [--source all\|hot\|archive]` | Zeitraum einer Anwendung neu indexieren: Dateien in `hot/` mit dem aktuellen Parser, der Teil vor dem Index-Fenster aus dem Archiv mit Ablaufdatum, siehe [Suche](Suche.md). `--since` und `--until` nehmen eine Dauer wie `14d`, `36h`, `90m` oder einen Zeitpunkt wie `2025-01-01T00:00:00Z`. Der Befehl wartet, bis das Laden aus dem Archiv fertig ist. |
 
+### Eigener Solr-Nutzer
+
+log-guy meldet sich mit Basic Auth an und braucht in der SolrCloud nur seinen eigenen Teil: das Configset `log-guy-*`, die Collections `logs_v*` und den Alias `logs`. Die MIR-Collections daneben darf es weder lesen noch ändern. Mit dem `RuleBasedAuthorizationPlugin` von Solr sieht das so aus, geprüft mit `SecuredSolrIT` gegen `solr:9.10.1`, die vollständige Datei liegt unter `log-guy-server/src/test/resources/solr/security.json`:
+
+```json
+"user-role": { "admin": ["admin", "logguy"], "log-guy": ["logguy"] },
+"permissions": [
+  { "name": "logguy-configs", "collection": null, "path": "/admin/configs",
+    "params": { "action": ["LIST"] }, "role": "logguy" },
+  { "name": "logguy-configs-own", "collection": null, "path": "/admin/configs",
+    "params": { "name": ["REGEX:^log-guy-[a-z0-9]+$"] }, "role": "logguy" },
+  { "name": "logguy-alias", "collection": null, "path": "/admin/collections",
+    "params": { "action": ["CREATEALIAS"], "name": ["logs"], "collections": ["REGEX:^logs_v[0-9]+$"] },
+    "role": "logguy" },
+  { "name": "logguy-collections", "collection": null, "path": "/admin/collections",
+    "params": { "action": ["REGEX:^(?!CREATEALIAS$).*$"], "name": ["REGEX:^logs(_v[0-9]+)?$"] }, "role": "logguy" },
+  { "name": "logguy-collections-read", "collection": null, "path": "/admin/collections",
+    "params": { "action": ["LIST", "CLUSTERSTATUS", "LISTALIASES", "COLSTATUS"] }, "role": "logguy" },
+  { "name": "logguy-data", "collection": ["logs", "logs_v1", "logs_v2", "logs_v3"], "path": "/*", "role": "logguy" },
+  { "name": "all", "role": "admin" }
+]
+```
+
+| Mit dem Nutzer `log-guy` | Ergebnis |
+| --- | --- |
+| `log-guy solr init`, indexieren, suchen, löschen, Collection-Properties setzen, `logs_v2` anlegen und löschen, Alias umschalten | erlaubt |
+| `mir` lesen, schreiben oder löschen, fremdes Configset ändern, Collection `mylogs` anlegen | 403 |
+| Alias `logs` oder `logs_v2` auf `mir` legen | 403 |
+| `/admin/metrics`, `/admin/cores` | 403 |
+
+Was beim Ausprobieren aufgefallen ist:
+
+- Solr nimmt die erste passende Regel. Die Regeln für `logguy` greifen deshalb auch für Admins, die Rolle `admin` allein bekommt dort 403. Admins brauchen zusätzlich die Rolle `logguy`.
+- `REGEX:` sucht irgendwo im Wert, ohne `^` und `$` passt `logs` auch auf `mylogs`.
+- Eine Regel nur mit `collection` und ohne `path` greift nicht, Solr nimmt dann `all`. Mit `"path": "/*"` greift sie.
+- Ohne eigene Regel für `CREATEALIAS` könnte log-guy den Alias `logs_v9` auf `mir` legen. Lesen ließe sich `mir` darüber trotzdem nicht, weil Solr den Alias vor der Prüfung auflöst.
+- Weil `/admin/metrics` die Zahlen aller Collections zeigt, holt die Status-Seite Größe und Dokumente der Replikate aus `/<core>/admin/mbeans` des Replikats. Das fällt unter die Regel der Collection.
+- Neue Collections nach einem Upgrade, etwa `logs_v4`, müssen in `logguy-data` nachgetragen werden.
+- Ein falsches Passwort meldet SolrJ nicht als 401, sondern als „Failed fetching live_nodes“.
+
+In einer laufenden SolrCloud kommen Nutzer und Regeln über die Security-API hinzu, ohne Neustart:
+
+```bash
+curl -u admin --json '{"set-user": {"log-guy": "<passwort>"}}' http://solr1:8983/solr/admin/authentication
+curl -u admin --json '{"set-user-role": {"log-guy": ["logguy"], "<admin>": ["admin", "logguy"]}}' \
+  http://solr1:8983/solr/admin/authorization
+curl -u admin --json '{"set-permission": {"name": "logguy-data", "collection": ["logs", "logs_v1"], "path": "/*",
+  "role": "logguy", "before": 1}}' http://solr1:8983/solr/admin/authorization
+```
+
+`before` setzt die Regel vor die Regel mit diesem Index, damit sie vor `all` steht. Das Passwort gehört in `password-file`, nicht in die `application.yml`.
+
 ### Schema
 
 Feste Felder:
