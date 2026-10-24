@@ -1,6 +1,7 @@
 package de.gbv.logguy.agent;
 
 import java.io.IOException;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.FileSystems;
 import java.nio.file.Path;
 import java.nio.file.StandardWatchEventKinds;
@@ -32,6 +33,8 @@ public class Agent implements AutoCloseable {
     private final List<LiveTailer> tailers = new ArrayList<>();
 
     private final List<RotatedScanner> scanners = new ArrayList<>();
+
+    private final Set<Path> denied = new HashSet<>();
 
     private final WatchService watcher;
 
@@ -115,8 +118,14 @@ public class Agent implements AutoCloseable {
             }
             try {
                 tailer.poll();
+                denied.remove(tailer.path());
             } catch (IngestClient.RejectedException e) {
                 LOGGER.error("{} refused: {}", tailer.path(), e.getMessage());
+            } catch (AccessDeniedException e) {
+                // no retry delay, the other sources go on
+                if (denied.add(tailer.path())) {
+                    LOGGER.error("cannot read {}, check the rights of the agent", tailer.path());
+                }
             } catch (IOException e) {
                 LOGGER.warn("cannot send {}: {}", tailer.path(), e.getMessage());
                 Thread.sleep(config.retryDelay());

@@ -118,4 +118,16 @@ class StreamControllerTest {
             .contentType(MediaType.APPLICATION_OCTET_STREAM)
             .content(data)).andExpect(status().isUnauthorized());
     }
+
+    @Test
+    void tokenTellsHostAndApplications() throws Exception {
+        mvc.perform(get(IngestProtocol.STREAMS_PATH).header("Authorization", "Bearer " + TOKEN))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.name").value("agent-app1"))
+            .andExpect(jsonPath("$.host").value("app1"))
+            .andExpect(jsonPath("$.apps[0]").value("digibib"))
+            .andExpect(jsonPath("$.apps[1]").value("digibib-apache"));
+        mvc.perform(get(IngestProtocol.STREAMS_PATH).header("Authorization", "Bearer wrong"))
+            .andExpect(status().isUnauthorized());
+    }
 }

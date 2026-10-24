@@ -31,8 +31,55 @@ Der Agent läuft als eigener Container neben der Anwendung und bekommt dasselbe 
 - Beide Container sehen über den Mount dieselben Dateien im selben Kernel. Schreibt MIR eine Zeile, sieht der Agent sie sofort, auch `inotify` funktioniert über Container hinweg.
 - Frisch geschriebene Daten liegen noch im Page Cache. Der Agent liest sie also aus dem RAM, die Last entspricht einem `tail -f`.
 - Bei NFS, CIFS oder Docker Desktop kommen `inotify`-Ereignisse nicht zuverlässig an. Der Agent prüft deshalb zusätzlich jede Sekunde Größe und Inode der Datei.
-- Der Agent braucht Leserechte. Die MIR-Logs gehören mit Modus `rw-r-----` dem Nutzer, unter dem MIR im Container läuft, der Agent-Container läuft deshalb mit derselben UID oder in der passenden Gruppe. Maßgeblich ist die UID im Container: Im MIR-Image ist das 501, z.B. `docker run --user 501 -v ./mir-logs:/logs/digibib:ro log-guy-agent`. Mit Rootless Docker erscheint dieselbe Datei auf dem Host als UID 100500, `--user 100500` schlägt dort mit `chown /dev/stdout: invalid argument` fehl.
+- Der Agent braucht Leserechte. Die MIR-Logs gehören mit Modus `rw-r-----` und Verzeichnissen mit `rwxr-x---` dem Nutzer, unter dem MIR im Container läuft. Maßgeblich ist die UID und GID im Container: Im MIR-Image ist das 501. Der Agent-Container läuft deshalb unter seiner eigenen UID 10001 und bekommt die Gruppe dazu, z.B. `docker run --group-add 501 -v ./mir-logs:/logs/digibib:ro log-guy-agent`. Gleichwertig ist `--user 501`. Mit Rootless Docker erscheint dieselbe Datei auf dem Host als UID 100500, `--user 100500` schlägt dort mit `chown /dev/stdout: invalid argument` fehl.
+- Fehlt das Recht auf eine Datei oder ein Monatsverzeichnis, meldet der Agent das einmal im Log und macht mit den übrigen Dateien weiter. Sobald sich die Rechte ändern, holt er die Datei nach.
 - Das Image `log-guy-agent` baut auf `eclipse-temurin` mit JRE 25 auf und startet mit `-Xmx64m` und Serial GC.
+
+### Ausrollen
+
+Pro Host läuft ein Agent-Container, der die Log-Verzeichnisse aller Anwendungen dieses Hosts lesend gemountet bekommt und sie als mehrere `sources` sendet. Dazu passt das Ingest-Token, das einem Host und dessen Anwendungen gehört. Laufen auf einem Host mehrere MIR-Instanzen mit eigenem Compose-Projekt, darf der Agent auch im Compose-Projekt jeder Anwendung stehen, er braucht dann jeweils ein eigenes Token mit derselben `host`-Angabe und kostet je 88 MB RAM.
+
+```yaml
+# docker-compose.yml auf dem Host app1
+services:
+  log-guy-agent:
+    image: log-guy-agent:1.0
+    restart: unless-stopped
+    group_add: ["501", "8983", "4"]   # MIR, Solr, adm für /var/log/apache2
+    volumes:
+      - /srv/digibib/mir-logs:/logs/digibib:ro
+      - /var/log/apache2:/logs/digibib-apache:ro
+      - /srv/solr/logs:/logs/solr:ro
+      - /etc/log-guy-agent:/etc/log-guy-agent:ro
+```
+
+| Quelle | Eigentümer im Container | Modus | Recht für den Agenten |
+| --- | --- | --- | --- |
+| MIR `mir-logs/` | 501:501 | Dateien `rw-r-----`, Verzeichnisse `rwxr-x---` | Gruppe 501 |
+| Solr-Image `/var/solr/logs` | 8983:8983 | Verzeichnis `rwxrwx---`, Dateien `rw-r--r--` | Gruppe 8983 |
+| Apache unter Debian `/var/log/apache2` | root:adm | `rw-r-----` | Gruppe `adm` (4), nicht gemessen |
+
+Die Werte für MIR und Solr sind in den lokalen Containern gemessen. Die Gruppen-IDs müssen auf jedem Host stimmen, deshalb vor dem Start prüfen:
+
+```
+docker compose run --rm log-guy-agent check
+```
+
+`check` meldet UID und Gruppen des Agenten, ob der Server erreichbar ist, ob das Token gültig ist, zu `host` passt und für jede Anwendung senden darf, und ob die Live-Datei und alle rotierten Dateien lesbar sind. Für jede Datei oder jedes Verzeichnis ohne Leserecht nennt er UID, GID und Modus. Der Exit-Code ist 0 ohne Fehler, sonst 1. Gegen die lokale MIR-Instanz:
+
+```
+Agent läuft als UID 10001, GID 0, Gruppen 0
+Server http://localhost:18080, Host local
+  OK      Server erreichbar, Token agent-local für Host local und digibib, mir
+
+Anwendung mir
+  FEHLER  Live-Datei nicht lesbar: /logs/mir/mycore-app.log (UID 501, GID 501, rw-r-----)
+  FEHLER  Verzeichnis nicht lesbar, rotierte Dateien darin fehlen: /logs/mir/2026-10 (UID 501, GID 501, rwxr-x---)
+
+Ergebnis: 2 Fehler, 0 Hinweise
+```
+
+Mit `--group-add 501` meldet derselbe Aufruf die Live-Datei und 5 rotierte Dateien als lesbar.
 
 ### Live-Datei und rotierte Dateien ohne Duplikate
 
@@ -60,12 +107,13 @@ Weil der Name keine Rolle spielt, macht auch logrotate keine Probleme:
 
 | Methode und Pfad | Zweck |
 | --- | --- |
+| `GET /api/v1/streams` | Name, Host und Anwendungen des Tokens, für `check` |
 | `GET /api/v1/streams/{fingerprint}` | wie weit log-guy die Datei hat und ob sie abgeschlossen ist |
 | `POST /api/v1/streams/{fingerprint}/chunks?offset=N` | rohe Bytes anhängen, Host, Anwendung und Dateiname im Header |
 | `POST /api/v1/streams/{fingerprint}/close?length=N` | Datei ist rotiert und vollständig übertragen, `N` ist ihre Länge |
 
 - Header: `Authorization: Bearer <token>`, `X-Log-Guy-Host`, `X-Log-Guy-App` und `X-Log-Guy-File` mit dem Pfad auf dem Host, URL-kodiert in UTF-8.
-- Alle Antworten enthalten den Stand als JSON: `{"fingerprint": "...", "length": 262145761, "closed": false}`. Sie kommen erst, wenn die Bytes in hot/ per `fsync` gesichert sind.
+- Die Antworten zu einer Datei enthalten den Stand als JSON: `{"fingerprint": "...", "length": 262145761, "closed": false}`. Sie kommen erst, wenn die Bytes in hot/ per `fsync` gesichert sind.
 - `409 Conflict` mit demselben JSON, wenn zwischen Endstand und `offset` eine Lücke ist, wenn eine geschlossene Datei neue Bytes bekommen soll oder wenn `length` beim Schließen nicht stimmt. Der Agent macht beim gemeldeten Endstand weiter.
 - `401` ohne gültiges Token, `403`, wenn Host oder Anwendung nicht zum Token passen oder die Datei schon unter einem anderen Host oder einer anderen Anwendung liegt, `413` für zu große Pakete (`max-chunk-size`, 8 MB), `429` mit `Retry-After` bei Überlast (`max-concurrent`).
 - `GET` antwortet mit `404` auch für Dateien, die einem anderen Token gehören.

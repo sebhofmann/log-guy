@@ -12,6 +12,7 @@ import java.util.Optional;
 
 import de.gbv.logguy.common.IngestProtocol;
 import de.gbv.logguy.common.StreamStatus;
+import de.gbv.logguy.common.TokenInfo;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -36,6 +37,30 @@ public class IngestClient {
             .version(HttpClient.Version.HTTP_1_1)
             .connectTimeout(config.connectTimeout())
             .build();
+    }
+
+    /**
+     * Asks what the token allows.
+     *
+     * @return name, host and applications of the token
+     * @throws RejectedException if the server rejects the token
+     * @throws IOException on network errors and server errors
+     * @throws InterruptedException if interrupted
+     */
+    public TokenInfo token() throws IOException, InterruptedException {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(config.server() + IngestProtocol.STREAMS_PATH))
+            .timeout(config.requestTimeout())
+            .header("Authorization", "Bearer " + config.token())
+            .GET().build();
+        HttpResponse<byte[]> response = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
+        if (response.statusCode() == 200) {
+            return json.readValue(response.body(), TokenInfo.class);
+        }
+        String body = new String(response.body(), StandardCharsets.UTF_8);
+        if (response.statusCode() >= 500) {
+            throw new IOException("server answered " + response.statusCode() + ": " + body);
+        }
+        throw new RejectedException("server answered " + response.statusCode() + ": " + body);
     }
 
     /**

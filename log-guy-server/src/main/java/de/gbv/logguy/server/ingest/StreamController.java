@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import de.gbv.logguy.common.IngestProtocol;
 import de.gbv.logguy.common.StreamStatus;
+import de.gbv.logguy.common.TokenInfo;
 import de.gbv.logguy.server.LogGuyApplication;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.security.IngestPrincipal;
@@ -56,6 +57,17 @@ public class StreamController {
         this.permits = new Semaphore(properties.ingest().maxConcurrent());
         this.maxChunkSize = (int) properties.ingest().maxChunkSize().toBytes();
         this.retryAfter = Long.toString(Math.max(1, properties.ingest().retryAfter().toSeconds()));
+    }
+
+    /**
+     * What the token of the agent allows, for {@code log-guy-agent check}.
+     *
+     * @param principal the agent
+     * @return name, host and applications of the token
+     */
+    @GetMapping
+    public TokenInfo token(@AuthenticationPrincipal IngestPrincipal principal) {
+        return new TokenInfo(principal.name(), principal.host(), principal.apps().stream().sorted().toList());
     }
 
     /**

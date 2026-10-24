@@ -56,6 +56,10 @@ class FakeServer implements AutoCloseable {
             send(exchange, 401, "{}");
             return;
         }
+        if (exchange.getRequestURI().getPath().equals(IngestProtocol.STREAMS_PATH)) {
+            send(exchange, 200, "{\"name\":\"agent-app1\",\"host\":\"app1\",\"apps\":[\"digibib\"]}");
+            return;
+        }
         String[] parts = exchange.getRequestURI().getPath().substring(IngestProtocol.STREAMS_PATH.length() + 1)
             .split("/");
         String fp = parts[0];

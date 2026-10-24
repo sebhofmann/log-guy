@@ -1,6 +1,7 @@
 # log-guy agent, runs next to an application with its log directory mounted read only.
 # Build after "mvn package": docker build -t log-guy-agent log-guy-agent
-# The container needs read access to the logs, e.g. --user 100500 for MIR.
+# The container needs read access to the logs, e.g. --user 501 for MIR (the UID inside the MIR container).
+# "log-guy-agent check" shows which files are not readable.
 FROM eclipse-temurin:25.0.4.1_1-jre-noble
 
 RUN mkdir -p /opt/log-guy-agent /etc/log-guy-agent

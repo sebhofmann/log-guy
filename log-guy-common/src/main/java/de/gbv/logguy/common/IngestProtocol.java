@@ -5,13 +5,14 @@ package de.gbv.logguy.common;
  * <p>
  * Endpoints:
  * <ul>
+ * <li>{@code GET /api/v1/streams}: name, host and applications of the token as {@link TokenInfo}</li>
  * <li>{@code GET /api/v1/streams/{fingerprint}}: how far the server has the file, 404 if unknown</li>
  * <li>{@code POST /api/v1/streams/{fingerprint}/chunks?offset=N}: append raw bytes, host, app and file name in the
  * headers. The chunk at offset 0 has to contain at least {@value Fingerprint#PREFIX_BYTES} bytes or the complete
  * file, so the server can verify the fingerprint. Answers after the bytes are synced to disk.</li>
  * <li>{@code POST /api/v1/streams/{fingerprint}/close?length=N}: the file is rotated and completely transferred</li>
  * </ul>
- * All endpoints answer with a {@link StreamStatus}. {@code 409 Conflict} also carries a {@link StreamStatus}, the
+ * The endpoints of a file answer with a {@link StreamStatus}. {@code 409 Conflict} also carries a {@link StreamStatus}, the
  * agent continues at its {@code length}.
  */
 public final class IngestProtocol {

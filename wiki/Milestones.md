@@ -80,7 +80,7 @@ M5 ist erfüllt mit einer Regel „Connection Pool voll“ auf nachgestellten Hi
 ### M6 Produktivbetrieb
 
 - [x] Mail per SMTP und Webhooks
-- [ ] Agent-Container für alle Anwendungen ausrollen, Rechte auf die Log-Verzeichnisse
+- [ ] Agent-Container für alle Anwendungen ausrollen, Rechte auf die Log-Verzeichnisse. Vorbereitet sind `log-guy-agent check`, die Rechtetabelle und das Compose-Beispiel in [Einsammeln](Einsammeln.md#ausrollen). Offen ist das Ausrollen selbst, es braucht Zugang zu den Produktivhosts.
 - [x] Parser für die übrigen Logformate, per LLM oder von Hand: `apache-error` und `solr`, siehe [Parser-Skripte](Parser-Skripte.md)
 - [x] Solr absichern: eigener Nutzer, `timeAllowed`, `cpuAllowed`, Circuit Breakers
 - [x] Backups von `archive/`, `state/`, `audit/` und `/etc/log-guy/`

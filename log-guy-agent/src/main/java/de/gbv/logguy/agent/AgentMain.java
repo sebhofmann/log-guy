@@ -1,5 +1,6 @@
 package de.gbv.logguy.agent;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -18,6 +19,7 @@ import org.apache.logging.log4j.Logger;
  *
  * <pre>
  * log-guy-agent [run] [--config agent.yml]
+ * log-guy-agent check [--config agent.yml]
  * log-guy-agent backfill --app digibib [--config agent.yml] [--server URL] [--token-file F] [--host H]
  *     [--parallel N] files...
  * </pre>
@@ -56,13 +58,25 @@ public final class AgentMain {
         if (command.equals("backfill")) {
             overrides.putIfAbsent("sources", List.of());
         }
-        AgentConfig config = AgentConfig.load(configFile, overrides);
+        AgentConfig config;
+        try {
+            config = AgentConfig.load(configFile, overrides);
+        } catch (IOException | RuntimeException e) {
+            if (!command.equals("check")) {
+                throw e;
+            }
+            System.out.println("FEHLER  Konfiguration " + configFile + " nicht lesbar: " + e);
+            System.exit(1);
+            return;
+        }
         switch (command) {
             case "run" -> run(config);
+            case "check" -> System.exit(new AgentCheck(config, new IngestClient(config), System.out,
+                Path.of("/proc/self/status")).run());
             case "backfill" -> System.exit(backfill(config, require(options, "app"),
                 Integer.parseInt(options.getOrDefault("parallel", "1")), files));
             default -> {
-                System.err.println("unknown command " + command + ", expected run or backfill");
+                System.err.println("unknown command " + command + ", expected run, check or backfill");
                 System.exit(2);
             }
         }

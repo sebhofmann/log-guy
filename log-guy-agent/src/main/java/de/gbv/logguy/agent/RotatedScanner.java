@@ -1,17 +1,15 @@
 package de.gbv.logguy.agent;
 
 import java.io.IOException;
-import java.nio.file.FileSystems;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.PathMatcher;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Stream;
+import java.util.Set;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -28,11 +26,9 @@ public class RotatedScanner {
 
     private final String app;
 
-    private final Path base;
+    private final GlobFiles glob;
 
-    private final PathMatcher matcher;
-
-    private final int depth;
+    private final Set<Path> warned = new HashSet<>();
 
     private final Map<Path, String> complete = new HashMap<>();
 
@@ -46,19 +42,7 @@ public class RotatedScanner {
     public RotatedScanner(FileSender sender, String app, String glob) {
         this.sender = sender;
         this.app = app;
-        Path pattern = Path.of(glob);
-        Path fixed = pattern.getRoot() == null ? Path.of("") : pattern.getRoot();
-        int i = 0;
-        for (; i < pattern.getNameCount() - 1; i++) {
-            String part = pattern.getName(i).toString();
-            if (part.contains("*") || part.contains("?") || part.contains("[") || part.contains("{")) {
-                break;
-            }
-            fixed = fixed.resolve(part);
-        }
-        this.base = fixed;
-        this.depth = pattern.getNameCount() - i;
-        this.matcher = FileSystems.getDefault().getPathMatcher("glob:" + glob);
+        this.glob = new GlobFiles(glob);
     }
 
     /**
@@ -79,6 +63,10 @@ public class RotatedScanner {
             } catch (IngestClient.RejectedException e) {
                 LOGGER.error("{} refused: {}", file, e.getMessage());
                 complete.put(file, key);
+            } catch (AccessDeniedException e) {
+                // tried again when the file changes or the agent restarts
+                LOGGER.error("cannot read {}, check the rights of the agent", file);
+                complete.put(file, key);
             } catch (IOException e) {
                 LOGGER.warn("cannot send {}: {}", file, e.getMessage());
                 return;
@@ -88,17 +76,14 @@ public class RotatedScanner {
     }
 
     private List<Path> files() {
-        if (!Files.isDirectory(base)) {
-            return List.of();
+        GlobFiles.Result result = glob.find();
+        for (Path dir : result.unreadable()) {
+            if (warned.add(dir)) {
+                LOGGER.warn("cannot list {}, its rotated files are skipped", dir);
+            }
         }
-        List<Path> files = new ArrayList<>();
-        try (Stream<Path> paths = Files.find(base, depth,
-            (path, attributes) -> attributes.isRegularFile() && matcher.matches(path))) {
-            paths.sorted(Comparator.naturalOrder()).forEach(files::add);
-        } catch (IOException e) {
-            LOGGER.warn("cannot list {}: {}", base, e.getMessage());
-        }
-        return files;
+        warned.retainAll(result.unreadable());
+        return result.files();
     }
 
     private static String key(Path file) {

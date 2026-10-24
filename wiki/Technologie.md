@@ -27,7 +27,7 @@ log-guy ist ein Maven-Projekt mit Java 25 und Spring Boot 4. Es besteht aus drei
 
 **Grenzen der Community-Fassung:** Speicher- und CPU-Limits pro Context (`sandbox.MaxHeapMemory`, `sandbox.MaxCPUTime`) und die Policies `ISOLATED` und `UNTRUSTED` gibt es nur in Oracle GraalVM. log-guy nutzt `CONSTRAINED` und bricht zu lange Aufrufe selbst mit `Context.interrupt` ab.
 
-**Agent:** eine schlanke Java-Anwendung ohne Spring. Ein Agent-Container mit `-Xmx64m`, der eine Live-Datei mitliest und rotierte Dateien beobachtet, braucht gemessen 88 MB RAM, bei 35 Anwendungen also etwa 3 GB. Mit GraalVM Native Image ließe sich der Agent als kleine Binary mit deutlich weniger Speicher bauen, das ist nicht gemessen.
+**Agent:** eine schlanke Java-Anwendung ohne Spring. Ein Agent-Container mit `-Xmx64m`, der eine Live-Datei mitliest und rotierte Dateien beobachtet, braucht gemessen 88 MB RAM, bei 35 Anwendungen mit je eigenem Agenten also etwa 3 GB. Mit einem Agenten pro Host, wie in [Einsammeln](Einsammeln.md#ausrollen) vorgesehen, sind es entsprechend weniger. Mit GraalVM Native Image ließe sich der Agent als kleine Binary mit deutlich weniger Speicher bauen, das ist nicht gemessen.
 
 **Reload:** Java bietet keinen offiziellen Weg, auf `SIGHUP` zu reagieren. `log-guy reload` ruft deshalb den Admin-Endpunkt `POST /admin/reload` auf.
 
