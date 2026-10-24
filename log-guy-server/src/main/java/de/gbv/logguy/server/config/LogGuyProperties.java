@@ -31,13 +31,14 @@ import org.springframework.util.unit.DataSize;
  * @param archive how {@code archive/} is written
  * @param reindex indexing again from {@code hot/} and loading older days from {@code archive/}
  * @param alerts checking events against the alert rules
+ * @param notifications targets for notifications of alerts, mail and webhooks
  */
 @ConfigurationProperties("log-guy")
 public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppProperties> apps,
     List<TokenProperties> tokens, List<UserProperties> users, IngestProperties ingest, HotProperties hot,
     ScriptProperties scripts, SolrProperties solr, IndexerProperties indexer, SearchProperties search,
     RetentionProperties retention, ServerLogProperties serverLog, McpProperties mcp, ArchiveProperties archive,
-    ReindexProperties reindex, AlertProperties alerts) {
+    ReindexProperties reindex, AlertProperties alerts, NotifyProperties notifications) {
 
     /**
      * Normalizes missing collections to empty ones.
@@ -46,6 +47,9 @@ public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppPropert
         apps = apps == null ? Map.of() : Map.copyOf(apps);
         tokens = tokens == null ? List.of() : List.copyOf(tokens);
         users = users == null ? List.of() : List.copyOf(users);
+        notifications = notifications == null
+            ? new NotifyProperties(null, null, null, null, 1, Duration.ZERO, Duration.ofSeconds(10))
+            : notifications;
     }
 
     /**
@@ -355,5 +359,87 @@ public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppPropert
     public record AlertProperties(boolean enabled, Duration maxAge, Duration defaultCooldown, Duration tickInterval,
         Duration keep, int maxText, Duration testRange, int testMaxEvents, int testSamples, Duration streamDuration,
         Duration streamPing) {
+    }
+
+    /**
+     * Where notifications of alerts go. The SMTP server is configured with Spring's {@code spring.mail.*}.
+     *
+     * @param baseUrl address of the GUI for links in notifications, e.g. {@code https://log-guy.example.org},
+     *     {@code null} for no links
+     * @param from sender of mails
+     * @param mail mail targets by name, a rule names them as {@code mail:<name>}
+     * @param webhook webhook targets by name, a rule names them as {@code webhook:<name>}
+     * @param attempts how often a notification is tried before it is given up
+     * @param retryDelay wait before the second attempt, doubled for every further one
+     * @param timeout connect and request timeout of webhooks
+     */
+    public record NotifyProperties(String baseUrl, String from, Map<String, MailTarget> mail,
+        Map<String, WebhookTarget> webhook, int attempts, Duration retryDelay, Duration timeout) {
+
+        /**
+         * Normalizes missing targets to none.
+         */
+        public NotifyProperties {
+            mail = mail == null ? Map.of() : Map.copyOf(mail);
+            webhook = webhook == null ? Map.of() : Map.copyOf(webhook);
+            if (baseUrl != null && baseUrl.isBlank()) {
+                baseUrl = null;
+            }
+            while (baseUrl != null && baseUrl.endsWith("/")) {
+                baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
+            }
+        }
+    }
+
+    /**
+     * A mail target.
+     *
+     * @param to recipients
+     * @param includeText whether text and event line are sent, {@code false} sends only rule, application and link;
+     *     {@code null} for {@code true}
+     */
+    public record MailTarget(List<String> to, Boolean includeText) {
+
+        /**
+         * Normalizes missing recipients to none.
+         */
+        public MailTarget {
+            to = to == null ? List.of() : List.copyOf(to);
+        }
+
+        /**
+         * Whether text and event line are sent.
+         *
+         * @return {@code include-text}, {@code true} if not set
+         */
+        public boolean withText() {
+            return includeText == null || includeText;
+        }
+    }
+
+    /**
+     * A webhook target, called with a JSON body per {@code POST}.
+     *
+     * @param url the address
+     * @param headers additional request headers, e.g. a token
+     * @param includeText whether text and event line are sent, {@code null} for {@code true}
+     */
+    public record WebhookTarget(String url, Map<String, String> headers, Boolean includeText) {
+
+        /**
+         * Normalizes missing headers to none.
+         */
+        public WebhookTarget {
+            headers = headers == null ? Map.of() : Map.copyOf(headers);
+        }
+
+        /**
+         * Whether text and event line are sent.
+         *
+         * @return {@code include-text}, {@code true} if not set
+         */
+        public boolean withText() {
+            return includeText == null || includeText;
+        }
     }
 }

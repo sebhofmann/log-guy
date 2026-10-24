@@ -1,6 +1,6 @@
 # Milestones und offene Fragen
 
-Sechs Milestones, jeder endet mit etwas Benutzbarem. Der MCP-Server kommt früh, in M3, weil Skripte per LLM entstehen sollen. Mail und Webhooks kommen erst mit dem Produktivbetrieb in M6, bis dahin zeigt log-guy Meldungen in GUI und API.
+Sechs Milestones, jeder endet mit etwas Benutzbarem. Der MCP-Server kommt früh, in M3, weil Skripte per LLM entstehen sollen. Mail und Webhooks kamen erst mit dem Produktivbetrieb in M6, bis dahin zeigte log-guy Meldungen nur in GUI und API.
 
 | Milestone | Ergebnis | fertig, wenn |
 | --- | --- | --- |
@@ -79,7 +79,7 @@ M5 ist erfüllt mit einer Regel „Connection Pool voll“ auf nachgestellten Hi
 
 ### M6 Produktivbetrieb
 
-- [ ] Mail per SMTP und Webhooks
+- [x] Mail per SMTP und Webhooks
 - [ ] Agent-Container für alle Anwendungen ausrollen, Rechte auf die Log-Verzeichnisse
 - [ ] Parser für die übrigen Logformate, per LLM oder von Hand
 - [ ] Solr absichern: eigener Nutzer, `timeAllowed`, `cpuAllowed`, Circuit Breakers

@@ -2,6 +2,8 @@ package de.gbv.logguy.server.config;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -91,7 +93,36 @@ public final class ConfigChecker {
             && (properties.serverLog().ringSize() < 1 || properties.serverLog().keepDays() < 1)) {
             errors.add("server-log: ring-size and keep-days must be at least 1");
         }
+        checkNotify(properties.notifications(), errors);
         return errors;
+    }
+
+    private static void checkNotify(LogGuyProperties.NotifyProperties notify, List<String> errors) {
+        if (notify.baseUrl() != null && !isHttpUrl(notify.baseUrl())) {
+            errors.add("notifications: base-url " + notify.baseUrl() + " is not an http or https address");
+        }
+        if (!notify.mail().isEmpty() && (notify.from() == null || notify.from().isBlank())) {
+            errors.add("notifications: mail targets need from");
+        }
+        notify.mail().forEach((name, target) -> {
+            if (target.to().isEmpty()) {
+                errors.add("notifications mail " + name + ": to is missing");
+            }
+        });
+        notify.webhook().forEach((name, target) -> {
+            if (target.url() == null || !isHttpUrl(target.url())) {
+                errors.add("notifications webhook " + name + ": url must be an http or https address");
+            }
+        });
+    }
+
+    private static boolean isHttpUrl(String url) {
+        try {
+            URI uri = new URI(url);
+            return ("http".equals(uri.getScheme()) || "https".equals(uri.getScheme())) && uri.getHost() != null;
+        } catch (URISyntaxException e) {
+            return false;
+        }
     }
 
     private static void checkUsers(LogGuyProperties properties, List<String> errors) {

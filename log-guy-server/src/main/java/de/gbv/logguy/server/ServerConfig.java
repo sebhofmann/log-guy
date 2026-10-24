@@ -12,6 +12,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
 import org.springframework.core.env.ConfigurableEnvironment;
+import org.springframework.mail.MailSender;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.scheduling.annotation.SchedulingConfigurer;
@@ -22,8 +23,12 @@ import de.gbv.logguy.server.alert.AlertRules;
 import de.gbv.logguy.server.alert.AlertService;
 import de.gbv.logguy.server.alert.AlertStore;
 import de.gbv.logguy.server.alert.AlertTexts;
+import de.gbv.logguy.server.alert.Deliveries;
 import de.gbv.logguy.server.alert.LoggingNotifier;
+import de.gbv.logguy.server.alert.MailNotifier;
+import de.gbv.logguy.server.alert.NotificationTexts;
 import de.gbv.logguy.server.alert.Notifier;
+import de.gbv.logguy.server.alert.WebhookNotifier;
 import de.gbv.logguy.server.archive.ArchiveStore;
 import de.gbv.logguy.server.archive.search.ArchiveSearch;
 import de.gbv.logguy.server.archive.ArchiveWriter;
@@ -136,6 +141,61 @@ public class ServerConfig {
     @Bean
     public Notifier loggingNotifier() {
         return new LoggingNotifier();
+    }
+
+    /**
+     * The queue that sends mails and webhooks in the background.
+     *
+     * @param properties configuration
+     * @return the queue
+     */
+    @Bean(destroyMethod = "close")
+    public Deliveries deliveries(LogGuyProperties properties) {
+        return new Deliveries(properties.notifications().attempts(), properties.notifications().retryDelay());
+    }
+
+    /**
+     * Subject, body and JSON of notifications.
+     *
+     * @param properties configuration
+     * @return the texts
+     */
+    @Bean
+    public NotificationTexts notificationTexts(LogGuyProperties properties) {
+        return new NotificationTexts(properties.notifications().baseUrl(), properties.zone());
+    }
+
+    /**
+     * Sends notifications to {@code mail:} targets.
+     *
+     * @param properties configuration
+     * @param sender the SMTP connection from {@code spring.mail.*}, missing without {@code spring.mail.host}
+     * @param texts subject and body
+     * @param deliveries the queue
+     * @return the notifier
+     */
+    @Bean
+    public Notifier mailNotifier(LogGuyProperties properties, ObjectProvider<MailSender> sender,
+        NotificationTexts texts, Deliveries deliveries) {
+        return new MailNotifier(sender.getIfAvailable(), properties.notifications().from(),
+            properties.notifications().mail(),
+            texts, deliveries);
+    }
+
+    /**
+     * Sends notifications to {@code webhook:} targets.
+     *
+     * @param properties configuration
+     * @param texts text and JSON fields
+     * @param deliveries the queue
+     * @param json mapper for the body
+     * @return the notifier
+     */
+    @Bean(destroyMethod = "close")
+    public WebhookNotifier webhookNotifier(LogGuyProperties properties, NotificationTexts texts,
+        Deliveries deliveries, JsonMapper json) {
+        return new WebhookNotifier(properties.notifications().webhook(), texts, deliveries, json,
+            properties.notifications().timeout());
     }
 
     /**
@@ -444,6 +504,7 @@ public class ServerConfig {
      * @param archive the archive
      * @param writer the archive writer if it runs
      * @param ingest the stream API
+     * @param deliveries the queue of mails and webhooks
      * @param solr connection to Solr
      * @param clock clock for the last hour
      * @param json mapper for facet requests
@@ -452,11 +513,11 @@ public class ServerConfig {
      */
     @Bean
     public StatusService statusService(LogGuyProperties properties, HotStore store, ObjectProvider<Indexer> indexer,
-        ArchiveStore archive, ObjectProvider<ArchiveWriter> writer, IngestService ingest, SolrService solr, Clock clock,
-        JsonMapper json, ObjectProvider<BuildProperties> build) {
+        ArchiveStore archive, ObjectProvider<ArchiveWriter> writer, IngestService ingest, Deliveries deliveries,
+        SolrService solr, Clock clock, JsonMapper json, ObjectProvider<BuildProperties> build) {
         BuildProperties info = build.getIfAvailable();
         return new StatusService(properties, store, indexer.getIfAvailable(), archive, writer.getIfAvailable(), ingest,
-            solr, clock, json,
+            deliveries, solr, clock, json,
             info == null ? null : info.getVersion());
     }
 

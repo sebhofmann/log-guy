@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
@@ -13,11 +14,14 @@ import org.junit.jupiter.api.Test;
 
 import de.gbv.logguy.server.config.LogGuyProperties.AppProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.GrantProperties;
+import de.gbv.logguy.server.config.LogGuyProperties.MailTarget;
+import de.gbv.logguy.server.config.LogGuyProperties.NotifyProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.RetentionProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.Right;
 import de.gbv.logguy.server.config.LogGuyProperties.TokenKind;
 import de.gbv.logguy.server.config.LogGuyProperties.TokenProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.UserProperties;
+import de.gbv.logguy.server.config.LogGuyProperties.WebhookTarget;
 import de.gbv.logguy.server.security.TokenRegistry;
 
 class ConfigCheckerTest {
@@ -29,7 +33,7 @@ class ConfigCheckerTest {
     private static LogGuyProperties properties(List<TokenProperties> tokens, List<UserProperties> users) {
         return new LogGuyProperties(Path.of("/tmp"), ZoneId.of("Europe/Berlin"),
             Map.of("digibib", new AppProperties(7, "mycore-log4j"), "digibib-apache", new AppProperties(7, null)),
-            tokens, users, null, null, null, null, null, null, null, null, null, null, null, null);
+            tokens, users, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     @Test
@@ -83,6 +87,25 @@ class ConfigCheckerTest {
 
     private static LogGuyProperties retention(String cron) {
         return new LogGuyProperties(Path.of("/tmp"), ZoneId.of("Europe/Berlin"), Map.of(), List.of(), List.of(), null,
-            null, null, null, null, null, new RetentionProperties(cron, true), null, null, null, null, null);
+            null, null, null, null, null, new RetentionProperties(cron, true), null, null, null, null, null, null);
+    }
+
+    @Test
+    void notifications() {
+        assertEquals(List.of(), ConfigChecker.check(notifications(new NotifyProperties("https://log-guy.example.org/",
+            "log-guy@example.org", Map.of("it", new MailTarget(List.of("it@example.org"), null)),
+            Map.of("chat", new WebhookTarget("https://chat.example.org/hooks/x", null, false)), 5,
+            Duration.ofMinutes(1), Duration.ofSeconds(10)))));
+        assertEquals(List.of("notifications: base-url log-guy.example.org is not an http or https address",
+            "notifications: mail targets need from", "notifications mail it: to is missing",
+            "notifications webhook chat: url must be an http or https address"),
+            ConfigChecker.check(notifications(new NotifyProperties("log-guy.example.org", null,
+                Map.of("it", new MailTarget(null, null)), Map.of("chat", new WebhookTarget("ftp://x", null, null)), 5,
+                Duration.ofMinutes(1), Duration.ofSeconds(10)))));
+    }
+
+    private static LogGuyProperties notifications(NotifyProperties notifications) {
+        return new LogGuyProperties(Path.of("/tmp"), ZoneId.of("Europe/Berlin"), Map.of(), List.of(), List.of(), null,
+            null, null, null, null, null, null, null, null, null, null, null, notifications);
     }
 }

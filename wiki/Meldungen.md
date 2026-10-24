@@ -1,6 +1,6 @@
 # Meldungen
 
-Jede Meldungsregel ist ein kleines JavaScript-Modul. Die Regeln prüfen jedes Event direkt beim Indexieren, mit den Feldern aus dem Parser-Skript und 1 bis 2 Sekunden nach dem Schreiben. Trifft eine Regel, zeigt log-guy die Meldung in GUI und API. Mail und Webhook kommen mit dem Produktivbetrieb in M6.
+Jede Meldungsregel ist ein kleines JavaScript-Modul. Die Regeln prüfen jedes Event direkt beim Indexieren, mit den Feldern aus dem Parser-Skript und 1 bis 2 Sekunden nach dem Schreiben. Trifft eine Regel, zeigt log-guy die Meldung in GUI und API und schickt sie per Mail oder Webhook an die Ziele der Regel.
 
 ### Regelarten
 
@@ -67,22 +67,37 @@ export const meta = {
 Die Ziele für Mail und Webhook stehen in der Konfiguration, weil sie Adressen und Geheimnisse enthalten:
 
 ```yaml
+spring:
+  mail:
+    host: smtp.example.org
+    port: 25
 log-guy:
-  notify:
+  notifications:
+    base-url: https://log-guy.example.org
+    from: log-guy@example.org
     mail:
       it:
         to: [it@example.org]
+      extern:
+        to: [dienstleister@example.org]
+        include-text: false
     webhook:
       mattermost:
         url: https://chat.example.org/hooks/...
+        headers: { Authorization: "Bearer ..." }
+    attempts: 5
+    retry-delay: 1m
+    timeout: 10s
 ```
+
+Der Schlüssel heißt `notifications` statt `notify`, weil eine Record-Komponente `notify` mit `Object.notify()` kollidiert. Den SMTP-Server stellt Spring Mail mit `spring.mail.*` ein, also auch `username`, `password` und `properties.mail.smtp.starttls.enable`. `log-guy check` prüft Adressen, Empfänger und Absender.
 
 ### Zustellung und Abruf
 
 | Weg | Umsetzung |
 | --- | --- |
-| Mail | SMTP. Inhalt: Regel, Anwendung, Anzahl, erste Zeile des Events, Link in die GUI. Mit `include_text = false` nur der Link. |
-| Webhook | JSON per `POST`, z.B. an Mattermost, Matrix oder Teams |
+| Mail | SMTP, reiner Text. Betreff z.B. „[log-guy] Neue Meldung: pool in digibib“, bei weiteren Treffern „Weitere Treffer“, bei Schwelle und Stille am Ende „Erledigt“. Inhalt: Text der Meldung, Regel mit Art, Anwendung, Gruppe, Anzahl, Beginn, erste Zeile des Events, Link auf die Events und auf die Meldungsseite. Mit `include-text: false` fehlen Text und Eventzeile, es bleiben Regel, Anwendung, Anzahl und Links. |
+| Webhook | JSON per `POST` mit `text` für Mattermost, Slack oder Matrix hookshot und den Feldern `kind`, `id`, `rule`, `type`, `app`, `group`, `state`, `count`, `opened`, `message`, `eventLine`, `url`. Eine Antwort außer 2xx gilt als Fehler. Teams braucht ein eigenes Format über einen Workflow, das gibt es noch nicht. |
 | API | `GET /api/v1/alerts?state=open`, Stream unter `GET /api/v1/alerts/stream`, quittieren mit `POST /api/v1/alerts/{id}/ack` |
 | MCP | Tool `list_alerts`, pseudonymisiert wie alles andere |
 | GUI | Glocke mit offenen Meldungen, ein Klick springt zu den auslösenden Events |
@@ -103,7 +118,13 @@ Eine Meldung ist `offen`, `quittiert` oder `erledigt`. Erledigt ist sie, wenn ei
 - API: `GET /api/v1/alerts?state=open|acked|resolved|all`, `POST /api/v1/alerts/{id}/ack`, `GET /api/v1/alerts/rules` mit Regeln und Ladefehlern. `GET /api/v1/alerts/stream` ist ein Server-Sent-Events-Stream: Jedes Event `state` trägt Änderungszähler, Zahl der offenen Meldungen und Meldungen: zu Beginn alle offenen, danach die geänderten. Dazu alle 15 Sekunden ein Kommentar als Ping. Nach 10 Minuten (`stream-duration`) endet der Stream, `EventSource` verbindet sich selbst neu.
 - In Spring Framework 7 ignoriert der Ausgabestrom einer `StreamingResponseBody` `flush()`. Stream und Archivsuche leiten `flush()` deshalb auf die Servlet-Antwort um (`FlushingBody`), sonst kämen die Events erst am Ende an.
 - MCP: Tool `list_alerts` mit Zustand und Höchstzahl, neueste zuerst, pseudonymisiert wie alles andere.
-- Benachrichtigungen gehen an einen `Notifier`. Bis Mail und Webhooks in M6 kommen, schreibt `LoggingNotifier` sie ins Server-Log. `log-guy.alerts.enabled: false` schaltet die Prüfung ab.
+- Benachrichtigungen gehen an alle `Notifier`: `LoggingNotifier` schreibt jede ins Server-Log, `MailNotifier` und `WebhookNotifier` nehmen die Ziele `mail:<name>` und `webhook:<name>` aus `meta.notify`. Verschickt wird in einem eigenen Thread, damit ein langsamer Mailserver die Meldungen nicht aufhält. Schlägt das Senden fehl, versucht log-guy es bis zu `attempts` Mal, mit `retry-delay` und danach jeweils doppelt so langer Pause. Ein Ziel, das in der Konfiguration fehlt, steht einmal als Warnung im Server-Log. Beim Beenden noch wartende Wiederholungen gehen verloren und stehen als Warnung im Log.
+- Mail und Webhook verschicken den Klartext. Wer Texte nicht sehen darf, bekommt ein Ziel mit `include-text: false` und folgt dem Link in die GUI, wo die Rechte gelten.
+- Wurde eine Meldung während des Cooldowns einer früheren Meldung derselben Regel und Anwendung geöffnet, geht nach Ablauf des Cooldowns „Neue Meldung“ mit ihrem eigenen Text hinaus, nicht „Weitere Treffer“. Die Empfänger kennen sie ja noch nicht.
+- Die Status-Seite zählt zugestellte, aufgegebene und wartende Benachrichtigungen seit dem Start. Der Mail-Indikator von Spring Actuator ist mit `management.health.mail.enabled: false` abgeschaltet, sonst meldete `/actuator/health` bei ausgefallenem SMTP-Server DOWN (503), und ein Healthcheck würde den gesunden Server neu starten.
+- `log-guy.alerts.enabled: false` schaltet die Prüfung ab.
+
+Erprobt mit Mailpit als SMTP-Server und einem kleinen Webhook-Empfänger: Die Regel „pool“ mit den Zielen `mail:it`, `mail:extern` (ohne Text) und `webhook:chat` schickte 2 s nach der Hikari-Zeile beide Mails und den Webhook. Der Link „Events ansehen“ öffnet nach der Anmeldung die Suche mit dem Event. Bei gestopptem Empfänger scheiterten die Versuche nach 0, 10 und 20 s, der dritte kam nach dem Neustart des Empfängers an.
 
 ### Regeltest
 

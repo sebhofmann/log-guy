@@ -86,6 +86,8 @@ class AlertEngineTest {
         List<AlertEngine.Notification> later = engine.drain().notifications();
         assertEquals(1, later.size());
         assertEquals(second.id(), later.getFirst().alert().id());
+        assertEquals(AlertEngine.Notification.Kind.OPENED, later.getFirst().kind());
+        assertEquals(second.message(), later.getFirst().text());
     }
 
     @Test

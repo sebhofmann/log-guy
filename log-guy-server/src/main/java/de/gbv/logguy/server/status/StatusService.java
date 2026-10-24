@@ -27,6 +27,7 @@ import org.apache.solr.client.solrj.response.json.BucketBasedJsonFacet;
 import org.apache.solr.client.solrj.response.json.BucketJsonFacet;
 import org.apache.solr.client.solrj.response.json.NestableJsonFacet;
 
+import de.gbv.logguy.server.alert.Deliveries;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.AppProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.TokenKind;
@@ -63,6 +64,8 @@ public class StatusService {
 
     private final IngestService ingest;
 
+    private final Deliveries deliveries;
+
     private final SolrService solr;
 
     private final Clock clock;
@@ -80,19 +83,22 @@ public class StatusService {
      * @param archive the archive
      * @param writer the archive writer, {@code null} if it is disabled
      * @param ingest the stream API
+     * @param deliveries the queue of mails and webhooks
      * @param solr connection to Solr
      * @param clock clock for the last hour
      * @param json mapper for facet requests
      * @param version version of log-guy, {@code null} if unknown
      */
     public StatusService(LogGuyProperties properties, HotStore store, Indexer indexer, ArchiveStore archive,
-        ArchiveWriter writer, IngestService ingest, SolrService solr, Clock clock, JsonMapper json, String version) {
+        ArchiveWriter writer, IngestService ingest, Deliveries deliveries, SolrService solr, Clock clock,
+        JsonMapper json, String version) {
         this.properties = properties;
         this.store = store;
         this.indexer = indexer;
         this.archive = archive;
         this.writer = writer;
         this.ingest = ingest;
+        this.deliveries = deliveries;
         this.solr = solr;
         this.clock = clock;
         this.json = json;
@@ -117,7 +123,8 @@ public class StatusService {
             LOGGER.warn("Solr status failed", e);
             solrView = new SolrView(false, e.getMessage(), -1, List.of());
         }
-        return new StatusView(now, system(), indexerView(), archiveView(), agents(), apps(counts), solrView);
+        return new StatusView(now, system(), indexerView(), archiveView(), deliveries.stats(), agents(), apps(counts),
+            solrView);
     }
 
     private SystemView system() {
@@ -251,12 +258,13 @@ public class StatusService {
      * @param system the server
      * @param indexer the indexer
      * @param archive the archive writer
+     * @param notifications mails and webhooks since the start
      * @param agents one entry per ingest token
      * @param apps one entry per configured or indexed application
      * @param solr the Solr collection
      */
     public record StatusView(Instant generated, SystemView system, IndexerView indexer, ArchiveView archive,
-        List<AgentView> agents, List<AppView> apps, SolrView solr) {
+        Deliveries.Stats notifications, List<AgentView> agents, List<AppView> apps, SolrView solr) {
     }
 
     /**

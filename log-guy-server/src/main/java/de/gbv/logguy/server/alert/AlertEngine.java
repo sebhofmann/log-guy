@@ -324,7 +324,13 @@ public final class AlertEngine {
             boolean over = state.lastSent == null || !now.isBefore(state.lastSent.plus(cooldown));
             if (state.count > 0 && over && rule != null) {
                 Alert alert = alerts.get(state.alertId);
-                if (alert != null) {
+                if (alert != null && alert.notified() == null) {
+                    // opened during the cooldown of an earlier alert, its receivers have not heard of it yet
+                    Alert notified = alert.withNotified(now, ++seq);
+                    put(notified);
+                    notifications.add(new Notification(notified, Notification.Kind.OPENED, alert.count(),
+                        alert.message(), rule.targets()));
+                } else if (alert != null) {
                     String text = text(messages.text(rule, state.event, state.count), state.count
                         + " weitere Treffer");
                     Alert notified = alert.withNotified(now, ++seq);

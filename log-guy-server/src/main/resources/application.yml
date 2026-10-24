@@ -49,6 +49,10 @@ management:
     web:
       exposure:
         include: health,loggers
+  health:
+    # a broken SMTP server must not mark log-guy as down, failed mails show on the status page
+    mail:
+      enabled: false
 
 log-guy:
   data-dir: /var/lib/log-guy
@@ -150,6 +154,22 @@ log-guy:
     # below spring.mvc.async.request-timeout, the GUI reconnects
     stream-duration: 10m
     stream-ping: 15s
+  notifications:
+    # address of the GUI for links in mails and webhooks, e.g. https://log-guy.example.org, empty for no links
+    base-url:
+    from: log-guy@localhost
+    # mail targets, the SMTP server is set with spring.mail.host, port, username and password
+    # mail:
+    #   it:
+    #     to: [it@example.org]
+    #     include-text: true
+    # webhook:
+    #   mattermost:
+    #     url: https://chat.example.org/hooks/...
+    #     headers: { Authorization: "Bearer ..." }
+    attempts: 5
+    retry-delay: 1m
+    timeout: 10s
   mcp:
     path: /mcp
     session-idle-timeout: 2h

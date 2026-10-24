@@ -27,6 +27,7 @@ function render(status) {
         system(status.system),
         indexer(status.indexer),
         archive(status.archive),
+        notifications(status.notifications),
         agents(status.agents, status.generated),
         apps(status.apps, status.generated),
         solr(status.solr),
@@ -162,6 +163,20 @@ function archive(a) {
             ['Archiv', `${bytes(a.bytes)} in ${formatNumber(a.files)} Dateien`],
         ]));
     return section('Archiv', ...children);
+}
+
+function notifications(n) {
+    const children = [];
+    if (n.failed > 0) {
+        children.push(element('p', 'error', `${formatNumber(n.failed)} Benachrichtigungen nach allen Versuchen `
+            + 'nicht zugestellt, Einzelheiten im Server-Log.'));
+    }
+    children.push(element('p', 'muted', 'Mails und Webhooks seit dem Start des Servers.'), pairs([
+        ['Zugestellt', formatNumber(n.sent)],
+        ['Aufgegeben', formatNumber(n.failed)],
+        ['Wartend oder in Wiederholung', formatNumber(n.pending)],
+    ]));
+    return section('Benachrichtigungen', ...children);
 }
 
 function agents(list, now) {

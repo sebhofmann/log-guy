@@ -89,7 +89,8 @@ class ArchiveWriterTest {
             new HotProperties(DataSize.ofKilobytes(64), Duration.ofSeconds(60), Duration.ofSeconds(5), 3),
             new ScriptProperties(scriptDir, Duration.ofMillis(200), DataSize.ofKilobytes(256), 1000, 100), null,
             null, null, null, null, null,
-            new ArchiveProperties(true, 2, Duration.ofMillis(50), 3, 7, PLACEHOLDER, "[f {filter}]", null), null, null);
+            new ArchiveProperties(true, 2, Duration.ofMillis(50), 3, 7, PLACEHOLDER, "[f {filter}]", null), null, null,
+            null);
         scripts = new ScriptStore(scriptDir, Clock.systemUTC(), JSON);
         // the sample has shortened IP addresses already, two full ones show the filter
         String text = new String(TestLogs.mycoreSample(), StandardCharsets.UTF_8);

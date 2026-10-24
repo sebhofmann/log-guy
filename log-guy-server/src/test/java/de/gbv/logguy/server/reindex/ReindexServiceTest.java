@@ -118,7 +118,7 @@ class ReindexServiceTest {
                 DataSize.ofMegabytes(64), Duration.ofSeconds(5), DataSize.ofMegabytes(1), 7, Duration.ofSeconds(10)),
             null, null, null, null,
             new ArchiveProperties(true, 2, Duration.ofMillis(50), 3, 7, "[x]", "[f {filter}]", null),
-            new ReindexProperties(Duration.ofHours(24), "-", Duration.ofDays(92), 5), null);
+            new ReindexProperties(Duration.ofHours(24), "-", Duration.ofDays(92), 5), null, null);
         hot = new HotStore(properties, JSON, Clock.systemUTC());
         archive = new ArchiveStore(properties, JSON);
         parsers = new ParserRegistry(properties, runtime);
