@@ -1,0 +1,11 @@
+[Sat Oct 24 05:04:11.274702 2026] [mpm_event:notice] [pid 1:tid 1] AH00489: Apache/2.4.69 (Unix) configured -- resuming normal operations
+[Sat Oct 24 05:04:11.274797 2026] [mpm_event:info] [pid 1:tid 1] AH00490: Server built: Oct 21 2026 00:17:29
+[Sat Oct 24 05:04:11.274803 2026] [core:notice] [pid 1:tid 1] AH00094: Command line: 'httpd -D FOREGROUND'
+[Sat Oct 24 05:04:13.277643 2026] [proxy:error] [pid 8:tid 11] (111)Connection refused: AH00957: http: attempt to connect to 127.0.0.1:8291 (127.0.0.1:8291) failed
+[Sat Oct 24 05:04:13.277751 2026] [proxy_http:error] [pid 8:tid 11] [client 172.17.0.1:50248] AH01114: HTTP: failed to make connection to backend: 127.0.0.1, referer: https://example.org/suche?q=a
+[Sat Oct 24 05:04:13.281912 2026] [core:info] [pid 8:tid 15] [client 172.17.0.1:50256] AH00128: File does not exist: /usr/local/apache2/htdocs/nichtda.html, referer: https://example.org/suche?q=a
+[Sat Oct 24 05:04:13.291475 2026] [core:info] [pid 9:tid 21] [client 172.17.0.1:50268] AH00128: File does not exist: /usr/local/apache2/cgi-bin/test, referer: https://example.org/suche?q=a
+[Sat Oct 24 05:04:13.294857 2026] [core:error] [pid 9:tid 24] [client 172.17.0.1:50270] AH10244: invalid URI path (/icons/../../etc/passwd), referer: https://example.org/suche?q=a
+[Sat Oct 24 05:04:13.298352 2026] [authn_file:error] [pid 13:tid 32] (2)No such file or directory: [client 172.17.0.1:50276] AH01620: Could not open password file: /usr/local/apache2/conf/htpasswd
+[Sat Oct 24 05:04:22.669917 2026] [auth_basic:error] [pid 8:tid 20] [client 172.17.0.1:36010] AH01617: user mueller: authentication failure for "/geheim/": Password Mismatch
+[Sat Oct 24 05:04:22.674854 2026] [auth_basic:error] [pid 9:tid 30] [client 172.17.0.1:36024] AH01618: user schulze not found: /geheim/

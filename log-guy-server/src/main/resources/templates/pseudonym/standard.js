@@ -19,6 +19,8 @@ const USER_IN_ACCESS_LOG = /^(\S+ \S+ )([^\s\[]+)( \[\d{2}\/\w{3}\/\d{4}:)/;
 const USER_PARAM = /\b((?:user|userid|login|username|uid)=)([^\s&;,"']+)/gi;
 // MyCoRe messages naming a user, e.g. "MCRSessionFilter: user detected: mueller".
 const USER_PHRASE = /\b((?:user detected|requested user): |user:)([^\s,;"']+)/g;
+// Apache error log, AH01617 "user mueller: authentication failure" and AH01618 "user schulze not found".
+const USER_IN_APACHE_ERROR = /\b(user )([^\s:]+)(: authentication failure| not found)/g;
 
 function user(name) {
     return KEEP.has(name) ? name : ps("Nutzer", name);
@@ -32,7 +34,8 @@ function text(value) {
         .replace(USER_AFTER_LEVEL, (m, before, name, after) => before + user(name) + after)
         .replace(USER_IN_ACCESS_LOG, (m, before, name, after) => before + user(name) + after)
         .replace(USER_PARAM, (m, key, name) => key + user(name))
-        .replace(USER_PHRASE, (m, key, name) => key + user(name));
+        .replace(USER_PHRASE, (m, key, name) => key + user(name))
+        .replace(USER_IN_APACHE_ERROR, (m, before, name, after) => before + user(name) + after);
     out = replaceEmails(out, mail => ps("Mail", mail));
     return replaceIps(out, ip => ps("IP", ip));
 }

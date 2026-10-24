@@ -120,6 +120,21 @@ class PseudonymServiceTest {
     }
 
     @Test
+    void standardTemplateReplacesUsersInApacheErrorLogs() {
+        Pseudonyms session = new Pseudonyms();
+        String line = "[Sat Oct 24 05:04:22.669917 2026] [auth_basic:error] [pid 8:tid 20] [client 172.17.0.1:36010]"
+            + " AH01617: user mueller: authentication failure for \"/geheim/\": Password Mismatch";
+        assertEquals("[Sat Oct 24 05:04:22.669917 2026] [auth_basic:error] [pid 8:tid 20] [client $IP1:36010]"
+            + " AH01617: user $Nutzer1: authentication failure for \"/geheim/\": Password Mismatch",
+            service.apply(session, event("digibib-apache", line, "login", "mueller")).orElseThrow().get("message"));
+        assertEquals("[Sat Oct 24 05:04:22.674854 2026] [auth_basic:error] [pid 9:tid 30] [client $IP1:36024]"
+            + " AH01618: user $Nutzer2 not found: /geheim/",
+            service.apply(session, event("digibib-apache", "[Sat Oct 24 05:04:22.674854 2026] [auth_basic:error]"
+                + " [pid 9:tid 30] [client 172.17.0.1:36024] AH01618: user schulze not found: /geheim/"))
+                .orElseThrow().get("message"));
+    }
+
+    @Test
     void additionalScriptsRunInNameOrderAndOnlyForTheirApps() {
         Map<ScriptId, String> active = Map.of(new ScriptId(ScriptKind.PSEUDONYM, "zz-leo"), """
             export const meta = { apps: ["leo"], fields: ["session"] };

@@ -81,7 +81,7 @@ M5 ist erfüllt mit einer Regel „Connection Pool voll“ auf nachgestellten Hi
 
 - [x] Mail per SMTP und Webhooks
 - [ ] Agent-Container für alle Anwendungen ausrollen, Rechte auf die Log-Verzeichnisse
-- [ ] Parser für die übrigen Logformate, per LLM oder von Hand
+- [x] Parser für die übrigen Logformate, per LLM oder von Hand: `apache-error` und `solr`, siehe [Parser-Skripte](Parser-Skripte.md)
 - [x] Solr absichern: eigener Nutzer, `timeAllowed`, `cpuAllowed`, Circuit Breakers
 - [x] Backups von `archive/`, `state/`, `audit/` und `/etc/log-guy/`
 

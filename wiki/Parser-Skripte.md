@@ -113,6 +113,49 @@ Empfehlung zur Schreibweise: Die eingebauten Parser für MyCoRe und Apache werde
 
 Geprüft mit einer echten Zeile aus dem Tomcat-Access-Log einer lokalen MIR-Instanz und 2.000 synthetischen Combined-Zeilen über `POST /api/v1/scripts/parser/apache-combined/test`: 0 Fehler, rund 6.000 Events pro Sekunde in dieser kleinen Probe. Echte Apache-Logs der Produktion liegen nicht vor, die Messung mit einem vollen Tag steht noch aus.
 
+### Vorlage `apache-error`
+
+`apache-error.js` liest das Error-Log von Apache httpd 2.4 im Standardformat `[%{u}t] [%-m:%l] [pid %P:tid %T] %7F: %E: [client\ %a] %M% ,\ referer\ %{Referer}i` und das ältere Format von Apache 2.2 ohne Modul und Prozess. Jede Zeile ist ein Event. Apache schreibt Ortszeit ohne Zone, die Vorlage nimmt `Europe/Berlin` aus der Konstante `ZONE`. Läuft der Apache in einer anderen Zone, etwa in einem Container mit UTC, wird die Vorlage als eigenes Skript kopiert und `ZONE` geändert. Zeilen ohne Zeit, wie `AH00558` beim Start, kommen nur mit `message` an.
+
+| Feld | Typ | Facette | Inhalt |
+| --- | --- | --- | --- |
+| `level` | string | ja | z.B. `error`, `warn`, `notice`, `info`, `debug`, `trace1` |
+| `module` | string | ja | z.B. `proxy_http`, `core`, `auth_basic`, fehlt bei Apache 2.2 |
+| `code` | string | ja | Fehlercode wie `AH01114` |
+| `os_error` | string | ja | Text des Betriebssystemfehlers, z.B. `Connection refused` |
+| `ip` | string | | Adresse des Clients ohne Port, pseudonymisiert |
+| `login` | string | | Nutzer aus `AH01617` und `AH01618`, pseudonymisiert |
+| `referer` | string | | Referer am Zeilenende |
+
+Den Nutzer in `user mueller: authentication failure` und `user schulze not found` ersetzt die Standard-Pseudonymisierung über das Muster `USER_IN_APACHE_ERROR`.
+
+Access-Log und Error-Log desselben Apache sind zwei Log-Quellen und damit zwei Anwendungen mit eigenem Parser, z.B. `digibib-apache` mit `apache-combined` und `digibib-apache-error` mit `apache-error`.
+
+Geprüft mit echten Zeilen aus einem lokalen `httpd:2.4` (Apache 2.4.69), der Fehler beim Proxy, fehlende Dateien, einen ungültigen Pfad und fehlgeschlagene Anmeldungen schrieb. Durchsatz in einem JUnit-Lauf über 220.000 Zeilen: rund 75.000 Events pro Sekunde, 0 Fehler. Die Zeilen wiederholen dabei die 11 echten Zeilen, ein Error-Log der Produktion liegt nicht vor.
+
+### Vorlage `solr`
+
+`solr.js` liest das Log von Solr 8 bis 10 mit dem Standardmuster `%d{yyyy-MM-dd HH:mm:ss.SSS} %-5p (%t) [c:… s:… r:… x:… t:…] %c{1.} %m`. Solr 9.10 und 10.0 haben dasselbe Muster. Ein Event beginnt mit dem Zeitstempel, Stacktraces in den Folgezeilen gehören dazu. Solr im Container schreibt UTC, deshalb steht `ZONE` hier auf `UTC`. Das Request-Log von Jetty ist im NCSA-Format und geht mit `apache-combined`.
+
+| Feld | Typ | Facette | Inhalt |
+| --- | --- | --- | --- |
+| `level` | string | ja | `INFO`, `WARN`, `ERROR` usw. |
+| `logger` | string | ja | gekürzter Logger wie `o.a.s.c.S.Request` |
+| `collection` | string | ja | aus `c:` |
+| `shard` | string | | aus `s:` |
+| `core` | string | | aus `x:` |
+| `path` | string | ja | Handler einer Anfrage, z.B. `/select`, `/update`, `/admin/collections` |
+| `status` | int | ja | Solr-Status der Anfrage, `0` bei Erfolg |
+| `qtime` | int | | `QTime` in Millisekunden |
+| `hits` | long | | Treffer einer Suche |
+| `exc` | strings | ja | Klassennamen von Exceptions |
+
+Geprüft mit dem vollständigen Log des Test-Solr aus dem e2e, also dem Backfill von `prod-logs/` und dem laufenden Betrieb von log-guy: 755.866 Events in 14,4 s, rund 52.500 pro Sekunde, 0 Fehler, jedes Event mit Zeit und Logger. Ein Ausschnitt mit zwei Fehlern samt Stacktrace liegt als `solr-9.log` bei den Tests.
+
+### Weitere Formate
+
+Die Logformate der Anwendungen, die bisher bekannt sind, decken die Vorlagen ab: MyCoRe und MIR mit `mycore-log4j`, auch für Anwendungen wie QED und UBO mit demselben Muster, Access-Logs von Apache, nginx, Tomcat und Jetty mit `apache-combined`, Error-Logs von Apache mit `apache-error` und Solr mit `solr`. Die Muster mit Thread (`[%t]`) in den Quellen von MIR und den Overlays stehen nur in Konfigurationen für Tests, nicht im Betrieb. Taucht beim Ausrollen ein weiteres Format auf, entsteht der Parser im Parser-Labor oder per MCP aus echten Zeilen, wie `apache-combined` in M3.
+
 ### Felder
 
 - Die Felder stehen im Skript unter `fields`. In der Konfiguration der Anwendung stehen nur die Aufbewahrung, z.B. `index-days: 7`, und welches Parser-Skript sie nutzt.
