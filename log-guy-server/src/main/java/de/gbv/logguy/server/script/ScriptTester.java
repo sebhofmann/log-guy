@@ -19,9 +19,15 @@ import java.util.TreeSet;
 import org.apache.solr.client.solrj.SolrServerException;
 import org.springframework.security.access.AccessDeniedException;
 
+import de.gbv.logguy.server.alert.AlertRules;
+import de.gbv.logguy.server.alert.AlertService;
+import de.gbv.logguy.server.alert.RuleDefinition;
+import de.gbv.logguy.server.alert.RuleTester;
+import de.gbv.logguy.server.alert.RuleTester.RuleTestResult;
 import de.gbv.logguy.server.archive.LifecycleFilters;
 import de.gbv.logguy.server.archive.LifecycleFilters.LifecycleTestResult;
 import de.gbv.logguy.server.config.LogGuyProperties;
+import de.gbv.logguy.server.config.LogGuyProperties.AlertProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.Right;
 import de.gbv.logguy.server.config.LogGuyProperties.ScriptProperties;
 import de.gbv.logguy.server.hot.FileMeta;
@@ -36,8 +42,10 @@ import de.gbv.logguy.server.script.ScriptRequestException.Reason;
 import de.gbv.logguy.server.script.ScriptStore.ScriptId;
 import de.gbv.logguy.server.script.ScriptStore.TestSummary;
 import de.gbv.logguy.server.search.SearchRequest;
+import de.gbv.logguy.server.search.SearchScope;
 import de.gbv.logguy.server.search.SearchService;
 import de.gbv.logguy.server.search.SearchService.EventView;
+import de.gbv.logguy.server.search.SearchService.SearchResult;
 import de.gbv.logguy.server.security.LogGuyUser;
 
 /**
@@ -120,8 +128,7 @@ public class ScriptTester {
             case PARSER -> testParser(user, id, code, active, source);
             case PSEUDONYM -> testPseudonym(user, id, code, active, source);
             case LIFECYCLE -> testLifecycle(user, id, code, active, source);
-            default -> throw new ScriptRequestException(Reason.INVALID,
-                "Für Skripte der Art " + id.kind().dir() + " gibt es noch keinen Test.");
+            case RULE -> testRule(user, id, code, active, source);
         };
     }
 
@@ -214,6 +221,77 @@ public class ScriptTester {
         }
         scripts.recordTest(id, tested, new TestSummary(clock.instant(), lines.label(), result.lines(),
             result.errors() + result.eventErrors()));
+        return result;
+    }
+
+    /**
+     * Tests an alert rule against the indexed events of the last {@code alerts.test-range}: replays them oldest
+     * first with their own times, so thresholds, silence and cooldown behave as they would have live.
+     *
+     * @param user the user, needs the right to edit the rule; only applications the user may read are replayed
+     * @param id the rule
+     * @param code code to test, {@code null} for the draft or the active version
+     * @param active test the active version even if there is a draft
+     * @param source optionally one application and a time range, otherwise all applications of the rule
+     * @return the result
+     * @throws IOException if the index cannot be searched
+     */
+    public RuleTestResult testRule(LogGuyUser user, ScriptId id, String code, boolean active, TestSource source)
+        throws IOException {
+        if (id.kind() != ScriptKind.RULE) {
+            throw new ScriptRequestException(Reason.INVALID, "Keine Meldungsregel: " + id);
+        }
+        AlertProperties alerts = properties.alerts();
+        String tested = scripts.codeForTest(user, id, code, active);
+        RuleDefinition rule;
+        try {
+            rule = AlertRules.define(runtime, id.name(), tested);
+        } catch (ScriptException e) {
+            throw new ScriptRequestException(Reason.INVALID, "Das Skript ist fehlerhaft: " + e.getMessage());
+        }
+        Set<String> apps = new TreeSet<>(user.readableApps(properties.apps().keySet()));
+        apps.removeIf(app -> !rule.appliesTo(app));
+        if (source != null && source.app() != null) {
+            if (!apps.contains(source.app())) {
+                throw new ScriptRequestException(Reason.INVALID,
+                    "Die Regel gilt nicht für " + source.app() + " oder die Anwendung ist nicht lesbar.");
+            }
+            apps = Set.of(source.app());
+        }
+        Instant to = source != null && source.to() != null ? source.to() : clock.instant();
+        Instant from = source != null && source.from() != null ? source.from() : to.minus(alerts.testRange());
+        String label = (apps.size() == 1 ? "Anwendung " + apps.iterator().next() : apps.size() + " Anwendungen")
+            + " von " + from + " bis " + to;
+        RuleTestResult result;
+        try (RuleTester tester = new RuleTester(runtime, rule, alerts, from, to, apps)) {
+            boolean truncated = false;
+            if (!apps.isEmpty()) {
+                SearchScope scope = search.scope(user, new SearchRequest(List.copyOf(apps), null, from, to, Map.of()));
+                String cursor = null;
+                long seen = 0;
+                while (true) {
+                    SearchResult page = search.search(scope, cursor, Integer.MAX_VALUE, true);
+                    for (EventView event : page.events()) {
+                        if (seen++ >= alerts.testMaxEvents()) {
+                            truncated = true;
+                            break;
+                        }
+                        tester.accept(event.app(), event.id(), event.ts(), AlertService.eventMap(event.app(),
+                            event.host(), event.id(), event.ts(), new ParsedEvent(event.ts(), event.message(),
+                                event.fields(), event.parseError())));
+                    }
+                    if (truncated || page.done()) {
+                        break;
+                    }
+                    cursor = page.cursor();
+                }
+            }
+            result = tester.finish(label, truncated);
+        } catch (SolrServerException e) {
+            throw new IOException(e);
+        }
+        scripts.recordTest(id, tested, new TestSummary(clock.instant(), label, (int) Math.min(Integer.MAX_VALUE,
+            result.events()), (int) Math.min(Integer.MAX_VALUE, result.errors())));
         return result;
     }
 

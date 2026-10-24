@@ -21,6 +21,7 @@ import org.springframework.scheduling.support.CronTrigger;
 import de.gbv.logguy.server.alert.AlertRules;
 import de.gbv.logguy.server.alert.AlertService;
 import de.gbv.logguy.server.alert.AlertStore;
+import de.gbv.logguy.server.alert.AlertTexts;
 import de.gbv.logguy.server.alert.LoggingNotifier;
 import de.gbv.logguy.server.alert.Notifier;
 import de.gbv.logguy.server.archive.ArchiveStore;
@@ -83,7 +84,7 @@ public class ServerConfig {
      * @param parsers the parser scripts
      * @param runtime the script runtime
      * @param filters change the fields of events with {@code fields(event)}
-     * @param alerts the alert rules, if enabled
+     * @param alerts checks new events, unless {@code log-guy.alerts.enabled} is false
      * @param solr connection to Solr
      * @param clock clock for provisional events
      * @param json mapper for state files
@@ -93,13 +94,15 @@ public class ServerConfig {
     @Bean(destroyMethod = "close")
     @ConditionalOnBooleanProperty("log-guy.indexer.enabled")
     public Indexer indexer(LogGuyProperties properties, HotStore store, ParserRegistry parsers,
-        ScriptRuntime runtime, LifecycleFilters filters, ObjectProvider<AlertService> alerts, SolrService solr,
+        ScriptRuntime runtime, LifecycleFilters filters, AlertService alerts, SolrService solr,
         Clock clock, JsonMapper json) throws IOException {
         List<String> errors = parsers.load();
         if (!errors.isEmpty()) {
             throw new IllegalStateException("parser scripts have errors: " + String.join("; ", errors));
         }
-        return new Indexer(properties, store, parsers, runtime, filters, alerts.getIfAvailable(), solr, clock, json);
+        return new Indexer(properties, store, parsers, runtime, filters, properties.alerts().enabled() ? alerts : null,
+            solr,
+            clock, json);
     }
 
     /**
@@ -115,6 +118,17 @@ public class ServerConfig {
     }
 
     /**
+     * Pseudonymizes alerts for pseudonymized readers.
+     *
+     * @param pseudonyms the pseudonymization scripts
+     * @return the helper
+     */
+    @Bean
+    public AlertTexts alertTexts(PseudonymService pseudonyms) {
+        return new AlertTexts(pseudonyms);
+    }
+
+    /**
      * Writes notifications to the server log.
      *
      * @return the notifier
@@ -125,7 +139,7 @@ public class ServerConfig {
     }
 
     /**
-     * The alerts, unless {@code log-guy.alerts.enabled} is false.
+     * The alerts. With {@code log-guy.alerts.enabled} false the indexer does not check events.
      *
      * @param properties configuration
      * @param rules the alert rules
@@ -137,7 +151,6 @@ public class ServerConfig {
      * @throws IOException if the alerts cannot be read
      */
     @Bean(destroyMethod = "close")
-    @ConditionalOnBooleanProperty("log-guy.alerts.enabled")
     public AlertService alertService(LogGuyProperties properties, AlertRules rules, List<Notifier> notifiers,
         AuditLog audit, Clock clock, JsonMapper json) throws IOException {
         return new AlertService(properties.alerts(), rules, new AlertStore(properties.stateDir(), json), notifiers,

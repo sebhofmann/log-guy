@@ -12,6 +12,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import de.gbv.logguy.server.LogGuyApplication;
+import de.gbv.logguy.server.alert.AlertService;
+import de.gbv.logguy.server.alert.AlertTexts;
 import de.gbv.logguy.server.archive.search.ArchiveSearch;
 import de.gbv.logguy.server.audit.AuditLog;
 import de.gbv.logguy.server.config.LogGuyProperties;
@@ -91,6 +93,8 @@ public class McpConfig {
      * @param pseudonymizedSearch pseudonymizes search results
      * @param audit the audit log
      * @param archiveSearch the archive search
+     * @param alerts the alerts
+     * @param alertTexts pseudonymizes the alerts
      * @param json the JSON mapper
      * @return the tool specifications
      */
@@ -98,9 +102,11 @@ public class McpConfig {
     public List<SyncToolSpecification> logGuyTools(LogGuyProperties properties, UserRegistry users,
         McpSessions sessions, SearchService search, ContextService context, StatusService status,
         ServerLog serverLog, ScriptService scripts, ScriptTester tester, PseudonymService pseudonyms,
-        PseudonymizedSearch pseudonymizedSearch, AuditLog audit, ArchiveSearch archiveSearch, JsonMapper json) {
+        PseudonymizedSearch pseudonymizedSearch, AuditLog audit, ArchiveSearch archiveSearch, AlertService alerts,
+        AlertTexts alertTexts, JsonMapper json) {
         return new McpTools(properties.mcp(), users, sessions, search, context, status, serverLog, scripts, tester,
-            pseudonyms, pseudonymizedSearch, audit, archiveSearch, json, new JacksonMcpJsonMapper(json))
+            pseudonyms, pseudonymizedSearch, audit, archiveSearch, alerts, alertTexts, json,
+            new JacksonMcpJsonMapper(json))
             .specifications();
     }
 }

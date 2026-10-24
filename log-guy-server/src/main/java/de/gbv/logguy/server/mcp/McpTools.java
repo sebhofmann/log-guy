@@ -23,6 +23,11 @@ import org.apache.logging.log4j.Logger;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 
+import de.gbv.logguy.server.alert.Alert;
+import de.gbv.logguy.server.alert.AlertService;
+import de.gbv.logguy.server.alert.AlertTexts;
+import de.gbv.logguy.server.alert.RuleTester;
+import de.gbv.logguy.server.alert.RuleTester.RuleTestResult;
 import de.gbv.logguy.server.archive.search.ArchiveHit;
 import de.gbv.logguy.server.archive.search.ArchiveSearch;
 import de.gbv.logguy.server.archive.search.ArchiveSearchJob;
@@ -120,6 +125,10 @@ public class McpTools {
 
     private final ServerLog serverLog;
 
+    private final AlertService alerts;
+
+    private final AlertTexts alertTexts;
+
     private final ScriptService scripts;
 
     private final ScriptTester tester;
@@ -152,13 +161,16 @@ public class McpTools {
      * @param pseudonymizedSearch pseudonymizes search results
      * @param audit the audit log
      * @param archiveSearch the archive search
+     * @param alerts the alerts
+     * @param alertTexts pseudonymizes the alerts
      * @param json serializes the results
      * @param mcpJson parses the input schemas
      */
     public McpTools(McpProperties settings, UserRegistry users, McpSessions sessions, SearchService search,
         ContextService context, StatusService status, ServerLog serverLog, ScriptService scripts, ScriptTester tester,
         PseudonymService pseudonyms, PseudonymizedSearch pseudonymizedSearch, AuditLog audit,
-        ArchiveSearch archiveSearch, JsonMapper json, McpJsonMapper mcpJson) {
+        ArchiveSearch archiveSearch, AlertService alerts, AlertTexts alertTexts, JsonMapper json,
+        McpJsonMapper mcpJson) {
         this.settings = settings;
         this.users = users;
         this.sessions = sessions;
@@ -172,6 +184,8 @@ public class McpTools {
         this.pseudonymizedSearch = pseudonymizedSearch;
         this.audit = audit;
         this.archiveSearch = archiveSearch;
+        this.alerts = alerts;
+        this.alertTexts = alertTexts;
         this.json = json;
         this.mcpJson = mcpJson;
     }
@@ -223,8 +237,9 @@ public class McpTools {
                 "base": {"type": "string", "description": "hash der aktiven Fassung, auf der der Entwurf beruht"}
                 """, false, (call, args) -> scripts.saveDraft(call.caller(), scriptId(args), required(args, "code"),
                 string(args, "base"))));
-        tools.add(tool("test_script", "Testet einen Parser oder ein Pseudonymisierungs-Skript gegen Logzeilen. "
-            + "Ohne code wird der Entwurf getestet, sonst die aktive Fassung.", SCRIPT_SCHEMA + """
+        tools.add(tool("test_script", "Testet ein Skript gegen Logzeilen, eine Meldungsregel gegen "
+            + "die indexierten Events der letzten 24 Stunden. Ohne code wird der Entwurf getestet, sonst die aktive Fassung.",
+            SCRIPT_SCHEMA + """
                 ,"code": {"type": "string", "description": "zu testender Code, sonst Entwurf oder aktive Fassung"},
                 "active": {"type": "boolean", "description": "aktive Fassung testen, auch wenn es einen Entwurf gibt"},
                 "app": {"type": "string", "description": "Anwendung, deren Zeilen aus hot/ gelesen werden"},
@@ -266,6 +281,12 @@ public class McpTools {
                 "wait": {"type": "integer", "minimum": 0, "maximum": 30, "description": "Sekunden"},
                 "cancel": {"type": "boolean"}
                 """, false, this::archiveSearchResult));
+        tools.add(tool("list_alerts", "Meldungen der Regeln, neueste zuerst, pseudonymisiert. eventId führt mit "
+            + "get_context zum auslösenden Event.", """
+                "state": {"type": "string", "enum": ["open", "acked", "resolved", "all"],
+                    "description": "Standard open"},
+                "limit": {"type": "integer", "minimum": 1}
+                """, true, this::listAlerts));
         return tools;
     }
 
@@ -304,6 +325,22 @@ public class McpTools {
             hit.after().stream().map(this::cut).toList())).toList());
         result.put("next", offset + hits.size());
         return result;
+    }
+
+    private Object listAlerts(Call call, Map<String, Object> args) {
+        String state = string(args, "state");
+        Alert.State filter = state == null ? Alert.State.OPEN : state.equalsIgnoreCase("all") ? null : state(state);
+        int limit = Math.clamp(integer(args, "limit").orElse(settings.maxEvents()), 1, settings.maxEvents());
+        return alerts.list(call.user(), filter).stream().limit(limit)
+            .map(alert -> alertTexts.forUser(call.user(), call.session(), alert)).toList();
+    }
+
+    private static Alert.State state(String state) {
+        try {
+            return Alert.State.from(state);
+        } catch (IllegalArgumentException e) {
+            throw new SearchException("Unbekannter Zustand " + state + ", erlaubt sind open, acked, resolved, all.");
+        }
     }
 
     private static Owner owner(Call call) {
@@ -525,6 +562,19 @@ public class McpTools {
             out.put("events", test.events());
             out.put("eventsChanged", test.eventsChanged());
             out.put("eventErrors", test.eventErrors());
+            return out;
+        }
+        if (result instanceof RuleTestResult test) {
+            // numbers and event ids only, the texts may contain plain data
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("source", test.source());
+            out.put("events", test.events());
+            out.put("truncated", test.truncated());
+            out.put("hits", test.hits());
+            out.put("alerts", test.alerts());
+            out.put("notifications", test.notifications());
+            out.put("errors", test.errors());
+            out.put("hitEventIds", test.hitSamples().stream().map(RuleTester.Hit::id).toList());
             return out;
         }
         throw new ScriptRequestException(ScriptRequestException.Reason.INVALID,
