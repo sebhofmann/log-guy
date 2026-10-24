@@ -15,12 +15,14 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.BiFunction;
 
 import org.apache.solr.client.solrj.SolrServerException;
 import org.springframework.security.access.AccessDeniedException;
 
 import de.gbv.logguy.server.alert.AlertRules;
 import de.gbv.logguy.server.alert.AlertService;
+import de.gbv.logguy.server.alert.AlertTexts;
 import de.gbv.logguy.server.alert.RuleDefinition;
 import de.gbv.logguy.server.alert.RuleTester;
 import de.gbv.logguy.server.alert.RuleTester.RuleTestResult;
@@ -37,10 +39,12 @@ import de.gbv.logguy.server.index.EventDocuments;
 import de.gbv.logguy.server.index.EventReader;
 import de.gbv.logguy.server.index.EventReader.RawEvent;
 import de.gbv.logguy.server.pseudonym.PseudonymService;
+import de.gbv.logguy.server.pseudonym.Pseudonyms;
 import de.gbv.logguy.server.pseudonym.PseudonymService.PseudonymTestResult;
 import de.gbv.logguy.server.script.ScriptRequestException.Reason;
 import de.gbv.logguy.server.script.ScriptStore.ScriptId;
 import de.gbv.logguy.server.script.ScriptStore.TestSummary;
+import de.gbv.logguy.server.search.PseudonymizedSearch;
 import de.gbv.logguy.server.search.SearchRequest;
 import de.gbv.logguy.server.search.SearchScope;
 import de.gbv.logguy.server.search.SearchService;
@@ -292,7 +296,26 @@ public class ScriptTester {
         }
         scripts.recordTest(id, tested, new TestSummary(clock.instant(), label, (int) Math.min(Integer.MAX_VALUE,
             result.events()), (int) Math.min(Integer.MAX_VALUE, result.errors())));
-        return result;
+        return forUser(user, result);
+    }
+
+    // texts of applications the user reads only pseudonymized are pseudonymized like in the search
+    private RuleTestResult forUser(LogGuyUser user, RuleTestResult result) {
+        if (result.apps().stream().allMatch(user::readsPlain)) {
+            return result;
+        }
+        Pseudonyms session = new Pseudonyms();
+        AlertTexts texts = new AlertTexts(pseudonyms);
+        BiFunction<String, String, String> text = (app, value) -> user.readsPlain(app) || value == null ? value
+            : pseudonyms.text(session, app, value).orElse(PseudonymizedSearch.HELD_BACK);
+        return new RuleTestResult(result.source(), result.rule(), result.type(), result.apps(), result.events(),
+            result.truncated(), result.hits(), result.alerts(), result.notifications(), result.errors(),
+            result.errorSamples().stream().map(error -> PseudonymizedSearch.HELD_BACK).toList(),
+            result.hitSamples().stream().map(hit -> new RuleTester.Hit(hit.id(), hit.ts(), hit.app(),
+                text.apply(hit.app(), hit.line()))).toList(),
+            result.alertSamples().stream().map(alert -> texts.forUser(user, session, alert)).toList(),
+            result.sentSamples().stream().map(sent -> new RuleTester.Sent(sent.at(), sent.kind(), sent.app(),
+                sent.count(), text.apply(sent.app(), sent.text()))).toList());
     }
 
     /**

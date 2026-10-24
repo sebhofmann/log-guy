@@ -442,6 +442,9 @@ function button(label, action) {
 }
 
 function testPanel() {
+    if (current.kind === 'rule') {
+        return ruleTestPanel();
+    }
     const panel = element('section', 'script-test');
     const source = element('select');
     for (const [value, label] of [['app', 'Anwendung'], ['text', 'Eingefügte Zeilen'], ['file', 'Datei']]) {
@@ -489,9 +492,33 @@ function testPanel() {
     return panel;
 }
 
+function ruleTestPanel() {
+    const panel = element('section', 'script-test');
+    const app = element('select');
+    const all = element('option', null, 'Alle Anwendungen der Regel');
+    all.value = '';
+    app.append(all);
+    for (const name of apps) {
+        const option = element('option', null, name);
+        option.value = name;
+        app.append(option);
+    }
+    app.setAttribute('aria-label', 'Anwendung');
+    const result = element('div', 'test-result');
+    const run = button('Gegen die letzten 24 Stunden testen', () => test('rule', app.value, null, null, null, result));
+    const bar = element('div', 'toolbar');
+    bar.append(app, run);
+    panel.append(element('h2', null, 'Test mit dem Inhalt des Editors'),
+        element('p', 'muted', 'Spielt die indexierten Events mit ihren eigenen Zeiten durch die Regel, '
+            + 'mit Schwelle, Stille und Cooldown. Es wird nichts gemeldet.'), bar, result);
+    return panel;
+}
+
 async function test(source, app, lines, file, text, result) {
     const body = { code: editor.state.doc.toString() };
-    if (source === 'app') {
+    if (source === 'rule') {
+        body.app = app || null;
+    } else if (source === 'app') {
         body.app = app;
         body.lines = Number(lines);
     } else if (source === 'file') {
@@ -513,6 +540,9 @@ async function test(source, app, lines, file, text, result) {
 }
 
 function resultNodes(outcome) {
+    if ('hitSamples' in outcome) {
+        return ruleResult(outcome);
+    }
     if ('filtersLines' in outcome) {
         return lifecycleResult(outcome);
     }
@@ -559,6 +589,50 @@ function lifecycleResult(outcome) {
             }
             nodes.push(element('h3', null, 'Geänderte Events'), table);
         }
+    }
+    return nodes;
+}
+
+const KIND_LABELS = { OPENED: 'geöffnet', SUMMARY: 'Zusammenfassung', RESOLVED: 'erledigt' };
+const STATE_LABELS = { OPEN: 'offen', ACKED: 'quittiert', RESOLVED: 'erledigt' };
+
+function ruleResult(outcome) {
+    const sent = Object.entries(outcome.notifications)
+        .map(([kind, count]) => `${formatNumber(count)} ${KIND_LABELS[kind] ?? kind}`).join(', ');
+    const nodes = [element('p', outcome.errors ? 'warn' : 'ok', `${outcome.source}: `
+        + `${formatNumber(outcome.events)} Events${outcome.truncated ? ' (gekürzt)' : ''}, `
+        + `${formatNumber(outcome.hits)} Treffer, ${formatNumber(outcome.alerts)} `
+        + `${outcome.alerts === 1 ? 'Meldung' : 'Meldungen'}, `
+        + `Benachrichtigungen: ${sent || 'keine'}, ${formatNumber(outcome.errors)} Fehler`)];
+    for (const error of outcome.errorSamples) {
+        nodes.push(element('p', 'error', error));
+    }
+    if (outcome.alertSamples.length) {
+        const table = element('table', 'data test-events');
+        table.append(row('th', ['Seit', 'Anwendung', 'Text', 'Anzahl', 'Zustand']));
+        for (const alert of outcome.alertSamples) {
+            table.append(row('td', [formatTime(alert.opened), alert.group ? `${alert.app} · ${alert.group}`
+                : alert.app, alert.message, formatNumber(alert.count),
+                STATE_LABELS[alert.state] ?? alert.state]));
+        }
+        nodes.push(element('h3', null, 'Meldungen'), table);
+    }
+    if (outcome.sentSamples.length) {
+        const table = element('table', 'data test-events');
+        table.append(row('th', ['Zeit', 'Art', 'Anwendung', 'Text']));
+        for (const entry of outcome.sentSamples) {
+            table.append(row('td', [formatTime(entry.at), KIND_LABELS[entry.kind] ?? entry.kind, entry.app,
+                entry.text]));
+        }
+        nodes.push(element('h3', null, 'Benachrichtigungen'), table);
+    }
+    if (outcome.hitSamples.length) {
+        const table = element('table', 'data test-events');
+        table.append(row('th', ['Zeit', 'Anwendung', 'Zeile']));
+        for (const hit of outcome.hitSamples) {
+            table.append(row('td', [formatTime(hit.ts), hit.app, hit.line]));
+        }
+        nodes.push(element('h3', null, 'Treffer'), table);
     }
     return nodes;
 }

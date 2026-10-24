@@ -87,4 +87,15 @@ public class WebController {
         }
         return new ModelAndView("archive", Map.of("page", new PageContext(user, csrf, "archive")));
     }
+
+    /**
+     * The alerts of the readable applications and the state of the rules.
+     *
+     * @param csrf the CSRF token
+     * @return the page
+     */
+    @GetMapping("/alerts")
+    public ModelAndView alerts(CsrfToken csrf) {
+        return new ModelAndView("alerts", Map.of("page", new PageContext(currentUser.get(), csrf, "alerts")));
+    }
 }

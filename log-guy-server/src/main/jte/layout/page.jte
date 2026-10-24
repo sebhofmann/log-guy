@@ -22,6 +22,8 @@
   <a class="brand" href="/">log-guy</a>
   <nav>
     <a href="/" class="${"search".equals(page.active()) ? "active" : null}">Suche</a>
+    <a href="/alerts" class="${"alerts".equals(page.active()) ? "active" : null}">Meldungen<span id="bell"
+      class="bell" hidden></span></a>
     @if(page.user().hasRight(de.gbv.logguy.server.config.LogGuyProperties.Right.ARCHIVE))
     <a href="/archive" class="${"archive".equals(page.active()) ? "active" : null}">Archiv</a>
     @endif
@@ -39,6 +41,7 @@
     <button type="submit">Abmelden</button>
   </form>
 </header>
+<script type="module" src="/static/js/bell.js"></script>
 @endif
 ${content}
 </body>

@@ -826,3 +826,40 @@ table.data td.number {
 [hidden] {
   display: none !important;
 }
+
+.bell {
+  display: inline-block;
+  min-width: 1.4em;
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--error);
+  color: #ffffff;
+  font-size: 0.8em;
+  text-align: center;
+}
+
+.bell[hidden] {
+  display: none;
+}
+
+table.alerts td {
+  vertical-align: top;
+}
+
+table.alerts .alert-text {
+  max-width: 50ch;
+  overflow-wrap: anywhere;
+}
+
+table.alerts .actions {
+  white-space: nowrap;
+}
+
+table.alerts .actions button {
+  margin-right: 8px;
+}
+
+table.alerts tr.alert-resolved {
+  color: var(--muted);
+}
