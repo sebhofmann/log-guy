@@ -128,6 +128,16 @@ public class Commands {
     }
 
     /**
+     * Lets the running server copy archive, state, audit log and configuration into the backup directory now.
+     *
+     * @param context the command context
+     */
+    @Command(name = "backup", description = "Copy archive/, state/, audit/ and the configuration to log-guy.backup.dir")
+    public void backup(CommandContext context) {
+        control(context, SecurityConfig.BACKUP_PATH);
+    }
+
+    /**
      * Lets the running server write archive files again from {@code hot/} with the current lifecycle filters.
      *
      * @param context the command context

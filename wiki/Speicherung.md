@@ -1,6 +1,6 @@
 # Speicherung
 
-Jede Logdatei liegt zweimal: als Original für die letzten 7 Tage in `hot/`, und gefiltert, also mit gekürzten IP-Adressen, für immer in `archive/`. Nur `archive/` wird gesichert. Erst beim Indexieren werden aus den Zeilen Events und Felder, und Solr hält diese in einer einzigen Collection.
+Jede Logdatei liegt zweimal: als Original für die letzten 7 Tage in `hot/`, und gefiltert, also mit gekürzten IP-Adressen, für immer in `archive/`. Von beiden wird nur `archive/` gesichert. Erst beim Indexieren werden aus den Zeilen Events und Felder, und Solr hält diese in einer einzigen Collection.
 
 ### Zwei Verzeichnisse
 
@@ -26,6 +26,29 @@ Jede Logdatei liegt zweimal: als Original für die letzten 7 Tage in `hot/`, und
 Platzbedarf bei der gemessenen Kompression von etwa 1:7: `archive/` braucht 0,1 bis 0,17 GB pro Tag für alle Anwendungen, also 40 bis 60 GB pro Jahr und 400 bis 600 GB in zehn Jahren. `hot/` bleibt bei etwa 1 GB. Mit der am Archiv gemessenen Kompression von 1:11,5 für die MyCoRe-Logs von digibib wären es eher 0,09 GB pro Tag. Die Schätzung oben bleibt die Obergrenze, weil Access-Logs anders komprimieren.
 
 Was der Frame-Index bringt: Für eine Stelle mitten in der Datei sucht log-guy in der `.idx` den passenden Frame und entpackt nur ihn, also etwa 1 MB statt der ganzen Datei. Die Kontextansicht in der GUI antwortet dadurch in Millisekunden. Die Archivsuche überspringt Frames außerhalb des Zeitraums und verteilt die Frames einer großen Datei auf mehrere Kerne. Diese Vorteile sind abgeleitet, nicht gemessen.
+
+### Backup
+
+Gesichert werden `archive/`, `state/`, `audit/` und das Konfigurationsverzeichnis `/etc/log-guy/` mit den Skripten, nie `hot/`. Die Dateien in `hot/` liefern die Agenten nach einem Verlust erneut, soweit sie noch auf den Anwendungsservern liegen.
+
+Ein Backup-Werkzeug wie restic oder borg darf `archive/` nicht direkt im laufenden Betrieb lesen: An eine Datei werden ständig Frames angehängt, und beim Neuschreiben mit geänderten Filtern (`log-guy archive refilter`) ersetzt log-guy `.log.zst`, `.idx` und `.meta.json` nacheinander. Eine Kopie mitten darin passt nicht zusammen, und ist das Original aus `hot/` schon gelöscht, lässt sie sich nicht mehr reparieren. log-guy legt deshalb selbst eine stimmige Kopie in einem Backup-Verzeichnis an, das Backup-Werkzeug sichert dieses Verzeichnis weiter:
+
+```yaml
+log-guy:
+  backup:
+    dir: /var/backups/log-guy    # leer schaltet das Backup ab
+    cron: "0 30 3 * * *"         # nach der Aufbewahrung um 02:30, "-" nur mit log-guy backup
+    config-dir: /etc/log-guy
+```
+
+- `archive/`: Pro Datei öffnet log-guy die `.log.zst` unter der Sperre der Datei und merkt sich die Frames, die es in diesem Moment gibt. Kopiert wird nur bis zum Ende dieser Frames. Danach angehängte Frames kommen beim nächsten Lauf, und auch eine gleichzeitig ersetzte Datei bleibt lesbar, weil der geöffnete Dateideskriptor den alten Inhalt festhält. Sind die Frames der Kopie der Anfang der aktuellen Frames, hängt log-guy nur die neuen an, sonst schreibt es die Kopie neu und löscht vorher deren `.meta.json`. Die Reihenfolge ist wie im Archiv: `.log.zst`, `.idx`, `.meta.json`. Ein abgebrochenes Backup repariert log-guy beim Laden deshalb wie einen Absturz.
+- `state/`, `audit/` und die Konfiguration werden gespiegelt. Kopiert wird, was sich nach Größe oder Änderungszeit unterscheidet, gelöscht wird, was es nicht mehr gibt. Bei `.ndjson` fällt eine noch unvollständige letzte Zeile weg. `state/control.token` und Dateien auf `.tmp` bleiben draußen.
+- Am Ende schreibt log-guy `backup.json` mit Zeiten, Zahlen und Fehlern. Die Status-Seite zeigt den letzten Lauf, `log-guy backup` startet einen Lauf sofort und gibt den Bericht aus. Der Lauf steht im Audit-Log.
+- Das Backup-Verzeichnis muss außerhalb von Daten- und Konfigurationsverzeichnis liegen, sonst startet log-guy nicht. Es enthält die Passwort-Hashes und Token aus `application.yml` und das Solr-Passwort, nur log-guy und das Backup-Werkzeug dürfen es lesen.
+
+Gemessen im e2e mit dem Archiv aus dem Backfill von `prod-logs/` auf ext4 und NVMe: Der erste Lauf kopierte 698 Archivdateien mit 3,98 GB und 719 weitere Dateien in 4,9 s, der zweite Lauf ohne neue Daten brauchte 0,18 s. Die Prüfsummen aller 2094 Dateien in `archive/` und in der Kopie stimmten überein.
+
+Zurückspielen: log-guy anhalten, `archive/`, `state/` und `audit/` aus dem Backup in das Datenverzeichnis kopieren, `config/` nach `/etc/log-guy/`, log-guy starten. Ausprobiert mit einer zweiten Instanz auf der Kopie: Sie lud 698 Dateien ohne Reparatur, und eine Archivsuche über drei Monate digibib fand wie das Original 5197 Treffer in 92 Dateien. Danach schicken die Agenten, was `hot/` fehlt. Laut Code gilt: Für abgeschlossene Dateien antwortet log-guy aus dem Archiv, offene Dateien setzt der Archiv-Schreiber bei der archivierten Länge fort. Was nach dem letzten Backup archiviert wurde und auf den Anwendungsservern nicht mehr liegt, ist verloren. Nicht ausprobiert ist bisher das erneute Senden durch einen Agenten nach dem Zurückspielen.
 
 ### Indexer
 

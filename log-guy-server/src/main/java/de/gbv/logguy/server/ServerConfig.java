@@ -30,6 +30,7 @@ import de.gbv.logguy.server.alert.NotificationTexts;
 import de.gbv.logguy.server.alert.Notifier;
 import de.gbv.logguy.server.alert.WebhookNotifier;
 import de.gbv.logguy.server.archive.ArchiveStore;
+import de.gbv.logguy.server.backup.BackupService;
 import de.gbv.logguy.server.archive.search.ArchiveSearch;
 import de.gbv.logguy.server.archive.ArchiveWriter;
 import de.gbv.logguy.server.archive.LifecycleFilters;
@@ -455,6 +456,39 @@ public class ServerConfig {
     }
 
     /**
+     * The backup of archive, state, audit log and configuration.
+     *
+     * @param properties configuration
+     * @param archive the archive
+     * @param json mapper for the report
+     * @param clock clock for the report
+     * @return the service
+     */
+    @Bean
+    public BackupService backupService(LogGuyProperties properties, ArchiveStore archive, JsonMapper json,
+        Clock clock) {
+        return new BackupService(properties, archive, json, clock);
+    }
+
+    /**
+     * Runs the backup at {@code log-guy.backup.cron} in the zone of log-guy, never if the cron is {@code -} or no
+     * backup directory is set.
+     *
+     * @param properties configuration
+     * @param backup the backup
+     * @return the scheduling
+     */
+    @Bean
+    public SchedulingConfigurer backupSchedule(LogGuyProperties properties, BackupService backup) {
+        return (ScheduledTaskRegistrar registrar) -> {
+            if (backup.enabled() && !Scheduled.CRON_DISABLED.equals(properties.backup().cron())) {
+                registrar.addTriggerTask(backup::scheduled,
+                    new CronTrigger(properties.backup().cron(), properties.zone()));
+            }
+        };
+    }
+
+    /**
      * Indexing again from {@code hot/} and loading older days from {@code archive/}.
      *
      * @param properties configuration
@@ -505,6 +539,7 @@ public class ServerConfig {
      * @param writer the archive writer if it runs
      * @param ingest the stream API
      * @param deliveries the queue of mails and webhooks
+     * @param backup the backup
      * @param solr connection to Solr
      * @param clock clock for the last hour
      * @param json mapper for facet requests
@@ -514,10 +549,10 @@ public class ServerConfig {
     @Bean
     public StatusService statusService(LogGuyProperties properties, HotStore store, ObjectProvider<Indexer> indexer,
         ArchiveStore archive, ObjectProvider<ArchiveWriter> writer, IngestService ingest, Deliveries deliveries,
-        SolrService solr, Clock clock, JsonMapper json, ObjectProvider<BuildProperties> build) {
+        BackupService backup, SolrService solr, Clock clock, JsonMapper json, ObjectProvider<BuildProperties> build) {
         BuildProperties info = build.getIfAvailable();
         return new StatusService(properties, store, indexer.getIfAvailable(), archive, writer.getIfAvailable(), ingest,
-            deliveries, solr, clock, json,
+            deliveries, backup, solr, clock, json,
             info == null ? null : info.getVersion());
     }
 

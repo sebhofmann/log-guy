@@ -28,6 +28,7 @@ function render(status) {
         indexer(status.indexer),
         archive(status.archive),
         notifications(status.notifications),
+        backup(status.backup, status.generated),
         agents(status.agents, status.generated),
         apps(status.apps, status.generated),
         solr(status.solr),
@@ -177,6 +178,43 @@ function notifications(n) {
         ['Wartend oder in Wiederholung', formatNumber(n.pending)],
     ]));
     return section('Benachrichtigungen', ...children);
+}
+
+function backup(b, now) {
+    if (!b.enabled) {
+        return section('Backup', element('p', null, 'Kein Backup-Verzeichnis gesetzt (log-guy.backup.dir). '
+            + 'archive/, state/, audit/ und die Konfiguration werden nicht gesichert.'));
+    }
+    const children = [];
+    const last = b.last;
+    if (!last) {
+        children.push(element('p', 'warn', 'Bisher wurde kein Backup erstellt.'));
+    } else if (last.errors.length > 0) {
+        children.push(element('p', 'error', `Das letzte Backup ist unvollständig: ${last.errors.length} Fehler, `
+            + `zuerst ${last.errors[0]}`));
+    }
+    const rows = [
+        ['Verzeichnis', b.dir],
+        ['Zeitplan', b.cron === '-' ? 'nur mit log-guy backup' : b.cron],
+        ['Läuft gerade', b.running ? 'ja' : 'nein'],
+    ];
+    if (last) {
+        const seconds = (Date.parse(last.finished) - Date.parse(last.started)) / 1000;
+        rows.push(
+            ['Letztes Backup', ago(last.finished, now)],
+            ['Dauer', `${seconds.toLocaleString('de-DE', { maximumFractionDigits: 1 })} s`],
+            ['Archiv', `${formatNumber(last.archiveCopied)} von ${files(last.archiveFiles)} kopiert, `
+                + bytes(last.archiveBytes)],
+            ['state/, audit/, Konfiguration', `${files(last.otherCopied)} kopiert, `
+                + `${formatNumber(last.otherDeleted)} entfernt`],
+        );
+    }
+    children.push(pairs(rows));
+    return section('Backup', ...children);
+}
+
+function files(count) {
+    return `${formatNumber(count)} ${count === 1 ? 'Datei' : 'Dateien'}`;
 }
 
 function agents(list, now) {

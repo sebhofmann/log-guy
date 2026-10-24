@@ -170,6 +170,14 @@ log-guy:
     attempts: 5
     retry-delay: 1m
     timeout: 10s
+  backup:
+    # target directory of the backup, empty switches it off. It holds a consistent copy of archive/, state/, audit/
+    # and config-dir, which a backup tool like restic or borg takes from there. It contains the password hashes and
+    # tokens of the configuration, so only log-guy and the backup tool may read it.
+    dir:
+    # every night at 03:30 in the zone of log-guy, after the cleanup; "-" only with log-guy backup
+    cron: "0 30 3 * * *"
+    config-dir: /etc/log-guy
   mcp:
     path: /mcp
     session-idle-timeout: 2h

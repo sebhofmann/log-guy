@@ -24,6 +24,7 @@ import de.gbv.logguy.server.archive.ArchiveWriter.RefilterReport;
 import de.gbv.logguy.server.audit.Actor;
 import de.gbv.logguy.server.audit.Actor.Via;
 import de.gbv.logguy.server.audit.AuditLog;
+import de.gbv.logguy.server.backup.BackupService;
 import de.gbv.logguy.server.config.ConfigReloader;
 import de.gbv.logguy.server.config.ConfigReloader.Report;
 import de.gbv.logguy.server.reindex.ReindexException;
@@ -67,6 +68,8 @@ public class AdminController {
 
     private final ReindexService reindex;
 
+    private final BackupService backup;
+
     /**
      * Creates the controller.
      *
@@ -77,10 +80,11 @@ public class AdminController {
      * @param archiveWriter the archive writer, missing if the archive is disabled
      * @param audit the audit log
      * @param reindex the reindex jobs
+     * @param backup the backup
      */
     public AdminController(CurrentUser currentUser, StatusService status, ServerLog serverLog,
         ConfigReloader reloader, ObjectProvider<ArchiveWriter> archiveWriter, AuditLog audit,
-        ReindexService reindex) {
+        ReindexService reindex, BackupService backup) {
         this.currentUser = currentUser;
         this.status = status;
         this.serverLog = serverLog;
@@ -88,6 +92,29 @@ public class AdminController {
         this.archiveWriter = archiveWriter;
         this.audit = audit;
         this.reindex = reindex;
+        this.backup = backup;
+    }
+
+    /**
+     * Runs a backup now, for administrators and for {@code log-guy backup} with the control token. Runs until the
+     * backup is done.
+     *
+     * @param authentication the caller
+     * @return the report, 200 if everything was copied, 422 with errors, 409 if backups are off or already running
+     */
+    @PostMapping(SecurityConfig.BACKUP_PATH)
+    @ResponseBody
+    public ResponseEntity<Object> backup(Authentication authentication) {
+        BackupService.Report report;
+        try {
+            report = backup.run();
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
+        }
+        audit.log(actor(authentication), "backup", "*", Map.of("archiveCopied", report.archiveCopied(),
+            "archiveBytes", report.archiveBytes(), "otherCopied", report.otherCopied(), "errors",
+            report.errors().size()));
+        return ResponseEntity.status(report.ok() ? HttpStatus.OK : HttpStatus.UNPROCESSABLE_CONTENT).body(report);
     }
 
     private Actor actor(Authentication authentication) {
