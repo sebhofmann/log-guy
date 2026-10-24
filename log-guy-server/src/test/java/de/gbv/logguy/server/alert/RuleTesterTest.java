@@ -65,6 +65,27 @@ class RuleTesterTest {
     }
 
     @Test
+    void sendsTheSummaryWhenTheCooldownEndsInAQuietStretch() throws Exception {
+        RuleDefinition rule = AlertRules.define(runtime, "pool", """
+            export const meta = { apps: ["digibib"], cooldown: "2m" };
+            export function check(event) { return event.level === "WARN"; }
+            """);
+        try (RuleTester tester = new RuleTester(runtime, rule, SETTINGS, T0, T0.plus(Duration.ofHours(1)),
+            List.of("digibib"))) {
+            for (int i = 0; i < 3; i++) {
+                tester.accept("digibib", "a" + i, T0.plusSeconds(i), event("WARN", "x"));
+            }
+            tester.accept("digibib", "b", T0.plus(Duration.ofMinutes(30)), event("WARN", "x"));
+            RuleTestResult result = tester.finish("Test", false);
+            List<RuleTester.Sent> sent = result.sentSamples();
+            assertEquals(Kind.SUMMARY, sent.get(1).kind());
+            assertEquals(2, sent.get(1).count());
+            assertEquals(T0.plus(Duration.ofMinutes(2)), sent.get(1).at());
+            assertEquals(Map.of(Kind.OPENED, 1, Kind.SUMMARY, 2), result.notifications());
+        }
+    }
+
+    @Test
     void replaysThresholdAndSilence() throws Exception {
         RuleDefinition threshold = AlertRules.define(runtime, "fehler", """
             export const meta = { apps: ["*"], threshold: { count: 3, within: "5m" } };

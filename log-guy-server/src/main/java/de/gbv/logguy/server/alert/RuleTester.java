@@ -110,16 +110,7 @@ public final class RuleTester implements AutoCloseable {
     }
 
     private void tickUntil(Instant ts) {
-        if (nextTick.isAfter(ts)) {
-            return;
-        }
-        // jumps over quiet stretches without ticking every interval in between
-        long steps = Duration.between(nextTick, ts).dividedBy(settings.tickInterval());
-        if (steps > 1) {
-            engine.tick(nextTick, List.of(rule), apps, runner::message);
-            collect();
-            nextTick = nextTick.plus(settings.tickInterval().multipliedBy(steps - 1));
-        }
+        // every interval, as live: jumping over quiet stretches would delay summaries and silence
         while (!nextTick.isAfter(ts)) {
             engine.tick(nextTick, List.of(rule), apps, runner::message);
             collect();
