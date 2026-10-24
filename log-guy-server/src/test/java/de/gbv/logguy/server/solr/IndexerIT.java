@@ -292,4 +292,40 @@ class IndexerIT {
             }
         }
     }
+
+    @Test
+    void matchesOfAProvisionalEventSurviveARestart() throws Exception {
+        LogGuyProperties properties = properties(Duration.ofMillis(300));
+        byte[] first = "\u001b[1;31m2026-10-01T00:00:00,834 ERROR  MCRErrorServlet: boom\n".getBytes();
+        String fp = Fingerprint.of(first);
+        try (HotStore store = new HotStore(properties, JSON, Clock.systemUTC())) {
+            HotFile file = store.getOrCreate(fp, "app1", "digibib");
+            file.append(0, first, first.length, null, Instant.now());
+            ParserRegistry parsers = new ParserRegistry(properties, runtime);
+            assertTrue(parsers.load().isEmpty());
+            List<String> checks = new CopyOnWriteArrayList<>();
+            EventChecker checker = (app, host, id, ts, event, skip) -> {
+                checks.add(id + " " + skip);
+                return Set.of("boom");
+            };
+            try (Indexer indexer =
+                new Indexer(properties, store, parsers, runtime, null, checker, service::add, Clock.systemUTC(),
+                    JSON)) {
+                await(() -> indexer.indexedEvents() >= 1);
+            }
+            try (Indexer indexer =
+                new Indexer(properties, store, parsers, runtime, null, checker, service::add, Clock.systemUTC(),
+                    JSON)) {
+                await(() -> indexer.indexedEvents() >= 1);
+                byte[] second = "\u001b[1;31m2026-10-01T00:00:01,000 INFO  MCRServlet: next\n".getBytes();
+                file.append(first.length, second, second.length, null, Instant.now());
+                await(() -> indexer.indexedEvents() >= 2);
+            }
+            // after the restart the rule that matched before is skipped
+            assertEquals(List.of(fp + ":0 []", fp + ":0 [boom]"), checks.subList(0, 2));
+            assertTrue(
+                checks.stream().skip(1).filter(c -> c.startsWith(fp + ":0 ")).allMatch(c -> c.endsWith("[boom]")),
+                checks.toString());
+        }
+    }
 }

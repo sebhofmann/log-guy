@@ -403,9 +403,13 @@ public class Indexer implements AutoCloseable {
             events.addAndGet(batch.size());
         }
         batch.clear();
-        if (offset != cursor.state.offset() || done != cursor.state.done()) {
+        // only the provisional events from offset on are left, earlier ones were checked finally
+        cursor.provisionalMatches.keySet().removeIf(at -> at < offset);
+        Map<Long, Set<String>> matched = done ? Map.of() : cursor.provisionalMatches;
+        if (offset != cursor.state.offset() || done != cursor.state.done()
+            || !matched.equals(cursor.state.matched())) {
             bytes.addAndGet(offset - cursor.state.offset());
-            cursor.state = new IndexState(offset, cursor.lastTs, done);
+            cursor.state = new IndexState(offset, cursor.lastTs, done, matched);
             cursor.done = done;
             saveState(cursor.file.fingerprint(), cursor.state);
         }
@@ -551,6 +555,7 @@ public class Indexer implements AutoCloseable {
             this.state = state;
             this.checked = state.offset();
             this.done = state.done();
+            this.provisionalMatches.putAll(state.matched());
         }
 
         private boolean hasWork() {
