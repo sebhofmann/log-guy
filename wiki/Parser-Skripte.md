@@ -93,6 +93,8 @@ import_id: IMPORT_ID.exec(text)?.[1],
 
 Empfehlung zur Schreibweise: Die eingebauten Parser für MyCoRe und Apache werden von Hand geschrieben, weil sie die meisten Events verarbeiten. Für eigene, kleine Anwendungen reichen reguläre Ausdrücke.
 
+Die Vorlage `mycore-log4j.js` nimmt die Zeitzone aus der Konstante `ZONE`, Vorgabe `Europe/Berlin`. Log4j schreibt die Ortszeit der JVM ohne Zone. Ein MIR-Container ohne `TZ` schreibt daher UTC, und mit der Vorgabe lägen seine Events eine Stunde (im Sommer zwei) zu früh im Index. Für so eine Anwendung wird die Vorlage als eigenes Skript kopiert, etwa `scripts/parser/mycore-log4j-utc.js` mit `ZONE = "UTC"`, und in der Konfiguration der Anwendung als `parser` eingetragen. Die bereits indexierten Events korrigiert ein Reindex.
+
 ### Vorlage `apache-combined`
 
 `apache-combined.js` liest Access-Logs im Common und Combined Log Format von Apache httpd, nginx und dem Tomcat-`AccessLogValve`: `%h %l %u %t "%r" %>s %b "%{Referer}i" "%{User-Agent}i"`. Referer und User-Agent dürfen fehlen, Angaben dahinter wie `%D` werden ignoriert. Jede Zeile ist ein Event, `isStart` gibt es nicht. Die Zeit kommt mit Zeitzone aus der Zeile.

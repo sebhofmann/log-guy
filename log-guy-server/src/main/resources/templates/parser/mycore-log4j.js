@@ -11,6 +11,9 @@ export const fields = {
     exc: { type: "strings", facet: true },
 };
 
+// Log4j writes local time without zone. For an application in another zone, e.g. a container with UTC, copy this
+// template as an own script and change ZONE.
+const ZONE = "Europe/Berlin";
 const ESC = "\x1b";
 const LEVELS = new Set(["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"]);
 
@@ -118,7 +121,7 @@ export function parse(text) {
     if (!isTimestamp(clean, 0)) {
         return { message: clean };
     }
-    const ts = parseTime(clean.substring(0, 23), "%Y-%m-%dT%H:%M:%S,%3f", "Europe/Berlin");
+    const ts = parseTime(clean.substring(0, 23), "%Y-%m-%dT%H:%M:%S,%3f", ZONE);
     let i = 24;
     let end = clean.indexOf(" ", i);
     const level = clean.substring(i, end);
