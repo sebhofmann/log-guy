@@ -16,6 +16,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.util.DisconnectedClientHelper;
 
 import de.gbv.logguy.server.reindex.ReindexException;
 import de.gbv.logguy.server.script.ScriptRequestException;
@@ -92,13 +93,18 @@ public class ApiExceptionHandler {
     }
 
     /**
-     * Solr is not reachable.
+     * Solr is not reachable. A client that went away, e.g. a closed tab with an event stream, also ends in an
+     * {@link IOException}; it is no error and gets no response, because the connection is gone.
      *
      * @param e the exception
-     * @return 502
+     * @return 502, or {@code null} if the client disconnected
      */
     @ExceptionHandler({ SolrServerException.class, IOException.class })
     public ResponseEntity<Map<String, String>> unreachable(Exception e) {
+        if (DisconnectedClientHelper.isClientDisconnectedException(e)) {
+            LOGGER.debug("client disconnected: {}", e.getMessage());
+            return null;
+        }
         LOGGER.warn("Solr or storage not reachable", e);
         return error(HttpStatus.BAD_GATEWAY, "Solr oder der Speicher ist gerade nicht erreichbar.");
     }
