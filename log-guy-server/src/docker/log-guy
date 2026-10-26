@@ -1,3 +1,18 @@
 #!/bin/sh
 # Starts the server (no arguments or "serve") or runs a command such as "check" or "solr init".
+# Started as root, it hands the writable directories to log-guy if FIX_FILE_SYSTEM_RIGHTS is true and then runs as
+# log-guy, so mounted host directories work without preparing their owner.
+set -e
+
+if [ "$(id -u)" -eq 0 ]; then
+  if [ "$FIX_FILE_SYSTEM_RIGHTS" = "true" ]; then
+    for dir in /var/lib/log-guy /etc/log-guy/scripts; do
+      mkdir -p "$dir"
+      find "$dir" \! -user log-guy -exec chown log-guy:log-guy '{}' +
+    done
+  fi
+  export HOME=/var/lib/log-guy
+  exec setpriv --reuid=log-guy --regid=log-guy --init-groups "$0" "$@"
+fi
+
 exec java $JAVA_OPTS --sun-misc-unsafe-memory-access=allow -jar /opt/log-guy/log-guy-server.jar "$@"

@@ -12,3 +12,6 @@ target/
 .classpath
 .settings/
 node_modules/
+
+# Docker Compose, data and generated configuration
+/docker-data/

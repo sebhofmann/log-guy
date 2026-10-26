@@ -1,4 +1,4 @@
-# Defaults of log-guy-agent. Overridden by /etc/log-guy-agent/agent.yml.
+# Defaults of log-guy-agent. Overridden by /etc/log-guy-agent/agent.yml and LOG_GUY_* environment variables.
 token-file: /etc/log-guy-agent/token
 chunk-size: 1048576
 send-interval: PT1S

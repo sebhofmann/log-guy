@@ -19,6 +19,27 @@ sources:
 
 Weitere Werte mit ihren Vorgaben stehen in `agent-defaults.yml` im JAR: `chunk-size` (1 MB), `send-interval` (1 s), `rotated-scan-interval` (60 s), `connect-timeout`, `request-timeout` und `retry-delay`.
 
+Statt der Datei geht alles auch über Umgebungsvariablen, praktisch im Compose-Projekt der Anwendung. `LOG_GUY_<SCHLÜSSEL>` setzt den Schlüssel aus `agent.yml`, mit `_` statt `-`. Das Token kann direkt in `LOG_GUY_TOKEN` stehen. Quellen werden durchnummeriert und ersetzen die Quellen aus der Datei:
+
+```yaml
+services:
+  log-guy-agent:
+    image: log-guy-agent
+    restart: unless-stopped
+    group_add: ["501"]
+    environment:
+      LOG_GUY_SERVER: https://log-guy.example.org
+      LOG_GUY_TOKEN: ${LOG_GUY_TOKEN}
+      LOG_GUY_HOST: app1
+      LOG_GUY_SOURCES_0_APP: digibib
+      LOG_GUY_SOURCES_0_LIVE: /logs/digibib/mycore-app.log
+      LOG_GUY_SOURCES_0_ROTATED: /logs/digibib/*/mycore-app-*.log.gz
+    volumes:
+      - ${MIR_LOGS}:/logs/digibib:ro
+```
+
+Vorrang von unten nach oben: Vorgaben im JAR, `agent.yml`, Umgebung, Kommandozeile. Leere Variablen zählen nicht.
+
 - Er liest die Live-Datei wie `tail -F` mit und schickt neue Bytes jede Sekunde oder sobald 1 MB zusammen ist.
 - Rotation erkennt er über den Inode. Die umbenannte Datei liest er bis zum Ende, bevor er zur neuen wechselt.
 - Pro Datei merkt er sich im Speicher den Offset, den log-guy zuletzt bestätigt hat. Ist log-guy nicht erreichbar, macht er später ab diesem Offset weiter, denn die Daten stehen ja noch in der Datei. Nach einem Neustart fragt er log-guy per `GET`, wie weit die Datei schon da ist. Eine eigene Zustandsdatei braucht der Agent deshalb nicht.
