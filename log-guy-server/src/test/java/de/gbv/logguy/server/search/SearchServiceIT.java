@@ -26,6 +26,7 @@ import org.springframework.util.unit.DataSize;
 
 import de.gbv.logguy.common.Fingerprint;
 import de.gbv.logguy.common.TestLogs;
+import de.gbv.logguy.server.config.AppGroups;
 import de.gbv.logguy.server.config.AppRegistry;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.AppProperties;
@@ -106,8 +107,8 @@ class SearchServiceIT {
         service.init();
         runtime = new ScriptRuntime(Duration.ofMillis(50));
         LogGuyProperties properties = new LogGuyProperties(dataDir, ZoneId.of("Europe/Berlin"),
-            Map.of("digibib", new AppProperties(null, "mycore-log4j"), "other", new AppProperties(null,
-                "mycore-log4j")),
+            Map.of("digibib", new AppProperties(null, "mycore-log4j", List.of("mir", "produktiv")), "other",
+                new AppProperties(null, "mycore-log4j", List.of("mir"))),
             List.of(), List.of(), new IngestProperties(DataSize.ofMegabytes(8), 4, Duration.ofSeconds(1)),
             new HotProperties(DataSize.ofKilobytes(64), Duration.ofSeconds(60), Duration.ofSeconds(5), 3),
             new ScriptProperties(dataDir.resolve("scripts"), Duration.ofMillis(50), DataSize.ofKilobytes(256), 10000,
@@ -138,7 +139,7 @@ class SearchServiceIT {
         context = new ContextService(properties, store, null);
         ScriptStore scripts = new ScriptStore(dataDir.resolve("scripts"), Clock.systemUTC(), JSON);
         scripts.scan();
-        pseudonyms = new PseudonymService(runtime, scripts, JSON);
+        pseudonyms = new PseudonymService(runtime, scripts, JSON, () -> AppGroups.NONE);
         pseudonymized = new PseudonymizedSearch(search, pseudonyms);
     }
 
@@ -202,6 +203,22 @@ class SearchServiceIT {
         assertEquals(0, search.search(scope(OTHER, "*:*", Map.of()), null, 10, false).total());
         assertEquals(0, search.search(scope(OTHER, "app:digibib", Map.of()), null, 10, false).total());
         assertEquals(0, search.search(scope(OTHER, "*:* OR app:digibib", Map.of()), null, 10, false).total());
+    }
+
+    @Test
+    void groupsStandForTheirReadableMembers() throws Exception {
+        assertEquals(Set.of("digibib"), search.apps(READER, List.of("@produktiv")));
+        assertEquals(Set.of("digibib"), search.apps(READER, List.of("@mir")));
+        assertEquals(Set.of("other"), search.apps(OTHER, List.of("@mir")));
+        assertThrows(SearchException.class, () -> search.apps(OTHER, List.of("@produktiv")));
+        assertThrows(SearchException.class, () -> search.apps(READER, List.of("@unbekannt")));
+        SearchService.FieldsView view = search.describeFields(OTHER, List.of("@mir"));
+        assertEquals(Map.of("mir", List.of("other")), view.groups());
+        assertEquals(List.of("other"), view.selected());
+        long all = search.search(scope(READER, "*:*", Map.of()), null, 10, false).total();
+        SearchScope group = search.scope(READER, new SearchRequest(List.of("@produktiv"), "*:*", FROM, TO,
+            Map.of()));
+        assertEquals(all, search.search(group, null, 10, false).total());
     }
 
     @Test

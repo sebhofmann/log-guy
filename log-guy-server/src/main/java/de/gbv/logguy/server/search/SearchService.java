@@ -27,6 +27,7 @@ import org.apache.solr.client.solrj.util.ClientUtils;
 import org.apache.solr.common.SolrDocument;
 import org.apache.solr.common.params.CursorMarkParams;
 
+import de.gbv.logguy.server.config.AppGroups;
 import de.gbv.logguy.server.config.AppRegistry;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.Right;
@@ -135,9 +136,10 @@ public class SearchService {
      * The applications of a request the user may read.
      *
      * @param user the user
-     * @param requested requested applications, empty for all allowed ones
+     * @param requested requested applications or application groups like {@code @produktiv}, empty for all allowed
+     *     ones. A group stands for its allowed members as they are now.
      * @return the applications, sorted
-     * @throws SearchException if an application is unknown or not allowed
+     * @throws SearchException if an application is unknown or not allowed, or a group has no allowed member
      */
     public Set<String> apps(LogGuyUser user, Collection<String> requested) {
         Set<String> allowed = user.readableApps(appRegistry.names());
@@ -146,6 +148,16 @@ public class SearchService {
         }
         Set<String> apps = new TreeSet<>();
         for (String app : requested) {
+            if (AppGroups.isGroup(app)) {
+                Set<String> members = appRegistry.groups().members(app.substring(AppGroups.PREFIX.length()));
+                members.retainAll(allowed);
+                if (members.isEmpty()) {
+                    throw new SearchException("Die Gruppe „" + app + "“ gibt es nicht oder sie enthält keine "
+                        + "freigegebene Anwendung.");
+                }
+                apps.addAll(members);
+                continue;
+            }
             if (!allowed.contains(app)) {
                 throw new SearchException("Die Anwendung „" + app + "“ gibt es nicht oder sie ist nicht freigegeben.");
             }
@@ -209,8 +221,16 @@ public class SearchService {
         FIXED_FIELDS.forEach((name, type) -> fields.add(new FieldInfo(name, type.name().toLowerCase(
             java.util.Locale.ROOT), FIXED_FACETS.contains(name), new TreeSet<>(apps))));
         fields.addAll(infos.values());
+        Map<String, List<String>> groups = new TreeMap<>();
+        AppGroups appGroups = appRegistry.groups();
+        for (String group : appGroups.names()) {
+            List<String> members = appGroups.members(group).stream().filter(allowed::contains).toList();
+            if (!members.isEmpty()) {
+                groups.put(group, members);
+            }
+        }
         return new FieldsView(List.copyOf(allowed), allowed.stream().filter(app -> !user.readsPlain(app)).toList(),
-            fields);
+            groups, List.copyOf(apps), fields);
     }
 
     /**
@@ -537,8 +557,11 @@ public class SearchService {
      *
      * @param apps all applications the user may read, also pseudonymized
      * @param pseudonymized the applications whose events the user only gets pseudonymized
+     * @param groups the application groups with their readable members, groups without any are left out
+     * @param selected the requested applications with the groups replaced by their members
      * @param fields the fields
      */
-    public record FieldsView(List<String> apps, List<String> pseudonymized, List<FieldInfo> fields) {
+    public record FieldsView(List<String> apps, List<String> pseudonymized, Map<String, List<String>> groups,
+        List<String> selected, List<FieldInfo> fields) {
     }
 }

@@ -40,7 +40,7 @@ Die Vorlage `standard` ist eingebaut und immer aktiv (`log-guy-server/src/main/r
 
 ```js
 export const meta = {
-    apps: ["*"],
+    apps: ["*"],                 // auch Muster oder Anwendungsgruppen wie "@mir"
     fields: ["login", "ip"],     // auf diesen Feldern nimmt das MCP nur Pseudonyme an
 };
 

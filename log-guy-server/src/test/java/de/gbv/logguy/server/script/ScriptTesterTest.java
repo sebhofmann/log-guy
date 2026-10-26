@@ -28,6 +28,7 @@ import org.springframework.util.unit.DataSize;
 
 import de.gbv.logguy.common.Fingerprint;
 import de.gbv.logguy.common.TestLogs;
+import de.gbv.logguy.server.config.AppGroups;
 import de.gbv.logguy.server.config.AppRegistry;
 import de.gbv.logguy.server.audit.Actor;
 import de.gbv.logguy.server.audit.Actor.Via;
@@ -126,7 +127,7 @@ class ScriptTesterTest {
         assertEquals(List.of(), parsers.load());
         AuditLog audit = new AuditLog(dir.resolve("audit"), ZoneOffset.UTC, Clock.systemUTC(), JSON);
         ScriptService service = new ScriptService(properties, apps, store, runtime, parsers, List.of(), audit);
-        pseudonyms = new PseudonymService(runtime, store, JSON);
+        pseudonyms = new PseudonymService(runtime, store, JSON, () -> AppGroups.NONE);
         tester =
             new ScriptTester(properties, apps, hot, runtime, service, null, parsers, pseudonyms, null,
                 Clock.systemUTC());

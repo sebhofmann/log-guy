@@ -95,7 +95,7 @@ public class McpTools {
 
     private static final String RANGE_SCHEMA = """
         "apps": {"type": "array", "items": {"type": "string"},
-          "description": "Anwendungen, leer für alle erlaubten"},
+          "description": "Anwendungen oder Anwendungsgruppen wie @produktiv, leer für alle erlaubten"},
         "query": {"type": "string",
           "description": "Solr-Syntax mit den Feldnamen aus list_applications, z. B. level:ERROR AND logger:MCRSolr*.\
          Pseudonyme wie $Nutzer1 werden zurückübersetzt, auf geschützten Feldern sind nur Pseudonyme erlaubt."},

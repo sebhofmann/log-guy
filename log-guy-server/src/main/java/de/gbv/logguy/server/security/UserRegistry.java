@@ -5,12 +5,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 
+import de.gbv.logguy.server.config.AppGroups;
+import de.gbv.logguy.server.config.LogGuyProperties.GrantProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.UserProperties;
 
 /**
@@ -23,12 +26,16 @@ public class UserRegistry implements UserDetailsService {
 
     private final AtomicReference<Map<String, UserProperties>> byName = new AtomicReference<>(Map.of());
 
+    private final Supplier<AppGroups> groups;
+
     /**
      * Creates the registry.
      *
      * @param users the configured users
+     * @param groups the application groups as they are now, replaced by their members in grants and tokens
      */
-    public UserRegistry(List<UserProperties> users) {
+    public UserRegistry(List<UserProperties> users, Supplier<AppGroups> groups) {
+        this.groups = groups;
         update(users);
     }
 
@@ -46,7 +53,8 @@ public class UserRegistry implements UserDetailsService {
     }
 
     /**
-     * Looks up a user with the current rights.
+     * Looks up a user with the current rights. Application groups in grants and tokens are replaced by their
+     * members as they are now, so a reload that changes a group changes the rights with the next request.
      *
      * @param name the login name
      * @param token the token used, {@code null} for a GUI session
@@ -57,8 +65,11 @@ public class UserRegistry implements UserDetailsService {
         if (user == null) {
             return Optional.empty();
         }
-        return Optional.of(token == null ? LogGuyUser.of(user.name(), user.grants())
-            : new LogGuyUser(user.name(), user.grants(), token.token(), token.apps(), token.mcp()));
+        AppGroups now = groups.get();
+        List<GrantProperties> grants = user.grants().stream()
+            .map(grant -> new GrantProperties(now.expand(grant.apps()), grant.rights())).toList();
+        return Optional.of(token == null ? LogGuyUser.of(user.name(), grants)
+            : new LogGuyUser(user.name(), grants, token.token(), now.expand(token.apps()), token.mcp()));
     }
 
     @Override

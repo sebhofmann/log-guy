@@ -33,6 +33,7 @@ import org.springframework.util.unit.DataSize;
 import de.gbv.logguy.common.Fingerprint;
 import de.gbv.logguy.common.StreamStatus;
 import de.gbv.logguy.common.TestLogs;
+import de.gbv.logguy.server.config.AppGroups;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.AppProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.ArchiveProperties;
@@ -160,7 +161,7 @@ class ArchiveWriterTest {
         try (HotStore hot = new HotStore(properties, JSON, Clock.systemUTC())) {
             HotFile file = fill(hot, sample, true);
             ArchiveStore archive = new ArchiveStore(properties, JSON);
-            LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON);
+            LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE);
             assertTrue(filters.errors().isEmpty(), filters.errors().toString());
             try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, parsers(), runtime)) {
                 await(() -> archive.find(file.fingerprint()).map(a -> a.meta().closed()).orElse(false));
@@ -213,7 +214,7 @@ class ArchiveWriterTest {
         try (HotStore hot = new HotStore(properties, JSON, Clock.systemUTC())) {
             HotFile file = fill(hot, data, true);
             ArchiveStore archive = new ArchiveStore(properties, JSON);
-            LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON);
+            LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE);
             try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, parsers(), runtime)) {
                 await(() -> archive.find(file.fingerprint()).map(a -> a.meta().closed()).orElse(false));
             }
@@ -255,7 +256,7 @@ class ArchiveWriterTest {
         try (HotStore hot = new HotStore(properties, JSON, Clock.systemUTC())) {
             HotFile file = fill(hot, sample, true);
             ArchiveStore archive = new ArchiveStore(properties, JSON);
-            LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON);
+            LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE);
             try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, parsers(), runtime)) {
                 await(() -> archive.find(file.fingerprint()).map(a -> a.meta().closed()).orElse(false));
                 assertEquals(1, writer.filterErrors());
@@ -290,7 +291,7 @@ class ArchiveWriterTest {
                 .getBytes(StandardCharsets.UTF_8);
             HotFile clean = fill(hot, other, true);
             ArchiveStore archive = new ArchiveStore(properties, JSON);
-            LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON);
+            LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE);
             try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, parsers(), runtime)) {
                 await(() -> archive.find(file.fingerprint()).map(a -> a.meta().closed()).orElse(false)
                     && archive.find(clean.fingerprint()).map(a -> a.meta().closed()).orElse(false));
@@ -328,7 +329,7 @@ class ArchiveWriterTest {
             HotFile file = fill(hot, sample, true);
             HotFile open = fill(hot, live, false);
             ArchiveStore archive = new ArchiveStore(properties, JSON);
-            LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON);
+            LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE);
             try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, parsers(), runtime)) {
                 await(() -> archive.find(file.fingerprint()).map(a -> a.meta().closed()).orElse(false));
             }
@@ -366,7 +367,7 @@ class ArchiveWriterTest {
         try (HotStore hot = new HotStore(properties, JSON, Clock.systemUTC())) {
             HotFile file = fill(hot, sample, true);
             ArchiveStore archive = new ArchiveStore(properties, JSON);
-            LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON);
+            LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE);
             assertEquals(1, filters.errors().size());
             try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, parsers(), runtime)) {
                 Thread.sleep(300);
@@ -394,7 +395,7 @@ class ArchiveWriterTest {
             file.append(0, start, start.length, "/logs/mycore-app.log", Instant.now());
             file.flushAged(Instant.now().plusSeconds(120));
             ArchiveStore archive = new ArchiveStore(properties, JSON);
-            LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON);
+            LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE);
             try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, parsers(), runtime)) {
                 long framed = file.framedLength();
                 assertTrue(framed < cut);
@@ -417,7 +418,7 @@ class ArchiveWriterTest {
         try (HotStore hot = new HotStore(properties, JSON, Clock.systemUTC())) {
             HotFile file = fill(hot, sample, true);
             ArchiveStore archive = new ArchiveStore(properties, JSON);
-            LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON);
+            LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE);
             try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, parsers(), runtime)) {
                 await(() -> archive.find(file.fingerprint()).map(a -> a.meta().closed()).orElse(false));
             }

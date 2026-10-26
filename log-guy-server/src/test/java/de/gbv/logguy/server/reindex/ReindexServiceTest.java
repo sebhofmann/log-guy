@@ -32,6 +32,7 @@ import org.springframework.util.unit.DataSize;
 
 import de.gbv.logguy.common.Fingerprint;
 import de.gbv.logguy.common.TestLogs;
+import de.gbv.logguy.server.config.AppGroups;
 import de.gbv.logguy.server.config.AppRegistry;
 import de.gbv.logguy.server.archive.ArchiveFile;
 import de.gbv.logguy.server.archive.ArchiveStore;
@@ -135,7 +136,7 @@ class ReindexServiceTest {
         source.close(data.length, "/logs/mycore-app.log", Instant.now());
         ScriptStore scripts = new ScriptStore(scriptDir, Clock.systemUTC(), JSON);
         try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive,
-            new LifecycleFilters(runtime, scripts, JSON), parsers, runtime)) {
+            new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE), parsers, runtime)) {
             Instant deadline = Instant.now().plusSeconds(30);
             while (!archive.find(source.fingerprint()).map(a -> a.meta().closed()).orElse(false)) {
                 assertTrue(Instant.now().isBefore(deadline), "archive not written");

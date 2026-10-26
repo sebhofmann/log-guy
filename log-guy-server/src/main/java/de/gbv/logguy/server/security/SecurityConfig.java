@@ -22,6 +22,7 @@ import org.springframework.security.web.authentication.www.BasicAuthenticationFi
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy;
 
 import de.gbv.logguy.common.IngestProtocol;
+import de.gbv.logguy.server.config.AppRegistry;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.TokenKind;
 
@@ -82,11 +83,12 @@ public class SecurityConfig {
      * The configured users, also used for the login.
      *
      * @param properties configuration
+     * @param apps the configured applications, for their groups
      * @return the registry
      */
     @Bean
-    public UserRegistry userRegistry(LogGuyProperties properties) {
-        return new UserRegistry(properties.users());
+    public UserRegistry userRegistry(LogGuyProperties properties, AppRegistry apps) {
+        return new UserRegistry(properties.users(), apps::groups);
     }
 
     /**

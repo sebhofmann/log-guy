@@ -14,7 +14,6 @@ import de.gbv.logguy.server.config.LogGuyProperties.GrantProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.TokenKind;
 import de.gbv.logguy.server.config.LogGuyProperties.TokenProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.UserProperties;
-import de.gbv.logguy.server.security.LogGuyUser;
 
 /**
  * Checks the configuration beyond what binding already ensures, like {@code nginx -t}.
@@ -38,11 +37,16 @@ public final class ConfigChecker {
      */
     public static List<String> check(LogGuyProperties properties) {
         List<String> errors = new ArrayList<>();
-        for (String app : properties.apps().keySet()) {
+        properties.apps().forEach((app, settings) -> {
             if (!NAME.matcher(app).matches()) {
                 errors.add("application " + app + ": invalid name");
             }
-        }
+            for (String group : settings == null ? List.<String>of() : settings.groups()) {
+                if (group == null || !NAME.matcher(group).matches()) {
+                    errors.add("application " + app + ": invalid group " + group);
+                }
+            }
+        });
         Set<String> names = new HashSet<>();
         Set<String> hashes = new HashSet<>();
         for (TokenProperties token : properties.tokens()) {
@@ -126,6 +130,7 @@ public final class ConfigChecker {
     }
 
     private static void checkUsers(LogGuyProperties properties, List<String> errors) {
+        AppGroups groups = AppGroups.of(properties.apps());
         Set<String> names = new HashSet<>();
         for (UserProperties user : properties.users()) {
             String label = "user " + user.name();
@@ -142,7 +147,7 @@ public final class ConfigChecker {
                     errors.add(label + ": every grant needs apps and rights");
                 }
                 for (String pattern : grant.apps()) {
-                    if (properties.apps().keySet().stream().noneMatch(app -> LogGuyUser.matches(pattern, app))) {
+                    if (properties.apps().keySet().stream().noneMatch(app -> groups.matches(pattern, app))) {
                         errors.add(label + ": pattern " + pattern + " matches no application");
                     }
                 }

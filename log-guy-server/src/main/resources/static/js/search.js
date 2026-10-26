@@ -24,7 +24,7 @@ const timelineBox = element('section', 'timeline');
 const logBox = element('section', 'log');
 
 let state;
-let fields = { apps: [], pseudonymized: [], fields: [] };
+let fields = { apps: [], pseudonymized: [], groups: {}, selected: [], fields: [] };
 
 const timeline = new Timeline(timelineBox, {
     onRange: (from, to) => update({ range: '', from: from.toISOString(), to: to.toISOString(), at: '' }),
@@ -150,7 +150,7 @@ async function load() {
     const params = apiParams(state, currentRange);
     const names = fields.fields.map(f => f.name);
     const columns = state.cols ?? defaultColumns();
-    const showApp = state.apps.length !== 1 && fields.apps.length > 1;
+    const showApp = fields.selected.length > 1;
     const split = names.includes('level') ? 'level' : null;
     timeline.load(params, split);
     loadFacets(params);
@@ -177,13 +177,23 @@ function renderApps() {
     const pseudonymized = new Set(fields.pseudonymized);
     const summary = element('summary', null,
         selected.size ? `Anwendungen: ${[...selected].join(', ')}` : 'Alle Anwendungen');
-    if ((selected.size ? [...selected] : fields.apps).some(app => pseudonymized.has(app))) {
+    if (fields.selected.some(app => pseudonymized.has(app))) {
         const badge = element('span', 'badge warn', 'pseudonymisiert');
         badge.title = 'Mindestens eine Anwendung ist nur pseudonymisiert freigegeben. Deshalb zeigt die ganze Suche '
             + 'Pseudonyme wie $Nutzer1 statt der echten Werte. Suche und Filter nehmen diese Pseudonyme an.';
         summary.append(' ', badge);
     }
     const list = element('div', 'app-list');
+    for (const [group, members] of Object.entries(fields.groups)) {
+        const label = element('label', 'app-group');
+        label.title = members.join(', ');
+        const box = element('input');
+        box.type = 'checkbox';
+        box.value = `@${group}`;
+        box.checked = selected.has(box.value);
+        label.append(box, document.createTextNode(` @${group} `), element('span', 'muted', `(${members.length})`));
+        list.append(label);
+    }
     for (const app of fields.apps) {
         const label = element('label');
         const box = element('input');

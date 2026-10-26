@@ -120,11 +120,12 @@ public class ServerConfig {
      *
      * @param runtime the script runtime
      * @param store the scripts
+     * @param apps the configured applications, for their groups
      * @return the rules
      */
     @Bean
-    public AlertRules alertRules(ScriptRuntime runtime, ScriptStore store) {
-        return new AlertRules(runtime, store);
+    public AlertRules alertRules(ScriptRuntime runtime, ScriptStore store, AppRegistry apps) {
+        return new AlertRules(runtime, store, apps::groups);
     }
 
     /**
@@ -220,7 +221,7 @@ public class ServerConfig {
     public AlertService alertService(LogGuyProperties properties, AppRegistry apps, AlertRules rules,
         List<Notifier> notifiers, AuditLog audit, Clock clock, JsonMapper json) throws IOException {
         return new AlertService(properties.alerts(), rules, new AlertStore(properties.stateDir(), json), notifiers,
-            apps::names, audit, clock);
+            apps, audit, clock);
     }
 
     /**
@@ -242,11 +243,13 @@ public class ServerConfig {
      * @param runtime the script runtime
      * @param store the scripts
      * @param json for passing events to {@code fields(event)}
+     * @param apps the configured applications, for their groups
      * @return the filters
      */
     @Bean
-    public LifecycleFilters lifecycleFilters(ScriptRuntime runtime, ScriptStore store, JsonMapper json) {
-        return new LifecycleFilters(runtime, store, json);
+    public LifecycleFilters lifecycleFilters(ScriptRuntime runtime, ScriptStore store, JsonMapper json,
+        AppRegistry apps) {
+        return new LifecycleFilters(runtime, store, json, apps::groups);
     }
 
     /**
@@ -362,11 +365,13 @@ public class ServerConfig {
      * @param runtime the script runtime
      * @param store the scripts
      * @param json for passing events to the scripts
+     * @param apps the configured applications, for their groups
      * @return the service
      */
     @Bean(destroyMethod = "close")
-    public PseudonymService pseudonymService(ScriptRuntime runtime, ScriptStore store, JsonMapper json) {
-        return new PseudonymService(runtime, store, json);
+    public PseudonymService pseudonymService(ScriptRuntime runtime, ScriptStore store, JsonMapper json,
+        AppRegistry apps) {
+        return new PseudonymService(runtime, store, json, apps::groups);
     }
 
     /**

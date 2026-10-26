@@ -216,6 +216,8 @@ class ScriptServiceTest {
         assertTrue(service.may(ROOT, MYCORE, null, null));
         assertTrue(service.may(LEO_ADMIN, ERRORS, null, RULE));
         assertFalse(service.may(LEO_ADMIN, ERRORS, null, RULE_ALL));
+        assertFalse(service.may(LEO_ADMIN, ERRORS, null, RULE_ALL.replace("\"*\"", "\"@mir\"")));
+        assertTrue(service.may(ROOT, ERRORS, null, RULE_ALL.replace("\"*\"", "\"@mir\"")));
         assertFalse(service.may(LEO_ADMIN, new ScriptId(ScriptKind.PSEUDONYM, "standard"), null, null));
         assertThrows(AccessDeniedException.class, () -> service.saveDraft(gui(LEO_ADMIN), ERRORS, RULE_ALL, null));
         assertThrows(AccessDeniedException.class, () -> service.get(LEO_ADMIN, MYCORE));

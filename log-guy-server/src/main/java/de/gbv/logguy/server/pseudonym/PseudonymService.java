@@ -11,6 +11,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import java.util.concurrent.locks.ReentrantLock;
 
 import org.apache.logging.log4j.LogManager;
@@ -19,6 +20,7 @@ import org.graalvm.polyglot.Context;
 import org.graalvm.polyglot.PolyglotException;
 import org.graalvm.polyglot.Value;
 
+import de.gbv.logguy.server.config.AppGroups;
 import de.gbv.logguy.server.script.ModuleInfo;
 import de.gbv.logguy.server.script.ScriptException;
 import de.gbv.logguy.server.script.ScriptKind;
@@ -28,7 +30,6 @@ import de.gbv.logguy.server.script.ScriptStore;
 import de.gbv.logguy.server.script.ScriptStore.ScriptId;
 import de.gbv.logguy.server.script.Templates;
 import de.gbv.logguy.server.script.TextFunctions;
-import de.gbv.logguy.server.security.LogGuyUser;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -49,6 +50,8 @@ public class PseudonymService implements ScriptListener, AutoCloseable {
 
     private final JsonMapper json;
 
+    private final Supplier<AppGroups> groups;
+
     private final AtomicReference<Modules> modules = new AtomicReference<>(new Modules(List.of(), List.of()));
 
     /**
@@ -57,10 +60,12 @@ public class PseudonymService implements ScriptListener, AutoCloseable {
      * @param runtime the script runtime
      * @param store the scripts
      * @param json for passing events to the scripts
+     * @param groups the application groups as they are now
      */
-    public PseudonymService(ScriptRuntime runtime, ScriptStore store, JsonMapper json) {
+    public PseudonymService(ScriptRuntime runtime, ScriptStore store, JsonMapper json, Supplier<AppGroups> groups) {
         this.runtime = runtime;
         this.json = json;
+        this.groups = groups;
         load(store.active());
     }
 
@@ -149,8 +154,9 @@ public class PseudonymService implements ScriptListener, AutoCloseable {
             return Optional.empty();
         }
         Map<String, Object> result = event;
+        AppGroups now = groups.get();
         for (Module module : current.modules()) {
-            if (apps == null || apps.stream().anyMatch(module::appliesTo)) {
+            if (apps == null || apps.stream().anyMatch(app -> module.appliesTo(app, now))) {
                 Optional<Map<String, Object>> next = module.apply(runtime, json, session, result);
                 if (next.isEmpty()) {
                     return next;
@@ -184,8 +190,9 @@ public class PseudonymService implements ScriptListener, AutoCloseable {
      */
     public Set<String> protectedFields(String app) {
         Set<String> fields = new TreeSet<>();
+        AppGroups now = groups.get();
         for (Module module : modules.get().modules()) {
-            if (module.appliesTo(app)) {
+            if (module.appliesTo(app, now)) {
                 fields.addAll(module.fields());
             }
         }
@@ -206,6 +213,7 @@ public class PseudonymService implements ScriptListener, AutoCloseable {
     public PseudonymTestResult test(ScriptId id, String code, List<Map<String, Object>> events, int sample)
         throws ScriptException {
         Module module = Module.load(runtime, id, code);
+        AppGroups now = groups.get();
         try {
             Pseudonyms session = new Pseudonyms();
             List<Map<String, Object>> shown = new ArrayList<>();
@@ -215,7 +223,7 @@ public class PseudonymService implements ScriptListener, AutoCloseable {
             for (Map<String, Object> event : events) {
                 index++;
                 String app = event.get("app") instanceof String name ? name : "";
-                Optional<Map<String, Object>> result = module.appliesTo(app)
+                Optional<Map<String, Object>> result = module.appliesTo(app, now)
                     ? module.apply(runtime, json, session, event) : Optional.of(event);
                 if (result.isEmpty()) {
                     held++;
@@ -317,8 +325,8 @@ public class PseudonymService implements ScriptListener, AutoCloseable {
             }
         }
 
-        boolean appliesTo(String app) {
-            return apps.stream().anyMatch(pattern -> LogGuyUser.matches(pattern, app));
+        boolean appliesTo(String app, AppGroups groups) {
+            return groups.matchesAny(apps, app);
         }
 
         Optional<Map<String, Object>> apply(ScriptRuntime runtime, JsonMapper json, Pseudonyms session,

@@ -16,6 +16,8 @@ public class AppRegistry {
 
     private final AtomicReference<Map<String, AppProperties>> apps = new AtomicReference<>(Map.of());
 
+    private final AtomicReference<AppGroups> groups = new AtomicReference<>(AppGroups.NONE);
+
     /**
      * Creates the registry with the applications of the start.
      *
@@ -32,6 +34,16 @@ public class AppRegistry {
      */
     public final void update(Map<String, AppProperties> configured) {
         apps.set(Collections.unmodifiableSortedMap(new TreeMap<>(configured)));
+        groups.set(AppGroups.of(configured));
+    }
+
+    /**
+     * The application groups as they are now. The instance changes with every update.
+     *
+     * @return the groups
+     */
+    public AppGroups groups() {
+        return groups.get();
     }
 
     /**

@@ -28,6 +28,7 @@ import de.gbv.logguy.server.alert.RuleTester;
 import de.gbv.logguy.server.alert.RuleTester.RuleTestResult;
 import de.gbv.logguy.server.archive.LifecycleFilters;
 import de.gbv.logguy.server.archive.LifecycleFilters.LifecycleTestResult;
+import de.gbv.logguy.server.config.AppGroups;
 import de.gbv.logguy.server.config.AppRegistry;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.AlertProperties;
@@ -259,8 +260,9 @@ public class ScriptTester {
         } catch (ScriptException e) {
             throw new ScriptRequestException(Reason.INVALID, "Das Skript ist fehlerhaft: " + e.getMessage());
         }
+        AppGroups groups = appRegistry.groups();
         Set<String> apps = new TreeSet<>(user.readableApps(appRegistry.names()));
-        apps.removeIf(app -> !rule.appliesTo(app));
+        apps.removeIf(app -> !rule.appliesTo(app, groups));
         if (source != null && source.app() != null) {
             if (!apps.contains(source.app())) {
                 throw new ScriptRequestException(Reason.INVALID,
@@ -273,7 +275,7 @@ public class ScriptTester {
         String label = (apps.size() == 1 ? "Anwendung " + apps.iterator().next() : apps.size() + " Anwendungen")
             + " von " + from + " bis " + to;
         RuleTestResult result;
-        try (RuleTester tester = new RuleTester(runtime, rule, alerts, from, to, apps)) {
+        try (RuleTester tester = new RuleTester(runtime, rule, alerts, from, to, apps, groups)) {
             boolean truncated = false;
             if (!apps.isEmpty()) {
                 SearchScope scope = search.scope(user, new SearchRequest(List.copyOf(apps), null, from, to, Map.of()));

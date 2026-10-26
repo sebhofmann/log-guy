@@ -265,6 +265,12 @@ header.top .logout button {
   margin-top: 8px;
 }
 
+.filter-bar .app-list .app-group + label:not(.app-group) {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
 .ranges {
   display: flex;
 }

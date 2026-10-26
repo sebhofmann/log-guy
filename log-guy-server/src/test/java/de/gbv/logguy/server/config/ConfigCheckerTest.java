@@ -52,6 +52,20 @@ class ConfigCheckerTest {
     }
 
     @Test
+    void groups() {
+        String hash = "$argon2id$v=19$m=16384,t=2,p=1$c2FsdA$aGFzaA";
+        Map<String, AppProperties> apps = Map.of("digibib", new AppProperties(7, null, List.of("mir", "produktiv")),
+            "rolf", new AppProperties(7, null, List.of("bad group")));
+        List<UserProperties> users = List.of(new UserProperties("anna", hash, List.of(
+            new GrantProperties(List.of("@produktiv"), Set.of(Right.READ)),
+            new GrantProperties(List.of("@test"), Set.of(Right.READ)))));
+        List<String> errors = ConfigChecker.check(new LogGuyProperties(Path.of("/tmp"), ZoneId.of("Europe/Berlin"),
+            apps, null, users, null, null, null, null, null, null, null, null, null, null, null, null, null, null));
+        assertEquals(List.of("application rolf: invalid group bad group",
+            "user anna: pattern @test matches no application"), errors);
+    }
+
+    @Test
     void validTokens() {
         String hash = TokenRegistry.hash(TokenRegistry.generate(TokenKind.INGEST));
         assertEquals(List.of(), ConfigChecker.check(properties(List.of(

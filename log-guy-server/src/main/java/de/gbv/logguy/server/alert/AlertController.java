@@ -28,6 +28,7 @@ import jakarta.servlet.http.HttpSession;
 import de.gbv.logguy.server.alert.Alert.State;
 import de.gbv.logguy.server.audit.Actor;
 import de.gbv.logguy.server.audit.Actor.Via;
+import de.gbv.logguy.server.config.AppGroups;
 import de.gbv.logguy.server.config.AppRegistry;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.AlertProperties;
@@ -184,10 +185,10 @@ public class AlertController {
     public AlertService.RuleStatus rules() {
         LogGuyUser user = currentUser.get();
         Set<String> readable = user.asPseudonymized().readableApps(appRegistry.names());
+        AppGroups groups = appRegistry.groups();
         AlertService.RuleStatus status = alerts.ruleStatus();
         List<AlertService.RuleInfo> visible = status.rules().stream()
-            .filter(rule -> user.isAdmin() || rule.apps().stream()
-                .anyMatch(pattern -> readable.stream().anyMatch(app -> LogGuyUser.matches(pattern, app))))
+            .filter(rule -> user.isAdmin() || readable.stream().anyMatch(app -> groups.matchesAny(rule.apps(), app)))
             .toList();
         return new AlertService.RuleStatus(visible, user.isAdmin() ? status.errors() : List.of());
     }

@@ -39,6 +39,7 @@ import de.gbv.logguy.server.archive.ArchiveFile;
 import de.gbv.logguy.server.archive.ArchiveStore;
 import de.gbv.logguy.server.archive.ArchiveWriter;
 import de.gbv.logguy.server.archive.LifecycleFilters;
+import de.gbv.logguy.server.config.AppGroups;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.AppProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.ArchiveProperties;
@@ -134,7 +135,7 @@ class FileServiceTest {
         fingerprint = source.fingerprint();
         ScriptStore scripts = new ScriptStore(scriptDir, Clock.systemUTC(), JSON);
         try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive,
-            new LifecycleFilters(runtime, scripts, JSON), parsers, runtime)) {
+            new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE), parsers, runtime)) {
             Instant deadline = Instant.now().plusSeconds(30);
             while (!archive.find(fingerprint).map(a -> a.meta().closed()).orElse(false)) {
                 assertTrue(Instant.now().isBefore(deadline), "archive not written");

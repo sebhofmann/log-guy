@@ -20,6 +20,7 @@ import org.springframework.security.access.AccessDeniedException;
 
 import de.gbv.logguy.server.audit.Actor;
 import de.gbv.logguy.server.audit.AuditLog;
+import de.gbv.logguy.server.config.AppGroups;
 import de.gbv.logguy.server.config.AppRegistry;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.AppProperties;
@@ -430,7 +431,9 @@ public class ScriptService {
     }
 
     /**
-     * Whether the user may see and edit a script, judged by the active code and the draft.
+     * Whether the user may see and edit a script, judged by the active code and the draft. Scripts with {@code *}
+     * or an application group in {@code meta.apps} are for administrators only, because the applications they
+     * cover change with the configuration.
      *
      * @param user the user
      * @param id the script
@@ -456,7 +459,8 @@ public class ScriptService {
                 }
             }
         }
-        if (patterns.isEmpty() || patterns.stream().anyMatch(pattern -> pattern.contains("*"))) {
+        if (patterns.isEmpty()
+            || patterns.stream().anyMatch(pattern -> pattern.contains("*") || AppGroups.isGroup(pattern))) {
             return user.isAdmin();
         }
         return patterns.stream().allMatch(app -> user.may(Right.SCRIPTS, app) && user.mayRead(app));

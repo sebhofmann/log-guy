@@ -6,7 +6,7 @@ Jeder Filter ist ein JavaScript-Modul in `scripts/lifecycle/`.
 
 | Export | Pflicht | Aufgabe |
 | --- | --- | --- |
-| `meta` | ja | Anwendungen, für die der Filter gilt |
+| `meta` | ja | Anwendungen, für die der Filter gilt: Namen, Muster wie `*-apache` oder Anwendungsgruppen wie `@mir` |
 | `line(text)` | nein | bekommt jede Zeile auf dem Weg ins Archiv, gibt die neue Zeile zurück oder `null`, dann fehlt sie im Archiv |
 | `fields(event)` | nein | verändert nur die Felder im Index, z.B. um Passwörter aus `message` zu entfernen |
 

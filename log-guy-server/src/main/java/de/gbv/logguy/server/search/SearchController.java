@@ -30,7 +30,8 @@ import de.gbv.logguy.server.security.CurrentUser;
 import de.gbv.logguy.server.security.LogGuyUser;
 
 /**
- * The search API. Common parameters: {@code apps} (comma separated, empty for all allowed), {@code q} (Solr syntax
+ * The search API. Common parameters: {@code apps} (comma separated applications or application groups like
+ * {@code @produktiv}, empty for all allowed), {@code q} (Solr syntax
  * with declared field names), {@code from} and {@code to} (ISO-8601 instants) and {@code f.<field>} (filter values,
  * repeatable).
  * <p>
@@ -133,9 +134,9 @@ public class SearchController {
     }
 
     /**
-     * The allowed applications and the fields of the requested ones.
+     * The allowed applications, their groups and the fields of the requested ones.
      *
-     * @param apps applications, comma separated, empty for all allowed
+     * @param apps applications or groups, comma separated, empty for all allowed
      * @return applications and fields
      */
     @GetMapping("/fields")

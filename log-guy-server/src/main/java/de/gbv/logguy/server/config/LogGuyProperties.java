@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.Set;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 import org.springframework.util.unit.DataSize;
 
 /**
@@ -94,8 +95,28 @@ public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppPropert
      *
      * @param indexDays how many days of this application stay in the index, overrides the global value
      * @param parser name of the parser script in {@code scripts/parser/}, defaults to the application name
+     * @param groups application groups the application belongs to, e.g. {@code mir}. Scripts and grants name a
+     *     group as {@code @mir}.
      */
-    public record AppProperties(Integer indexDays, String parser) {
+    public record AppProperties(Integer indexDays, String parser, List<String> groups) {
+
+        /**
+         * Normalizes missing groups.
+         */
+        @ConstructorBinding
+        public AppProperties {
+            groups = groups == null ? List.of() : List.copyOf(groups);
+        }
+
+        /**
+         * Settings without groups.
+         *
+         * @param indexDays how many days of this application stay in the index
+         * @param parser name of the parser script
+         */
+        public AppProperties(Integer indexDays, String parser) {
+            this(indexDays, parser, List.of());
+        }
     }
 
     /**
@@ -163,7 +184,7 @@ public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppPropert
     /**
      * Rights for the applications matching some patterns.
      *
-     * @param apps application names or patterns like {@code digibib*}
+     * @param apps application names, patterns like {@code digibib*} or application groups like {@code @mir}
      * @param rights the granted rights
      */
     public record GrantProperties(List<String> apps, Set<Right> rights) {

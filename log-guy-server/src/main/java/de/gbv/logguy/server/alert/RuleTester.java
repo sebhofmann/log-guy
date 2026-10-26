@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.TreeMap;
 
 import de.gbv.logguy.server.alert.AlertEngine.Notification;
+import de.gbv.logguy.server.config.AppGroups;
 import de.gbv.logguy.server.config.LogGuyProperties.AlertProperties;
 import de.gbv.logguy.server.script.ScriptRuntime;
 
@@ -28,6 +29,8 @@ public final class RuleTester implements AutoCloseable {
     private final Instant to;
 
     private final Collection<String> apps;
+
+    private final AppGroups groups;
 
     private final AlertEngine engine;
 
@@ -62,15 +65,17 @@ public final class RuleTester implements AutoCloseable {
      * @param from start of the replayed range
      * @param to end of the replayed range
      * @param apps the applications of the test, for silence rules
+     * @param groups the application groups
      */
     public RuleTester(ScriptRuntime runtime, RuleDefinition rule, AlertProperties settings, Instant from,
-        Instant to, Collection<String> apps) {
+        Instant to, Collection<String> apps, AppGroups groups) {
         this.rule = rule;
         this.settings = settings;
         this.to = to;
         this.apps = List.copyOf(apps);
+        this.groups = groups;
         this.engine = new AlertEngine(settings.defaultCooldown(), Duration.ofDays(36_500), settings.maxText(), from);
-        this.runner = AlertRules.runner(runtime, List.of(rule), (failed, error) -> {
+        this.runner = AlertRules.runner(runtime, List.of(rule), groups, (failed, error) -> {
             errors++;
             if (errorSamples.size() < MAX_ERRORS) {
                 errorSamples.add(error);
@@ -112,7 +117,7 @@ public final class RuleTester implements AutoCloseable {
     private void tickUntil(Instant ts) {
         // every interval, as live: jumping over quiet stretches would delay summaries and silence
         while (!nextTick.isAfter(ts)) {
-            engine.tick(nextTick, List.of(rule), apps, runner::message);
+            engine.tick(nextTick, List.of(rule), apps, groups, runner::message);
             collect();
             nextTick = nextTick.plus(settings.tickInterval());
         }

@@ -12,7 +12,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Supplier;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -20,6 +19,7 @@ import org.apache.logging.log4j.Logger;
 import de.gbv.logguy.server.alert.Alert.State;
 import de.gbv.logguy.server.audit.Actor;
 import de.gbv.logguy.server.audit.AuditLog;
+import de.gbv.logguy.server.config.AppRegistry;
 import de.gbv.logguy.server.config.LogGuyProperties.AlertProperties;
 import de.gbv.logguy.server.index.EventChecker;
 import de.gbv.logguy.server.script.ParsedEvent;
@@ -43,7 +43,7 @@ public class AlertService implements EventChecker, AutoCloseable {
 
     private final List<Notifier> notifiers;
 
-    private final Supplier<Set<String>> apps;
+    private final AppRegistry apps;
 
     private final AuditLog audit;
 
@@ -66,13 +66,13 @@ public class AlertService implements EventChecker, AutoCloseable {
      * @param rules the active rules
      * @param store the alert file
      * @param notifiers where notifications go
-     * @param apps the configured applications, for silence rules
+     * @param apps the configured applications, for silence rules and their groups
      * @param audit the audit log, for acknowledgements
      * @param clock the clock
      * @throws IOException if the alert file cannot be read
      */
     public AlertService(AlertProperties settings, AlertRules rules, AlertStore store, List<Notifier> notifiers,
-        Supplier<Set<String>> apps, AuditLog audit, Clock clock) throws IOException {
+        AppRegistry apps, AuditLog audit, Clock clock) throws IOException {
         this.settings = settings;
         this.rules = rules;
         this.store = store;
@@ -156,7 +156,7 @@ public class AlertService implements EventChecker, AutoCloseable {
     }
 
     private void tick(AlertRules.Runner runner) {
-        engine.tick(clock.instant(), rules.rules(), apps.get(), runner::message);
+        engine.tick(clock.instant(), rules.rules(), apps.names(), apps.groups(), runner::message);
         flush();
     }
 

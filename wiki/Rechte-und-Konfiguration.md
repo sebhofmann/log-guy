@@ -15,6 +15,16 @@ Anwendungen, Nutzer, Rechte und Tokens stehen in der Spring-Konfiguration applic
 
 Rechte werden pro Anwendung vergeben. Muster wie `digibib*` treffen `digibib` und `digibib-apache` zusammen.
 
+### Anwendungsgruppen
+
+Eine Anwendung kann unter `groups` zu Anwendungsgruppen gehören, z.B. `groups: [mir, produktiv]`. Überall, wo sonst Anwendungen oder Muster stehen, steht `@mir` für alle Anwendungen der Gruppe:
+
+- `meta.apps` von Meldungsregeln, Lifecycle-Filtern und Pseudonymisierungsskripten, z.B. `apps: ["@mir"]`. Eine neue MIR-Anwendung bekommt dann nur `groups: [mir]` und ist sofort in allen Regeln.
+- `apps` der Freigaben unter `grants` und von `api`- und `mcp`-Tokens.
+- `apps` der Suche, in der GUI als eigene Einträge über den Anwendungen, siehe [Suche](Suche.md).
+
+Gruppen werden bei jeder Verwendung aus der aktuellen Konfiguration aufgelöst und nicht indexiert. Ändert ein `log-guy reload` die Gruppen, gelten Regeln, Filter, Rechte und Suche sofort für die neuen Mitglieder, ohne Neuindexierung. Gruppennamen folgen denselben Regeln wie Anwendungsnamen. Ingest-Tokens nennen ihre Anwendungen weiter einzeln, weil der Agent pro Anwendung liefert. Skripte mit `*` oder einer Gruppe in `meta.apps` darf nur ein Administrator bearbeiten, weil sich die erfassten Anwendungen mit der Konfiguration ändern.
+
 ### Beispiel
 
 ```yaml
@@ -23,6 +33,7 @@ log-guy:
     digibib:
       index-days: 7
       parser: mycore-log4j
+      groups: [mir, produktiv]
     digibib-apache:
       index-days: 7
       parser: apache-combined
@@ -39,6 +50,8 @@ log-guy:
           rights: [read, archive]
         - apps: ["leopoldina*"]
           rights: [read_pseudonymized]
+        - apps: ["@produktiv"]
+          rights: [read]
   tokens:
     - name: agent-app1
       kind: ingest
@@ -64,7 +77,7 @@ log-guy:
 - Tokens beginnen mit `lg_<art>_`, z.B. `lg_ingest_...`, danach 32 Zufallsbytes in Base64. Konfiguriert ist nur `sha256:<hex>` des ganzen Tokens.
 - `log-guy check` prüft die Tokens: Name eindeutig, Hash im richtigen Format, Ingest-Tokens mit Host und Anwendungen, die unter `log-guy.apps` stehen.
 - Passwörter werden mit Argon2id gehasht, mit den Parametern von Spring Security. `log-guy password hash --name anna` liest das Passwort ohne Echo vom Terminal oder als erste Zeile von stdin und gibt den Eintrag für `log-guy.users` aus.
-- `log-guy check` prüft auch die Nutzer: Name eindeutig, Hash im Argon2id-Format, jedes Muster einer Freigabe trifft mindestens eine Anwendung, `api`- und `mcp`-Tokens gehören zu einem konfigurierten Nutzer.
+- `log-guy check` prüft auch die Nutzer: Name eindeutig, Hash im Argon2id-Format, jedes Muster und jede Gruppe einer Freigabe trifft mindestens eine Anwendung, Gruppennamen sind gültig, `api`- und `mcp`-Tokens gehören zu einem konfigurierten Nutzer.
 - `admin` auf eine Anwendung schließt alle anderen Rechte für sie ein. Administrator von log-guy selbst, also Status, Server-Log und Log-Level, ist, wer `admin` mit `apps: ["*"]` hat.
 - Ein `api`-Token kann mit `apps` auf einen Teil der Anwendungen seines Nutzers eingeschränkt werden. Ohne `apps` darf es alles, was der Nutzer darf.
 - Jedes Token gilt nur auf seinem eigenen Endpunkt: `ingest` auf `/api/v1/streams`, `api` auf `/api/**` außer den Streams, `mcp` nur auf dem MCP-Pfad (`log-guy.mcp.path`). Ein Token am falschen Endpunkt behandelt log-guy wie ein unbekanntes, Antwort 401.

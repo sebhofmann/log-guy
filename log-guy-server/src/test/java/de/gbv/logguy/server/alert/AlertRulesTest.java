@@ -10,6 +10,8 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -17,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import de.gbv.logguy.server.alert.RuleDefinition.Type;
+import de.gbv.logguy.server.config.AppGroups;
 import de.gbv.logguy.server.script.ScriptException;
 import de.gbv.logguy.server.script.ScriptRuntime;
 import de.gbv.logguy.server.script.ScriptStore;
@@ -52,7 +55,7 @@ class AlertRulesTest {
         RuleDefinition pool = AlertRules.define(runtime, "pool", POOL);
         assertEquals(Type.HIT, pool.type());
         assertEquals(Duration.ofMinutes(15), pool.cooldown());
-        assertTrue(pool.appliesTo("leopoldina"));
+        assertTrue(pool.appliesTo("leopoldina", AppGroups.NONE));
         assertTrue(pool.hasMessage());
         RuleDefinition threshold = AlertRules.define(runtime, "fehler", """
             export const meta = { apps: ["*"], threshold: { count: 50, within: "5m", per: "app" } };
@@ -85,7 +88,7 @@ class AlertRulesTest {
             """);
         ScriptStore store = new ScriptStore(dir, Clock.systemUTC(), JsonMapper.builder().build());
         store.setActive(store.scan());
-        AlertRules alertRules = new AlertRules(runtime, store);
+        AlertRules alertRules = new AlertRules(runtime, store, () -> AppGroups.NONE);
         assertEquals(2, alertRules.rules().size());
         Map<String, Object> event = Map.of("app", "digibib", "level", "WARN", "message",
             "HikariPool-1 - Connection is not available, request timed out", "tags", List.of("a", "b"));
@@ -98,5 +101,26 @@ class AlertRulesTest {
         }
         assertEquals(2L, alertRules.checkErrors().get("boom"));
         assertTrue(alertRules.lastErrors().get("boom").contains("boom"));
+    }
+
+    @Test
+    void runnerFollowsGroupChanges() throws Exception {
+        Path rules = Files.createDirectories(dir.resolve("rule"));
+        Files.writeString(rules.resolve("mir.js"), """
+            export const meta = { apps: ["@mir"] };
+            export function check(event) { return event.level === "ERROR"; }
+            """);
+        ScriptStore store = new ScriptStore(dir, Clock.systemUTC(), JsonMapper.builder().build());
+        store.setActive(store.scan());
+        AtomicReference<AppGroups> groups = new AtomicReference<>(
+            new AppGroups(Map.of("digibib", Set.of("mir", "produktiv"))));
+        AlertRules alertRules = new AlertRules(runtime, store, groups::get);
+        Map<String, Object> event = Map.of("app", "rolf", "level", "ERROR", "message", "x");
+        try (AlertRules.Runner runner = alertRules.runner()) {
+            assertEquals(1, runner.check("digibib", event).size());
+            assertEquals(List.of(), runner.check("rolf", event));
+            groups.set(new AppGroups(Map.of("digibib", Set.of("mir"), "rolf", Set.of("mir"))));
+            assertEquals(1, runner.check("rolf", event).size());
+        }
     }
 }

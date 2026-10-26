@@ -15,6 +15,7 @@ import java.util.function.Function;
 
 import de.gbv.logguy.server.alert.Alert.State;
 import de.gbv.logguy.server.alert.RuleDefinition.Type;
+import de.gbv.logguy.server.config.AppGroups;
 
 /**
  * Counters, timers and states of the alerts, without I/O. The time is passed in, so the same logic runs live with
@@ -264,10 +265,11 @@ public final class AlertEngine {
      * @param now the current time
      * @param rules the active rules
      * @param apps the configured applications, for silence rules
+     * @param groups the application groups, for silence rules
      * @param messages texts of the rules
      */
     public synchronized void tick(Instant now, List<RuleDefinition> rules, Collection<String> apps,
-        Messages messages) {
+        AppGroups groups, Messages messages) {
         Map<String, RuleDefinition> byName = new HashMap<>();
         rules.forEach(rule -> byName.put(rule.name(), rule));
         for (Map.Entry<Key, String> entry : new ArrayList<>(active.entrySet())) {
@@ -295,7 +297,7 @@ public final class AlertEngine {
                 continue;
             }
             for (String app : apps) {
-                if (!rule.appliesTo(app)) {
+                if (!rule.appliesTo(app, groups)) {
                     continue;
                 }
                 Key key = new Key(rule.name(), app, null);

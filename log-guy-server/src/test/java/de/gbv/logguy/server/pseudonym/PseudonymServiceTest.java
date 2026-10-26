@@ -21,6 +21,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import de.gbv.logguy.server.config.AppGroups;
 import de.gbv.logguy.server.script.ScriptKind;
 import de.gbv.logguy.server.script.ScriptRuntime;
 import de.gbv.logguy.server.script.ScriptStore;
@@ -56,7 +57,7 @@ class PseudonymServiceTest {
         Files.createDirectories(dir.resolve("scripts"));
         store = new ScriptStore(dir.resolve("scripts"), Clock.systemUTC(), JSON);
         store.scan();
-        service = new PseudonymService(runtime, store, JSON);
+        service = new PseudonymService(runtime, store, JSON, () -> AppGroups.NONE);
     }
 
     @AfterEach

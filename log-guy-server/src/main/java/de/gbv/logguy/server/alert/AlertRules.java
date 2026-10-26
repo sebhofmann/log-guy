@@ -19,6 +19,7 @@ import org.graalvm.polyglot.Value;
 import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyObject;
 
+import de.gbv.logguy.server.config.AppGroups;
 import de.gbv.logguy.server.script.ScriptException;
 import de.gbv.logguy.server.script.ScriptKind;
 import de.gbv.logguy.server.script.ScriptListener;
@@ -44,14 +45,18 @@ public class AlertRules implements ScriptListener {
 
     private final Map<String, String> lastErrors = new ConcurrentHashMap<>();
 
+    private final Supplier<AppGroups> groups;
+
     /**
      * Creates the rules and loads the active scripts.
      *
      * @param runtime the script runtime
      * @param store the scripts
+     * @param groups the application groups as they are now
      */
-    public AlertRules(ScriptRuntime runtime, ScriptStore store) {
+    public AlertRules(ScriptRuntime runtime, ScriptStore store, Supplier<AppGroups> groups) {
         this.runtime = runtime;
+        this.groups = groups;
         load(store.active());
     }
 
@@ -154,7 +159,7 @@ public class AlertRules implements ScriptListener {
      * @return the runner, to be closed by the thread
      */
     public Runner runner() {
-        return new Runner(runtime, () -> current.get().rules(), this::failed);
+        return new Runner(runtime, () -> current.get().rules(), groups, this::failed);
     }
 
     /**
@@ -162,12 +167,14 @@ public class AlertRules implements ScriptListener {
      *
      * @param runtime the script runtime
      * @param rules the rules
+     * @param groups the application groups
      * @param errors called with rule and message for every failed call
      * @return the runner, to be closed by the thread
      */
-    public static Runner runner(ScriptRuntime runtime, List<RuleDefinition> rules, ErrorListener errors) {
+    public static Runner runner(ScriptRuntime runtime, List<RuleDefinition> rules, AppGroups groups,
+        ErrorListener errors) {
         List<RuleDefinition> fixed = List.copyOf(rules);
-        return new Runner(runtime, () -> fixed, errors);
+        return new Runner(runtime, () -> fixed, () -> groups, errors);
     }
 
     private void failed(RuleDefinition rule, String error) {
@@ -228,17 +235,23 @@ public class AlertRules implements ScriptListener {
 
         private final Supplier<List<RuleDefinition>> source;
 
+        private final Supplier<AppGroups> groups;
+
         private final ErrorListener errors;
 
         private List<RuleDefinition> loaded;
+
+        private AppGroups loadedGroups;
 
         private final Map<String, Loaded> contexts = new HashMap<>();
 
         private final Map<String, List<Loaded>> byApp = new HashMap<>();
 
-        private Runner(ScriptRuntime runtime, Supplier<List<RuleDefinition>> source, ErrorListener errors) {
+        private Runner(ScriptRuntime runtime, Supplier<List<RuleDefinition>> source, Supplier<AppGroups> groups,
+            ErrorListener errors) {
             this.runtime = runtime;
             this.source = source;
+            this.groups = groups;
             this.errors = errors;
         }
 
@@ -260,8 +273,13 @@ public class AlertRules implements ScriptListener {
                 }
                 loaded = now;
             }
-            return byApp.computeIfAbsent(app, a -> contexts.values().stream().filter(l -> l.rule.appliesTo(a))
-                .toList());
+            AppGroups nowGroups = groups.get();
+            if (nowGroups != loadedGroups) {
+                byApp.clear();
+                loadedGroups = nowGroups;
+            }
+            return byApp.computeIfAbsent(app, a -> contexts.values().stream()
+                .filter(l -> l.rule.appliesTo(a, nowGroups)).toList());
         }
 
         private static Value member(Value exports, String name) {
@@ -351,6 +369,7 @@ public class AlertRules implements ScriptListener {
             contexts.clear();
             byApp.clear();
             loaded = null;
+            loadedGroups = null;
         }
 
         private record Loaded(RuleDefinition rule, Context context, Value check, Value message) {

@@ -8,8 +8,8 @@ import java.util.stream.LongStream;
 
 import org.graalvm.polyglot.Value;
 
+import de.gbv.logguy.server.config.AppGroups;
 import de.gbv.logguy.server.script.ScriptException;
-import de.gbv.logguy.server.security.LogGuyUser;
 
 /**
  * An alert rule with what its {@code meta} says.
@@ -49,10 +49,11 @@ public record RuleDefinition(String name, String code, String version, List<Stri
      * Whether the rule applies to an application.
      *
      * @param app the application
+     * @param groups the application groups, for patterns like {@code @mir}
      * @return true if a pattern of {@code meta.apps} matches
      */
-    public boolean appliesTo(String app) {
-        return apps.stream().anyMatch(pattern -> LogGuyUser.matches(pattern, app));
+    public boolean appliesTo(String app, AppGroups groups) {
+        return groups.matchesAny(apps, app);
     }
 
     /**

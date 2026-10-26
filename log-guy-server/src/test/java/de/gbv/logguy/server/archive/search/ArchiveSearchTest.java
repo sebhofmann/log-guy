@@ -26,6 +26,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import de.gbv.logguy.server.config.AppGroups;
 import de.gbv.logguy.server.config.AppRegistry;
 import de.gbv.logguy.server.archive.ArchiveFile;
 import de.gbv.logguy.server.archive.ArchiveStore;
@@ -85,7 +86,7 @@ class ArchiveSearchTest {
         Files.createDirectories(dataDir.resolve("scripts"));
         ScriptStore scripts = new ScriptStore(dataDir.resolve("scripts"), Clock.systemUTC(), JSON);
         scripts.scan();
-        pseudonyms = new PseudonymService(runtime, scripts, JSON);
+        pseudonyms = new PseudonymService(runtime, scripts, JSON, () -> AppGroups.NONE);
         search = new ArchiveSearch(properties, new AppRegistry(properties), archive, pseudonyms,
             Clock.fixed(NOW, ZoneOffset.UTC));
 

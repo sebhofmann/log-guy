@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import de.gbv.logguy.server.alert.Alert.State;
 import de.gbv.logguy.server.alert.AlertEngine.Notification.Kind;
 import de.gbv.logguy.server.alert.RuleDefinition.Type;
+import de.gbv.logguy.server.config.AppGroups;
 
 class AlertEngineTest {
 
@@ -59,9 +60,9 @@ class AlertEngineTest {
         assertEquals(List.of(Kind.OPENED), changes.notifications().stream().map(n -> n.kind()).toList());
         assertEquals(List.of("mail:it"), changes.notifications().getFirst().targets());
 
-        engine.tick(T0.plus(Duration.ofMinutes(5)), List.of(rule), List.of("digibib"), DEFAULT);
+        engine.tick(T0.plus(Duration.ofMinutes(5)), List.of(rule), List.of("digibib"), AppGroups.NONE, DEFAULT);
         assertEquals(List.of(), engine.drain().notifications());
-        engine.tick(T0.plus(Duration.ofMinutes(10)), List.of(rule), List.of("digibib"), DEFAULT);
+        engine.tick(T0.plus(Duration.ofMinutes(10)), List.of(rule), List.of("digibib"), AppGroups.NONE, DEFAULT);
         List<AlertEngine.Notification> summary = engine.drain().notifications();
         assertEquals(1, summary.size());
         assertEquals(Kind.SUMMARY, summary.getFirst().kind());
@@ -82,7 +83,7 @@ class AlertEngineTest {
         assertEquals(State.OPEN, second.state());
         assertNull(second.notified());
         assertEquals(1, engine.drain().notifications().size());
-        engine.tick(T0.plus(Duration.ofMinutes(10)), List.of(rule), List.of(), DEFAULT);
+        engine.tick(T0.plus(Duration.ofMinutes(10)), List.of(rule), List.of(), AppGroups.NONE, DEFAULT);
         List<AlertEngine.Notification> later = engine.drain().notifications();
         assertEquals(1, later.size());
         assertEquals(second.id(), later.getFirst().alert().id());
@@ -103,9 +104,9 @@ class AlertEngineTest {
         assertEquals("3 Treffer in 5m", alert.message());
         assertEquals(T0, alert.firstTs());
         engine.ack(alert.id(), "admin", T0.plusSeconds(3));
-        engine.tick(T0.plus(Duration.ofMinutes(4)), List.of(rule), List.of(), DEFAULT);
+        engine.tick(T0.plus(Duration.ofMinutes(4)), List.of(rule), List.of(), AppGroups.NONE, DEFAULT);
         assertEquals(State.ACKED, engine.alert(alert.id()).state());
-        engine.tick(T0.plus(Duration.ofMinutes(6)), List.of(rule), List.of(), DEFAULT);
+        engine.tick(T0.plus(Duration.ofMinutes(6)), List.of(rule), List.of(), AppGroups.NONE, DEFAULT);
         assertEquals(State.RESOLVED, engine.alert(alert.id()).state());
         assertEquals(Kind.RESOLVED, engine.drain().notifications().getLast().kind());
     }
@@ -129,24 +130,24 @@ class AlertEngineTest {
         AlertEngine engine = engine();
         RuleDefinition rule = absence();
         List<String> apps = List.of("digibib", "mir");
-        engine.tick(T0.plus(Duration.ofMinutes(29)), List.of(rule), apps, DEFAULT);
+        engine.tick(T0.plus(Duration.ofMinutes(29)), List.of(rule), apps, AppGroups.NONE, DEFAULT);
         assertEquals(0, engine.alerts().size());
-        engine.tick(T0.plus(Duration.ofMinutes(30)), List.of(rule), apps, DEFAULT);
+        engine.tick(T0.plus(Duration.ofMinutes(30)), List.of(rule), apps, AppGroups.NONE, DEFAULT);
         assertEquals(1, engine.alerts().size());
         Alert alert = engine.alerts().getFirst();
         assertEquals("digibib", alert.app());
         assertEquals("Seit mindestens 30m kein Event", alert.message());
         engine.seen("digibib", T0.plus(Duration.ofMinutes(31)));
-        engine.tick(T0.plus(Duration.ofMinutes(32)), List.of(rule), apps, DEFAULT);
+        engine.tick(T0.plus(Duration.ofMinutes(32)), List.of(rule), apps, AppGroups.NONE, DEFAULT);
         assertEquals(State.RESOLVED, engine.alert(alert.id()).state());
     }
 
     @Test
     void removedRulesResolveTheirThresholdAndSilenceAlerts() {
         AlertEngine engine = engine();
-        engine.tick(T0.plus(Duration.ofHours(1)), List.of(absence()), List.of("digibib"), DEFAULT);
+        engine.tick(T0.plus(Duration.ofHours(1)), List.of(absence()), List.of("digibib"), AppGroups.NONE, DEFAULT);
         engine.match(hit(), "digibib", "e1", T0, event("a"), T0, DEFAULT);
-        engine.tick(T0.plus(Duration.ofHours(2)), List.of(), List.of("digibib"), DEFAULT);
+        engine.tick(T0.plus(Duration.ofHours(2)), List.of(), List.of("digibib"), AppGroups.NONE, DEFAULT);
         assertEquals(List.of(State.RESOLVED, State.OPEN), engine.alerts().stream().map(Alert::state).toList());
     }
 

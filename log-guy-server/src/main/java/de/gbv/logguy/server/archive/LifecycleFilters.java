@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -16,6 +17,7 @@ import org.graalvm.polyglot.Context;
 import org.graalvm.polyglot.PolyglotException;
 import org.graalvm.polyglot.Value;
 
+import de.gbv.logguy.server.config.AppGroups;
 import de.gbv.logguy.server.script.FieldDefinition;
 import de.gbv.logguy.server.script.ModuleInfo;
 import de.gbv.logguy.server.script.ParsedEvent;
@@ -27,7 +29,6 @@ import de.gbv.logguy.server.script.ScriptRuntime;
 import de.gbv.logguy.server.script.ScriptStore;
 import de.gbv.logguy.server.script.ScriptStore.ScriptId;
 import de.gbv.logguy.server.script.Templates;
-import de.gbv.logguy.server.security.LogGuyUser;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -49,6 +50,8 @@ public class LifecycleFilters implements ScriptListener {
 
     private final JsonMapper json;
 
+    private final Supplier<AppGroups> groups;
+
     private final AtomicReference<Generation> current = new AtomicReference<>(
         new Generation(List.of(), List.of("not loaded")));
 
@@ -58,10 +61,12 @@ public class LifecycleFilters implements ScriptListener {
      * @param runtime the script runtime
      * @param store the scripts
      * @param json for passing events to {@code fields(event)}
+     * @param groups the application groups as they are now
      */
-    public LifecycleFilters(ScriptRuntime runtime, ScriptStore store, JsonMapper json) {
+    public LifecycleFilters(ScriptRuntime runtime, ScriptStore store, JsonMapper json, Supplier<AppGroups> groups) {
         this.runtime = runtime;
         this.json = json;
+        this.groups = groups;
         load(store.active());
     }
 
@@ -130,7 +135,9 @@ public class LifecycleFilters implements ScriptListener {
      * @return name and version of each filter, in the order they run
      */
     public List<String> labels(String app) {
-        return current.get().definitions().stream().filter(d -> d.appliesTo(app)).map(Definition::label).toList();
+        AppGroups now = groups.get();
+        return current.get().definitions().stream().filter(d -> d.appliesTo(app, now)).map(Definition::label)
+            .toList();
     }
 
     /**
@@ -268,8 +275,8 @@ public class LifecycleFilters implements ScriptListener {
      */
     private record Definition(String name, String code, String version, List<String> apps) {
 
-        boolean appliesTo(String app) {
-            return apps.stream().anyMatch(pattern -> LogGuyUser.matches(pattern, app));
+        boolean appliesTo(String app, AppGroups groups) {
+            return groups.matchesAny(apps, app);
         }
 
         String label() {
@@ -297,6 +304,8 @@ public class LifecycleFilters implements ScriptListener {
 
         private Generation generation;
 
+        private AppGroups loadedGroups;
+
         private final List<Filter> filters = new ArrayList<>();
 
         private final Map<String, List<Filter>> byApp = new HashMap<>();
@@ -320,7 +329,12 @@ public class LifecycleFilters implements ScriptListener {
                 }
                 generation = now;
             }
-            return byApp.computeIfAbsent(app, a -> filters.stream().filter(f -> f.definition.appliesTo(a))
+            AppGroups nowGroups = groups.get();
+            if (nowGroups != loadedGroups) {
+                byApp.clear();
+                loadedGroups = nowGroups;
+            }
+            return byApp.computeIfAbsent(app, a -> filters.stream().filter(f -> f.definition.appliesTo(a, nowGroups))
                 .toList());
         }
 
@@ -399,6 +413,7 @@ public class LifecycleFilters implements ScriptListener {
             filters.clear();
             byApp.clear();
             generation = null;
+            loadedGroups = null;
         }
     }
 

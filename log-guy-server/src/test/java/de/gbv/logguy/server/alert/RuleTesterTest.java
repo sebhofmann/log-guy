@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 
 import de.gbv.logguy.server.alert.AlertEngine.Notification.Kind;
 import de.gbv.logguy.server.alert.RuleTester.RuleTestResult;
+import de.gbv.logguy.server.config.AppGroups;
 import de.gbv.logguy.server.config.LogGuyProperties.AlertProperties;
 import de.gbv.logguy.server.script.ScriptRuntime;
 
@@ -48,7 +49,7 @@ class RuleTesterTest {
             """);
         RuleTestResult result;
         try (RuleTester tester = new RuleTester(runtime, rule, SETTINGS, T0, T0.plus(Duration.ofHours(24)),
-            List.of("digibib"))) {
+            List.of("digibib"), AppGroups.NONE)) {
             for (int i = 0; i < 20; i++) {
                 Instant ts = T0.plus(Duration.ofMinutes(i));
                 tester.accept("digibib", "e" + i, ts, event("WARN", i % 2 == 0 ? "Connection is not available\n\tat x"
@@ -71,7 +72,7 @@ class RuleTesterTest {
             export function check(event) { return event.level === "WARN"; }
             """);
         try (RuleTester tester = new RuleTester(runtime, rule, SETTINGS, T0, T0.plus(Duration.ofHours(1)),
-            List.of("digibib"))) {
+            List.of("digibib"), AppGroups.NONE)) {
             for (int i = 0; i < 3; i++) {
                 tester.accept("digibib", "a" + i, T0.plusSeconds(i), event("WARN", "x"));
             }
@@ -92,7 +93,7 @@ class RuleTesterTest {
             export function check(event) { return event.level === "ERROR"; }
             """);
         try (RuleTester tester = new RuleTester(runtime, threshold, SETTINGS, T0, T0.plus(Duration.ofHours(2)),
-            List.of("digibib"))) {
+            List.of("digibib"), AppGroups.NONE)) {
             for (int i = 0; i < 3; i++) {
                 tester.accept("digibib", "a" + i, T0.plusSeconds(i), event("ERROR", "x"));
             }
@@ -109,7 +110,7 @@ class RuleTesterTest {
             export const meta = { apps: ["digibib"], absentFor: "30m" };
             """);
         try (RuleTester tester = new RuleTester(runtime, silence, SETTINGS, T0, T0.plus(Duration.ofHours(3)),
-            List.of("digibib"))) {
+            List.of("digibib"), AppGroups.NONE)) {
             tester.accept("digibib", "a", T0.plus(Duration.ofMinutes(10)), event("INFO", "x"));
             tester.accept("digibib", "b", T0.plus(Duration.ofMinutes(90)), event("INFO", "x"));
             RuleTestResult result = tester.finish("Test", false);

@@ -1,6 +1,7 @@
 package de.gbv.logguy.server.archive;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -11,12 +12,15 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import de.gbv.logguy.server.config.AppGroups;
 import de.gbv.logguy.server.script.ParsedEvent;
 import de.gbv.logguy.server.script.ParserScript;
 import de.gbv.logguy.server.script.ScriptRuntime;
@@ -52,7 +56,7 @@ class LifecycleFiltersTest {
         Files.writeString(lifecycle.resolve(name + ".js"), code);
         ScriptStore store = new ScriptStore(dir, Clock.systemUTC(), JSON);
         store.setActive(store.scan());
-        return new LifecycleFilters(runtime, store, JSON);
+        return new LifecycleFilters(runtime, store, JSON, () -> AppGroups.NONE);
     }
 
     private static ParsedEvent event() {
@@ -79,6 +83,29 @@ class LifecycleFiltersTest {
             assertEquals(event().ts(), changed.ts());
             ParsedEvent other = event();
             assertSame(other, runner.fields("mir", "host1", other, script, "[weg {filter}]"));
+        }
+    }
+
+    @Test
+    void appliesToGroups() throws Exception {
+        Path lifecycle = Files.createDirectories(dir.resolve("lifecycle"));
+        Files.writeString(lifecycle.resolve("mir.js"), """
+            export const meta = { apps: ["@mir"] };
+            export function fields(event) { delete event.user; return event; }
+            """);
+        ScriptStore store = new ScriptStore(dir, Clock.systemUTC(), JSON);
+        store.setActive(store.scan());
+        AtomicReference<AppGroups> groups = new AtomicReference<>(AppGroups.NONE);
+        LifecycleFilters filters = new LifecycleFilters(runtime, store, JSON, groups::get);
+        ParserScript script = ParserScript.load(runtime, "p", PARSER);
+        try (LifecycleFilters.Runner runner = filters.runner()) {
+            assertFalse(filters.labels("rolf").stream().anyMatch(label -> label.startsWith("mir@")));
+            assertTrue(runner.fields("rolf", "host1", event(), script, "[weg {filter}]").fields().containsKey(
+                "user"));
+            groups.set(new AppGroups(Map.of("rolf", Set.of("mir"))));
+            assertTrue(filters.labels("rolf").stream().anyMatch(label -> label.startsWith("mir@")));
+            assertFalse(runner.fields("rolf", "host1", event(), script, "[weg {filter}]").fields().containsKey(
+                "user"));
         }
     }
 
