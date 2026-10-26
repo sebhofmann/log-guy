@@ -418,7 +418,8 @@ public class SearchService {
             throw new SearchException("Das Feld „" + name
                 + "“ hat in den gewählten Anwendungen verschiedene Typen. Bitte die Anwendungen einschränken.");
         }
-        return definitions.getFirst().solrField();
+        // fixed fields are stored under their own name, without the suffix of the type
+        return FIXED_FIELDS.containsKey(name) ? name : definitions.getFirst().solrField();
     }
 
     private static String facetField(SearchScope scope, String name) {

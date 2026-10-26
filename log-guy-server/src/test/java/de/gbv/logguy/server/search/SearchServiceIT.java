@@ -243,6 +243,18 @@ class SearchServiceIT {
     }
 
     @Test
+    void fixedFieldsCanBeFacetedAndFiltered() throws Exception {
+        long all = solrCount("*:*");
+        Map<String, List<FacetValue>> facets = search.facets(scope(READER, null, Map.of("app", List.of("digibib"))),
+            List.of("app", "host"), 10);
+        assertEquals(List.of(new FacetValue("digibib", all)), facets.get("app"));
+        assertEquals(all, facets.get("host").stream().mapToLong(FacetValue::count).sum());
+        assertEquals(all, search.search(scope(READER, null, Map.of("app", List.of("digibib"))), null, 10, false)
+            .total());
+        assertEquals(all, search.search(scope(READER, "app:digibib", Map.of()), null, 10, false).total());
+    }
+
+    @Test
     void contextReadsOriginalLines() throws Exception {
         EventView event = search.search(scope(READER, "level:ERROR", Map.of()), null, 1, true).events().getFirst();
         ContextView view = context.context(READER, event.id(), 5, 3);
