@@ -4,7 +4,7 @@
 @param boolean logout
 @template.layout.page(page = page, title = "Anmeldung", content = @`
 <main class="login">
-  <h1>log-guy</h1>
+  <h1><img src="/static/img/logo.png" alt="log-guy" width="240" height="240"></h1>
   @if(error)
   <p class="message error">Name oder Passwort ist falsch.</p>
   @elseif(logout)

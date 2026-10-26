@@ -14,12 +14,13 @@
   @endif
   <title>${title} · log-guy</title>
   <link rel="stylesheet" href="/static/css/log-guy.css">
-  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/static/img/favicon.png" type="image/png">
+  <link rel="apple-touch-icon" href="/static/img/apple-touch-icon.png">
 </head>
 <body>
 @if(page.user() != null)
 <header class="top">
-  <a class="brand" href="/">log-guy</a>
+  <a class="brand" href="/"><img src="/static/img/mascot.png" alt="">log-guy</a>
   <nav>
     <a href="/" class="${"search".equals(page.active()) ? "active" : null}">Suche</a>
     <a href="/alerts" class="${"alerts".equals(page.active()) ? "active" : null}">Meldungen<span id="bell"
