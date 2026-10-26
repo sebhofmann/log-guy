@@ -63,7 +63,7 @@ Ausdrücke mit festem Anfangswort sind so schnell wie Wörter, weil RE2/J dann n
 
 ### Ältere Zeiträume nachindexieren
 
-Wer einen alten Zeitraum mit Feldern und Facetten auswerten will, lässt ihn in die Collection laden: auf der Archivseite unter „Zeitraum in den Index laden“, per `POST /api/v1/reindex` mit `{"app", "from", "to", "source": "ARCHIVE"}` oder mit `log-guy reindex --source archive`. Nötig ist das Recht `archive` für die Anwendung.
+Wer einen alten Zeitraum mit Feldern und Facetten auswerten will, lässt ihn in die Collection laden: im Reiter „In den Index laden“ unter Archiv, für eine einzelne Datei mit „Neu indexieren“ im Log-Browser, per `POST /api/v1/reindex` mit `{"app", "from", "to", "source": "ARCHIVE"}` oder mit `log-guy reindex --source archive`. Nötig ist das Recht `archive` für die Anwendung.
 
 - Geladen wird nur der Teil vor dem ältesten Event der Anwendung im Index, der Rest ist schon da. Höchstens 92 Tage auf einmal (`log-guy.reindex.max-range`).
 - Gelesen werden nur die Frames, deren Zeitraum den gewünschten trifft, dazu je ein Frame davor und danach, damit Events über Frame-Grenzen ganz bleiben. Events außerhalb des Zeitraums werden verworfen. Der Parser ist der aktuelle der Anwendung.

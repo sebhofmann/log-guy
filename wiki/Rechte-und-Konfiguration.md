@@ -8,8 +8,9 @@ Anwendungen, Nutzer, Rechte und Tokens stehen in der Spring-Konfiguration applic
 | --- | --- |
 | `read` | schnelle Suche, Zeitleiste, Kontext in der GUI und über die API, mit Klarwerten |
 | `read_pseudonymized` | wie `read`, aber nur pseudonymisiert, wie beim MCP |
-| `archive` | Archivsuche und Archivtage temporär laden |
-| `admin` | Solr-Befehle, Lifecycle-Status, Neuaufbau, alle Anwendungen |
+| `archive` | Archivsuche, Archivtage temporär laden, Log-Browser: Dateien im Archiv ansehen, durchsuchen und neu indexieren, mit Klarwerten auch herunterladen |
+| `delete` | Dateien aus `hot/`, Archiv, Backup und Index löschen und für die Agenten sperren, Sperren aufheben |
+| `admin` | Solr-Befehle, Lifecycle-Status, Neuaufbau, Originale in `hot/` im Log-Browser, alle Anwendungen, schließt alle anderen Rechte ein |
 | `scripts` | Parser, Meldungsregeln und Lifecycle-Filter der Anwendung bearbeiten, testen und aktivieren, setzt read voraus |
 
 Rechte werden pro Anwendung vergeben. Muster wie `digibib*` treffen `digibib` und `digibib-apache` zusammen.
@@ -86,7 +87,8 @@ Name und Passwort, danach ein Session-Cookie mit `HttpOnly`, `Secure` und `SameS
 | Indexer-Fortschritt | `state/index/<fingerprint>` |
 | Steuer-Token für `log-guy reload`, `log-guy archive refilter`, `log-guy reindex` und `log-guy backup` | `state/control.token`, bei jedem Start neu |
 | Meldungen | `state/alerts.ndjson` |
-| Audit-Log | `audit/*.ndjson`, Skript-Änderungen, Reloads und MCP-Aufrufe |
+| gelöschte und gesperrte Dateien | `state/deleted.json` |
+| Audit-Log | `audit/*.ndjson`, Skript-Änderungen, Reloads, MCP-Aufrufe, Löschen, Sperren aufheben, Herunterladen und Neuindexieren |
 | Sessions, Pseudonym-Zuordnungen, Suchjobs | nur im RAM |
 | eigenes Log von log-guy | `/var/lib/log-guy/logs/`, täglich rotiert, die letzten Einträge zusätzlich im RAM |
 

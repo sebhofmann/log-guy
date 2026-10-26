@@ -218,9 +218,19 @@ async function loadHits(current) {
     }
 }
 
+// archive/<host>/<app>/<day>-<fingerprint>.log.zst
+const FILE_NAME = /\d{4}-\d{2}-\d{2}-([^/]+)\.log\.zst$/;
+
 function hitElement(hit) {
     const box = element('article', 'archive-hit');
-    box.append(element('div', 'muted', `${hit.app} · ${hit.host} · ${hit.file} @ ${formatNumber(hit.offset)}`));
+    const head = element('div', 'muted', `${hit.app} · ${hit.host} · ${hit.file} @ ${formatNumber(hit.offset)} `);
+    const match = FILE_NAME.exec(hit.file);
+    if (match) {
+        const link = element('a', null, 'In Datei zeigen');
+        link.href = `/archive?${new URLSearchParams({ file: match[1], at: hit.offset })}`;
+        head.append(link);
+    }
+    box.append(head);
     const pre = element('pre');
     for (const line of hit.before) {
         pre.append(element('span', 'muted', `${line}\n`));

@@ -212,6 +212,38 @@ class WebSecurityTest {
     }
 
     @Test
+    void logBrowserNeedsArchiveRight() throws Exception {
+        MvcResult anna = mvc.perform(formLogin("/login").user("anna").password(PASSWORD)).andReturn();
+        MockHttpSession reader = (MockHttpSession) anna.getRequest().getSession();
+        for (String page : new String[] { "/archive", "/archive/search", "/archive/load" }) {
+            mvc.perform(get(page).session(reader)).andExpect(status().isForbidden());
+        }
+        mvc.perform(get("/api/v1/files").session(reader))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.files.length()").value(0))
+            .andExpect(jsonPath("$.mayDelete").value(false));
+        mvc.perform(get("/api/v1/files/blocked").session(reader))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.length()").value(0));
+        mvc.perform(delete("/api/v1/files/unknown").session(reader).with(csrf()))
+            .andExpect(status().isNotFound());
+
+        MvcResult root = mvc.perform(formLogin("/login").user("root").password(PASSWORD)).andReturn();
+        MockHttpSession admin = (MockHttpSession) root.getRequest().getSession();
+        mvc.perform(get("/archive").session(admin))
+            .andExpect(status().isOk())
+            .andExpect(content().string(containsString("/static/js/files.js")));
+        mvc.perform(get("/archive/search").session(admin))
+            .andExpect(content().string(containsString("/static/js/archive.js")));
+        mvc.perform(get("/archive/load").session(admin))
+            .andExpect(content().string(containsString("/static/js/reindex.js")));
+        mvc.perform(get("/api/v1/files").session(admin))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.mayDelete").value(true));
+        mvc.perform(get("/api/v1/files/unknown/content").session(admin)).andExpect(status().isNotFound());
+    }
+
+    @Test
     void reloadByControlTokenOrAdmin() throws Exception {
         String token = ControlToken.read(dataDir);
         mvc.perform(post("/admin/reload").header("Authorization", "Bearer wrong"))

@@ -39,6 +39,7 @@ import de.gbv.logguy.server.config.LogGuyProperties.ArchiveProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.HotProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.ScriptProperties;
 import de.gbv.logguy.server.hot.HotFile;
+import de.gbv.logguy.server.files.DeletedFiles;
 import de.gbv.logguy.server.hot.HotStore;
 import de.gbv.logguy.server.ingest.IngestException;
 import de.gbv.logguy.server.ingest.IngestService;
@@ -345,7 +346,7 @@ class ArchiveWriterTest {
             }
 
             // an agent sending the file again gets the closed stream, nothing new is stored
-            IngestService ingest = new IngestService(hot, archive);
+            IngestService ingest = new IngestService(hot, archive, new DeletedFiles(properties.stateDir(), JSON));
             IngestPrincipal agent = new IngestPrincipal("agent", "app1", Set.of("digibib"));
             StreamStatus closed = new StreamStatus(file.fingerprint(), sample.length, true);
             assertEquals(closed, ingest.status(agent, file.fingerprint()));

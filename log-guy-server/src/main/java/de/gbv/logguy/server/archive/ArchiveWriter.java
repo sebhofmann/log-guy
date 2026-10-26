@@ -176,7 +176,33 @@ public class ArchiveWriter implements AutoCloseable {
      * @throws ScriptException if a filter cannot be loaded into the thread
      */
     void process(HotFile file) throws IOException, ScriptException {
+        if (hot.find(file.fingerprint()).orElse(null) != file) {
+            // deleted after the scan found it, getOrCreate would bring the archive file back
+            return;
+        }
         process(file, archive.getOrCreate(file.meta()));
+    }
+
+    /**
+     * Keeps the writer away from a file until {@link #release(String)}, e.g. while the file is deleted. Waits while
+     * the writer works on the file.
+     *
+     * @param fingerprint fingerprint of the file
+     * @throws InterruptedException if waiting is interrupted
+     */
+    public void hold(String fingerprint) throws InterruptedException {
+        while (!busy.add(fingerprint)) {
+            Thread.sleep(settings.pollInterval().toMillis());
+        }
+    }
+
+    /**
+     * Lets the writer work on a file again after {@link #hold(String)}.
+     *
+     * @param fingerprint fingerprint of the file
+     */
+    public void release(String fingerprint) {
+        busy.remove(fingerprint);
     }
 
     private void process(HotFile file, ArchiveFile target) throws IOException, ScriptException {

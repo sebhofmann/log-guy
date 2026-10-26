@@ -1,6 +1,6 @@
 # log-guy
 
-Stand: 23.10.2026
+Stand: 26.10.2026
 
 ## Ziel und Rahmen
 
@@ -17,7 +17,7 @@ log-guy bietet:
 - Lifecycle-Filter, die das Archiv mit gekürzten IP-Adressen schreiben. Dazu Meldungen per Mail, Webhook oder API, wenn bestimmte Events auftreten
 - einen MCP-Endpunkt für LLMs mit regelbasierter Pseudonymisierung
 - ein Rechtesystem pro Anwendung, konfiguriert über eine Datei
-- eine Web-Oberfläche mit Logfenster und Zeitleiste
+- eine Web-Oberfläche mit Logfenster und Zeitleiste, dazu einen Log-Browser, der ganze Dateien zeigt, durchsucht, herunterlädt und löscht
 - die Einrichtung von Configset, Collections und Alias in der bestehenden SolrCloud
 
 Nicht im Umfang: LDAP-Anbindung, Löschfristen für das Archiv, mehrere log-guy-Instanzen für Hochverfügbarkeit. Die Architektur hält diese Erweiterungen offen.

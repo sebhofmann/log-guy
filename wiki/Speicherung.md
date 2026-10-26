@@ -27,6 +27,38 @@ Platzbedarf bei der gemessenen Kompression von etwa 1:7: `archive/` braucht 0,1 
 
 Was der Frame-Index bringt: Für eine Stelle mitten in der Datei sucht log-guy in der `.idx` den passenden Frame und entpackt nur ihn, also etwa 1 MB statt der ganzen Datei. Die Kontextansicht in der GUI antwortet dadurch in Millisekunden. Die Archivsuche überspringt Frames außerhalb des Zeitraums und verteilt die Frames einer großen Datei auf mehrere Kerne. Diese Vorteile sind abgeleitet, nicht gemessen.
 
+### Dateien ansehen und löschen
+
+Der Log-Browser in der GUI und die API `/api/v1/files` machen sichtbar, was log-guy aufbewahrt, und erlauben das Löschen einzelner Dateien, z.B. wenn eine Anwendung versehentlich personenbezogene Daten geloggt hat.
+
+| Endpunkt | Wirkung | Recht |
+| --- | --- | --- |
+| `GET /api/v1/files` | Dateien mit `app`, `host`, `from`, `to` (Tag der Ablage), neueste zuerst, höchstens `list-limit`, dazu Anwendungen und Hosts für die Filter | `archive` |
+| `GET /api/v1/files/{fingerprint}` | Metadaten aus `hot/` und `archive/`, ob vollständig indexiert, und `may` mit dem, was der Nutzer mit der Datei darf | `archive` |
+| `GET /api/v1/files/{fingerprint}/content` | eine Seite Zeilen, `source=ARCHIVE` oder `HOT`, vorwärts ab `at` oder rückwärts vor `before`, mit `prev` und `next` zum Blättern | `archive`, für `HOT` `admin` |
+| `GET /api/v1/files/{fingerprint}/search` | Zeilen mit `q`, `regex`, `ignoreCase` ab `from`, mit `scannedTo` und `done` zum Weitersuchen | wie `content` |
+| `GET /api/v1/files/{fingerprint}/download` | die ganze Datei entpackt als Anhang | wie `content`, nur mit Klarwerten |
+| `POST /api/v1/files/{fingerprint}/reindex` | Neuindexieren als Job wie `POST /api/v1/reindex` | `scripts` für den Teil aus `hot/`, `archive` für den Teil aus dem Archiv |
+| `DELETE /api/v1/files/{fingerprint}?block=true` | löschen, mit `block` (Vorgabe) sperren | `delete` |
+| `GET /api/v1/files/blocked`, `DELETE /api/v1/files/blocked/{fingerprint}` | gesperrte Dateien, Sperre aufheben | `delete` |
+
+- Gezeigt wird, was der Nutzer im Archiv sehen darf, also `archive` und mindestens `read_pseudonymized` für die Anwendung. Ohne Klarwerte ist jede Zeile pseudonymisiert und zurückgehaltene Zeilen erscheinen als `[zurückgehalten]`. Die Suche zählt dann nur Zeilen, auf deren pseudonymisierte Fassung die Anfrage passt, wie in der Archivsuche. Pseudonyme in der Anfrage werden hier nicht übersetzt. Herunterladen geht nur mit Klarwerten, weil die Datei sonst als Ganzes pseudonymisiert werden müsste.
+- Blättern liest über den Frame-Index nur die nötigen Frames. Eine Seite hat höchstens `page-lines` Zeilen und `page-size` Bytes, Zeilen länger als `max-line-length` werden gekürzt. Ein Offset mitten in einer Zeile zeigt die ganze Zeile.
+- Die Suche in der Datei arbeitet wie die Archivsuche mit RE2/J ohne ANSI-Farben, liefert aber höchstens `search-hits` Treffer oder liest `search-bytes`, dann hört sie auf und meldet, bis wohin sie gekommen ist.
+- „Neu indexieren“ plant für eine Datei den Teil im Index-Fenster aus `hot/`, sofern der Indexer läuft, und den älteren Teil aus dem Archiv mit Ablaufdatum, wie beim Laden eines Zeitraums. Was schon im Index steht, lädt er nicht noch einmal.
+
+Löschen nimmt eine Datei überall heraus: Original in `hot/`, gefilterte Fassung in `archive/`, die Kopie im Backup und ihre Events in Solr, auch die aus dem Archiv geladenen. Die Reihenfolge:
+
+1. Mit Sperre: Eintrag in `state/deleted.json`, atomar geschrieben, bevor etwas gelöscht wird.
+2. Der Archiv-Schreiber wird für diese Datei angehalten, ein laufender Durchgang wird abgewartet.
+3. In `hot/` und `archive/` jeweils zuerst `.meta.json`, dann Frames, `.idx` und Reste, wie beim nächtlichen Löschen. Nach einem Absturz dazwischen lädt log-guy die Reste beim Start nicht.
+4. Der Indexer vergisst die Datei, sobald gerade kein Thread an ihr arbeitet, dann löscht log-guy die Events per `id:<fingerprint>:*`. Ist Solr nicht erreichbar, gilt die Datei trotzdem als gelöscht und die Antwort nennt den Fehler unter `indexError`.
+5. Die Kopie im Backup wird sofort gelöscht, läuft gerade ein Backup, an dessen Ende. Ältere Stände des Backup-Ziels, etwa Snapshots, sind nicht Teil von log-guy.
+
+Gesperrt heißt: Fragt ein Agent nach der Datei oder schickt sie erneut, z.B. nach dem Verlust seines Zustands, antwortet log-guy mit „abgeschlossen“ und der Länge zum Zeitpunkt des Löschens, und der Agent hört auf. Ohne Sperre würde der Agent eine noch vorhandene Datei von vorn neu einliefern. Läuft während des Löschens mit Sperre noch ein Append, scheitert er an der gelöschten Datei, und log-guy antwortet ebenfalls mit „abgeschlossen“. Wird die Sperre aufgehoben, nimmt log-guy die Datei wieder an. Löschen und Aufheben stehen mit Nutzer, Host, Pfaden und Tag im Audit-Log.
+
+Einstellungen unter `log-guy.files`: `page-lines` (500), `page-size` (1 MB), `max-line-length` (8 KB), `search-hits` (200), `search-bytes` (256 MB) und `list-limit` (1000).
+
 ### Backup
 
 Gesichert werden `archive/`, `state/`, `audit/` und das Konfigurationsverzeichnis `/etc/log-guy/` mit den Skripten, nie `hot/`. Die Dateien in `hot/` liefern die Agenten nach einem Verlust erneut, soweit sie noch auf den Anwendungsservern liegen.

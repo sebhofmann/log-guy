@@ -69,6 +69,9 @@ public final class HotFile {
 
     private final ReentrantLock lock = new ReentrantLock();
 
+    // set by delete(), a writer still holding this instance must not create the files again
+    private boolean deleted;
+
     private final List<Frame> frames = new ArrayList<>();
 
     private long tailBase;
@@ -223,6 +226,7 @@ public final class HotFile {
         throws GapException, IOException {
         lock.lock();
         try {
+            checkNotDeleted();
             long end = length();
             if (offset > end) {
                 throw new GapException("chunk starts at " + offset + " but stream ends at " + end, status());
@@ -272,6 +276,7 @@ public final class HotFile {
     public StreamStatus close(long length, String path, Instant now) throws GapException, IOException {
         lock.lock();
         try {
+            checkNotDeleted();
             recordPath(path);
             if (length != length()) {
                 throw new GapException("stream has " + length() + " bytes, not " + length, status());
@@ -298,6 +303,9 @@ public final class HotFile {
     public void flushAged(Instant now) throws IOException {
         lock.lock();
         try {
+            if (deleted) {
+                return;
+            }
             if (tailSince == null || tailSince.plus(settings.frameMaxAge()).isAfter(now)) {
                 return;
             }
@@ -519,6 +527,7 @@ public final class HotFile {
     void delete() throws IOException {
         lock.lock();
         try {
+            deleted = true;
             closeChannel();
             Files.deleteIfExists(metaPath);
             syncDirectory(metaPath.getParent());
@@ -528,6 +537,12 @@ public final class HotFile {
             Files.deleteIfExists(metaPath.resolveSibling(metaPath.getFileName() + TMP_SUFFIX));
         } finally {
             lock.unlock();
+        }
+    }
+
+    private void checkNotDeleted() throws IOException {
+        if (deleted) {
+            throw new IOException(relativePath + " was deleted");
         }
     }
 

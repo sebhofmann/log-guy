@@ -285,6 +285,23 @@ public class Indexer implements AutoCloseable {
     }
 
     /**
+     * Forgets a file that is being deleted: waits until no worker indexes it any more, then forgets it like
+     * {@link #forget(String)}. The file must already be gone from {@code hot/}, so no worker takes it up again.
+     *
+     * @param fingerprint fingerprint of the file
+     * @throws IOException if the state file cannot be deleted
+     * @throws InterruptedException if waiting is interrupted
+     */
+    public void remove(String fingerprint) throws IOException, InterruptedException {
+        resets.remove(fingerprint);
+        Cursor cursor = cursors.get(fingerprint);
+        while (cursor != null && cursor.busy) {
+            Thread.sleep(settings.pollInterval().toMillis());
+        }
+        forget(fingerprint);
+    }
+
+    /**
      * Number of files that are not completely indexed.
      *
      * @return files with a backlog

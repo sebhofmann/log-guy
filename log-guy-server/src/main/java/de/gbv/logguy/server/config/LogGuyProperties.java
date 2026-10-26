@@ -138,7 +138,9 @@ public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppPropert
         /** Solr commands, lifecycle state, rebuilds. Implies all other rights. */
         ADMIN,
         /** Edit, test and activate the scripts of the application. */
-        SCRIPTS
+        SCRIPTS,
+        /** Delete log files from {@code hot/}, {@code archive/} and the index and block them for the agents. */
+        DELETE
     }
 
     /**

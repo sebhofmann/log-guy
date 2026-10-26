@@ -15,6 +15,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Stream;
 
@@ -53,6 +54,9 @@ public class BackupService {
     private final ReentrantLock running = new ReentrantLock();
 
     private volatile Report last;
+
+    // copies of deleted archive files, removed when no backup is running
+    private final Set<String> deletedCopies = ConcurrentHashMap.newKeySet();
 
     /**
      * Creates the service and reads the report of the last backup.
@@ -175,6 +179,38 @@ public class BackupService {
         }
     }
 
+    /**
+     * Removes the copy of an archive file that was deleted. While a backup runs, it is removed at its end.
+     *
+     * @param relativePath path of the file below {@code archive/}
+     */
+    public void forget(String relativePath) {
+        if (!enabled()) {
+            return;
+        }
+        deletedCopies.add(relativePath);
+        if (running.tryLock()) {
+            try {
+                removeDeletedCopies(properties.backup().dir().resolve("archive"));
+            } finally {
+                running.unlock();
+            }
+        }
+    }
+
+    private void removeDeletedCopies(Path archiveTarget) {
+        for (String relativePath : List.copyOf(deletedCopies)) {
+            try {
+                ArchiveFile.deleteCopy(archiveTarget, relativePath);
+                deletedCopies.remove(relativePath);
+                LOGGER.info("deleted the backup of archive/{}", relativePath);
+            } catch (IOException | RuntimeException e) {
+                LOGGER.error("cannot delete the backup of archive/{}, trying again after the next backup",
+                    relativePath, e);
+            }
+        }
+    }
+
     private Report backup(Path target) {
         Instant started = clock.instant();
         List<String> errors = new ArrayList<>();
@@ -200,6 +236,7 @@ public class BackupService {
                     }
                 }
             }
+            removeDeletedCopies(target.resolve("archive"));
             mirror(properties.stateDir(), target.resolve("state"), other, errors);
             mirror(properties.dataDir().resolve("audit"), target.resolve("audit"), other, errors);
             if (properties.backup().configDir() != null) {

@@ -62,6 +62,9 @@ public final class ArchiveFile {
 
     private volatile boolean replaced;
 
+    // set by delete(), a writer still holding this instance must not create the files again
+    private volatile boolean deleted;
+
     private ArchiveFile(Path dir, String name, String relativeDir, JsonMapper json) {
         this.zstPath = dir.resolve(name + ZST_SUFFIX);
         this.idxPath = dir.resolve(name + IDX_SUFFIX);
@@ -179,6 +182,7 @@ public final class ArchiveFile {
         int compressionLevel) throws IOException {
         lock.lock();
         try {
+            checkNotDeleted();
             if (meta.closed()) {
                 throw new IllegalStateException(relativePath + " is closed");
             }
@@ -227,6 +231,7 @@ public final class ArchiveFile {
     public void close(List<String> paths) throws IOException {
         lock.lock();
         try {
+            checkNotDeleted();
             if (!meta.closed()) {
                 meta = meta.asClosed(paths);
                 writeMeta();
@@ -247,6 +252,7 @@ public final class ArchiveFile {
         if (replaced) {
             throw new IOException(relativePath + " was written again, find it again in the store");
         }
+        checkNotDeleted();
         if (frame.zlen() == 0) {
             return new byte[0];
         }
@@ -371,8 +377,8 @@ public final class ArchiveFile {
         FileChannel source = null;
         lock.lock();
         try {
-            if (replaced) {
-                // the store already holds the new content as another instance
+            if (replaced || deleted) {
+                // the store already holds the new content as another instance, or nothing
                 return -1;
             }
             snapshotMeta = meta;
@@ -505,6 +511,47 @@ public final class ArchiveFile {
             channel.force(true);
         } catch (IOException e) {
             LOGGER.debug("cannot sync directory {}", dir, e);
+        }
+    }
+
+    /**
+     * Deletes the file from disk. The meta data go first, so a crash leaves only data that is never loaded.
+     *
+     * @throws IOException if deleting fails
+     */
+    void delete() throws IOException {
+        lock.lock();
+        try {
+            deleted = true;
+            Files.deleteIfExists(metaPath);
+            syncDirectory(metaPath.getParent());
+            Files.deleteIfExists(zstPath);
+            Files.deleteIfExists(idxPath);
+            Files.deleteIfExists(metaPath.resolveSibling(metaPath.getFileName() + TMP_SUFFIX));
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * Deletes the copy of a file in a backup directory written by {@link #backupTo(Path)}, meta data first.
+     *
+     * @param root the {@code archive/} directory of the backup
+     * @param relativePath path of the file below {@code archive/}
+     * @throws IOException if deleting fails
+     */
+    public static void deleteCopy(Path root, String relativePath) throws IOException {
+        Path zst = root.resolve(relativePath);
+        String base = zst.getFileName().toString();
+        base = base.substring(0, base.length() - ZST_SUFFIX.length());
+        Files.deleteIfExists(zst.resolveSibling(base + META_SUFFIX));
+        Files.deleteIfExists(zst);
+        Files.deleteIfExists(zst.resolveSibling(base + IDX_SUFFIX));
+    }
+
+    private void checkNotDeleted() throws IOException {
+        if (deleted) {
+            throw new IOException(relativePath + " was deleted");
         }
     }
 

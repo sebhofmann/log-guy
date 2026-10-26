@@ -31,6 +31,9 @@ import de.gbv.logguy.server.alert.Notifier;
 import de.gbv.logguy.server.alert.WebhookNotifier;
 import de.gbv.logguy.server.archive.ArchiveStore;
 import de.gbv.logguy.server.backup.BackupService;
+import de.gbv.logguy.server.files.DeletedFiles;
+import de.gbv.logguy.server.files.FileService;
+import de.gbv.logguy.server.files.FilesProperties;
 import de.gbv.logguy.server.archive.search.ArchiveSearch;
 import de.gbv.logguy.server.archive.ArchiveWriter;
 import de.gbv.logguy.server.archive.LifecycleFilters;
@@ -408,11 +411,47 @@ public class ServerConfig {
      *
      * @param store the hot storage
      * @param archive the archive, for files already deleted from {@code hot/}
+     * @param deleted files deleted by a user and blocked
      * @return the service
      */
     @Bean
-    public IngestService ingestService(HotStore store, ArchiveStore archive) {
-        return new IngestService(store, archive);
+    public IngestService ingestService(HotStore store, ArchiveStore archive, DeletedFiles deleted) {
+        return new IngestService(store, archive, deleted);
+    }
+
+    /**
+     * The files deleted in the log browser and blocked for the agents, in {@code state/deleted.json}.
+     *
+     * @param properties configuration
+     * @param json mapper for the file
+     * @return the list
+     * @throws IOException if the file cannot be read
+     */
+    @Bean
+    public DeletedFiles deletedFiles(LogGuyProperties properties, JsonMapper json) throws IOException {
+        return new DeletedFiles(properties.stateDir(), json);
+    }
+
+    /**
+     * The log browser.
+     *
+     * @param settings settings of the log browser
+     * @param hot the originals
+     * @param archive the archive
+     * @param writer the archive writer if it runs
+     * @param indexer the indexer if it runs
+     * @param solr the index, for deleting the events of a file
+     * @param deleted the blocked files
+     * @param backup the backup, for deleting the copies of deleted files
+     * @param clock clock for the time of a deletion
+     * @return the service
+     */
+    @Bean
+    public FileService fileService(FilesProperties settings, HotStore hot, ArchiveStore archive,
+        ObjectProvider<ArchiveWriter> writer, ObjectProvider<Indexer> indexer, SolrService solr,
+        DeletedFiles deleted, BackupService backup, Clock clock) {
+        return new FileService(settings, hot, archive, writer.getIfAvailable(), indexer.getIfAvailable(), solr,
+            deleted, backup, clock);
     }
 
     /**

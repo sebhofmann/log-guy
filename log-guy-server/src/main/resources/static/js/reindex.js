@@ -19,7 +19,13 @@ function labeled(text, input) {
     return label;
 }
 
-function describe(status) {
+/**
+ * Describes the state of a job in one line.
+ *
+ * @param {object} status the status of the job
+ * @returns {string} the description
+ */
+export function describe(status) {
     const parts = [STATES[status.state] ?? status.state];
     if (status.hotFiles) {
         parts.push(`${formatNumber(status.hotFiles)} Dateien aus hot/ an den Indexer übergeben`);
@@ -34,7 +40,13 @@ function describe(status) {
     return parts.join(', ');
 }
 
-function notes(status) {
+/**
+ * Messages and unreadable files of a job.
+ *
+ * @param {object} status the status of the job
+ * @returns {string} the notes, empty if there are none
+ */
+export function notes(status) {
     const result = [];
     if (status.message) {
         result.push(status.message);
@@ -52,7 +64,7 @@ function notes(status) {
  * @param {(status: object) => void} onUpdate called with every new status
  * @returns {Promise<object>} the last status
  */
-async function follow(status, onUpdate) {
+export async function follow(status, onUpdate) {
     let current = status;
     onUpdate(current);
     while (current.state === 'RUNNING') {

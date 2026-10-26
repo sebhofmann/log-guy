@@ -16,6 +16,7 @@ import de.gbv.logguy.common.StreamStatus;
 import de.gbv.logguy.server.archive.ArchiveFile;
 import de.gbv.logguy.server.archive.ArchiveMeta;
 import de.gbv.logguy.server.archive.ArchiveStore;
+import de.gbv.logguy.server.files.DeletedFiles;
 import de.gbv.logguy.server.hot.FileMeta;
 import de.gbv.logguy.server.hot.GapException;
 import de.gbv.logguy.server.hot.HotFile;
@@ -35,6 +36,8 @@ public class IngestService {
 
     private final ArchiveStore archive;
 
+    private final DeletedFiles deleted;
+
     private final Map<String, Instant> lastSeen = new ConcurrentHashMap<>();
 
     /**
@@ -42,10 +45,12 @@ public class IngestService {
      *
      * @param store the hot storage
      * @param archive the archive, it knows the files already deleted from {@code hot/}
+     * @param deleted files deleted by a user and blocked, they are answered as closed
      */
-    public IngestService(HotStore store, ArchiveStore archive) {
+    public IngestService(HotStore store, ArchiveStore archive, DeletedFiles deleted) {
         this.store = store;
         this.archive = archive;
+        this.deleted = deleted;
     }
 
     /**
@@ -72,6 +77,13 @@ public class IngestService {
     public StreamStatus status(IngestPrincipal principal, String fingerprint) {
         seen(principal);
         checkFingerprint(fingerprint);
+        Optional<DeletedFiles.Entry> blocked = deleted.blocked(fingerprint);
+        if (blocked.isPresent()) {
+            if (!principal.mayWrite(blocked.get().host(), blocked.get().app())) {
+                throw new IngestException(HttpStatus.NOT_FOUND, "unknown stream", null);
+            }
+            return status(blocked.get(), 0);
+        }
         HotFile file = store.find(fingerprint).orElse(null);
         if (file == null) {
             ArchiveMeta archived = archivedOnly(fingerprint)
@@ -110,6 +122,10 @@ public class IngestService {
         if (offset < 0) {
             throw new IngestException(HttpStatus.BAD_REQUEST, "negative offset", null);
         }
+        Optional<StreamStatus> blocked = blocked(fingerprint, host, app, offset + length);
+        if (blocked.isPresent()) {
+            return blocked.get();
+        }
         HotFile file = store.find(fingerprint).orElse(null);
         if (file == null) {
             Optional<ArchiveMeta> archived = archivedOnly(fingerprint);
@@ -134,6 +150,11 @@ public class IngestService {
         } catch (GapException e) {
             throw new IngestException(HttpStatus.CONFLICT, e.getMessage(), e.getStatus());
         } catch (IOException e) {
+            blocked = blocked(fingerprint, host, app, offset + length);
+            if (blocked.isPresent()) {
+                // deleted while the chunk was written
+                return blocked.get();
+            }
             LOGGER.error("cannot store chunk of {}", file.relativePath(), e);
             throw new IngestException(HttpStatus.SERVICE_UNAVAILABLE, "cannot store chunk", null);
         }
@@ -156,6 +177,10 @@ public class IngestService {
         seen(principal);
         checkFingerprint(fingerprint);
         checkAccess(principal, host, app);
+        Optional<StreamStatus> blocked = blocked(fingerprint, host, app, length);
+        if (blocked.isPresent()) {
+            return blocked.get();
+        }
         HotFile file = store.find(fingerprint).orElse(null);
         if (file == null) {
             ArchiveMeta archived = archivedOnly(fingerprint)
@@ -173,6 +198,10 @@ public class IngestService {
         } catch (GapException e) {
             throw new IngestException(HttpStatus.CONFLICT, e.getMessage(), e.getStatus());
         } catch (IOException e) {
+            blocked = blocked(fingerprint, host, app, length);
+            if (blocked.isPresent()) {
+                return blocked.get();
+            }
             LOGGER.error("cannot close {}", file.relativePath(), e);
             throw new IngestException(HttpStatus.SERVICE_UNAVAILABLE, "cannot close stream", null);
         }
@@ -212,6 +241,20 @@ public class IngestService {
      */
     private Optional<ArchiveMeta> archivedOnly(String fingerprint) {
         return archive.find(fingerprint).map(ArchiveFile::meta).filter(ArchiveMeta::closed);
+    }
+
+    /**
+     * A file deleted by a user is answered as closed with everything the agent sent, so the agent stops sending it.
+     */
+    private Optional<StreamStatus> blocked(String fingerprint, String host, String app, long sent) {
+        return deleted.blocked(fingerprint).map(entry -> {
+            checkOwner(entry.host(), entry.app(), host, app);
+            return status(entry, sent);
+        });
+    }
+
+    private static StreamStatus status(DeletedFiles.Entry entry, long sent) {
+        return new StreamStatus(entry.fingerprint(), Math.max(entry.length(), sent), true);
     }
 
     private static StreamStatus status(ArchiveMeta archived) {

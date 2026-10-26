@@ -205,6 +205,76 @@ public class ReindexService implements AutoCloseable {
         return new Plan(app, from, end, hotFiles, archiveFrom, archiveTo, archiveFiles, bytes);
     }
 
+    /**
+     * Computes what a job for a single file would do: the part in the index window is indexed again from
+     * {@code hot/}, the older part is loaded from the archive, up to the oldest event in the index.
+     *
+     * @param fingerprint fingerprint of the file
+     * @return the plan
+     * @throws ReindexException if the file is unknown or there is nothing to do
+     */
+    public Plan planFile(String fingerprint) throws ReindexException {
+        HotFile hotFile = hot.find(fingerprint).orElse(null);
+        ArchiveFile archived = archive.find(fingerprint).orElse(null);
+        if (hotFile == null && archived == null) {
+            throw new ReindexException("Die Datei " + fingerprint + " gibt es nicht.");
+        }
+        String app = hotFile != null ? hotFile.meta().app() : archived.meta().app();
+        if (parsers.forApp(app).isEmpty()) {
+            throw new ReindexException("Für die Anwendung " + app + " gibt es keinen Parser.");
+        }
+        Instant window = retention.windowStart(app);
+        Instant from = null;
+        Instant to = null;
+
+        List<String> hotFiles = new ArrayList<>();
+        if (hotFile != null) {
+            FileMeta meta = hotFile.meta();
+            from = meta.firstReceived();
+            to = meta.lastReceived();
+            if (indexer != null && (meta.lastReceived() == null || meta.lastReceived().isAfter(window))) {
+                hotFiles.add(fingerprint);
+            }
+        }
+
+        Instant archiveFrom = null;
+        Instant archiveTo = null;
+        long bytes = 0;
+        ArchiveMeta meta = archived == null ? null : archived.meta();
+        if (meta != null && meta.from() != null && meta.from().isBefore(window)) {
+            Instant limit = meta.to().plusMillis(1);
+            if (window.isBefore(limit)) {
+                limit = window;
+            }
+            try {
+                Optional<Instant> first = oldest.of(app);
+                if (first.isPresent() && first.get().isBefore(limit)) {
+                    limit = first.get();
+                }
+            } catch (Exception e) {
+                throw new ReindexException("Der Index ist nicht erreichbar: " + e.getMessage(), e);
+            }
+            FrameRange range = meta.from().isBefore(limit)
+                ? FrameRange.of(archived.frames(), meta.from(), limit)
+                : null;
+            if (range != null) {
+                archiveFrom = meta.from();
+                archiveTo = limit;
+                bytes = range.bytes();
+            }
+            from = from == null || meta.from().isBefore(from) ? meta.from() : from;
+            to = to == null || meta.to().isAfter(to) ? meta.to() : to;
+        }
+        if (hotFiles.isEmpty() && archiveFrom == null) {
+            throw new ReindexException(hotFile != null && indexer == null
+                ? "Der Indexer ist abgeschaltet (log-guy.indexer.enabled)."
+                : "Die Datei liegt ganz im Index oder enthält nichts, das sich laden lässt.");
+        }
+        Instant now = clock.instant();
+        return new Plan(app, from == null ? now : from, to == null ? now : to, hotFiles, archiveFrom, archiveTo,
+            archiveFrom == null ? List.of() : List.of(fingerprint), bytes);
+    }
+
     private static boolean overlaps(FileMeta meta, Instant from, Instant to) {
         return (meta.lastReceived() == null || !meta.lastReceived().isBefore(from))
             && (meta.firstReceived() == null || meta.firstReceived().isBefore(to));

@@ -140,6 +140,16 @@ log-guy:
     expire-cron: "0 15 * * * *"
     max-range: 92d
     keep-jobs: 20
+  files:
+    # the log browser: lines and bytes of one page of a file
+    page-lines: 500
+    page-size: 1MB
+    # longer lines are cut in the browser, the download has them complete
+    max-line-length: 8KB
+    # a search in a file stops after this many hits or bytes and can be continued
+    search-hits: 200
+    search-bytes: 256MB
+    list-limit: 1000
   alerts:
     enabled: true
     # events older than this are not checked, e.g. when backfilling or indexing again

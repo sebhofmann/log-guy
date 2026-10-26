@@ -74,18 +74,44 @@ public class WebController {
     }
 
     /**
-     * The archive search for users with the right {@code archive} for at least one application.
+     * The log browser for users with the right {@code archive} for at least one application.
      *
      * @param csrf the CSRF token
      * @return the page
      */
     @GetMapping("/archive")
     public ModelAndView archive(CsrfToken csrf) {
+        return archivePage(csrf, "files");
+    }
+
+    /**
+     * The archive search.
+     *
+     * @param csrf the CSRF token
+     * @return the page
+     */
+    @GetMapping("/archive/search")
+    public ModelAndView archiveSearch(CsrfToken csrf) {
+        return archivePage(csrf, "search");
+    }
+
+    /**
+     * Loading a time range from the archive into the index.
+     *
+     * @param csrf the CSRF token
+     * @return the page
+     */
+    @GetMapping("/archive/load")
+    public ModelAndView archiveLoad(CsrfToken csrf) {
+        return archivePage(csrf, "load");
+    }
+
+    private ModelAndView archivePage(CsrfToken csrf, String tab) {
         LogGuyUser user = currentUser.get();
         if (!user.hasRight(Right.ARCHIVE)) {
             throw new AccessDeniedException("no archive rights");
         }
-        return new ModelAndView("archive", Map.of("page", new PageContext(user, csrf, "archive")));
+        return new ModelAndView("archive", Map.of("page", new PageContext(user, csrf, "archive"), "tab", tab));
     }
 
     /**

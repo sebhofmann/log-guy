@@ -84,6 +84,16 @@ public final class EventDocuments {
     }
 
     /**
+     * The query for all events of a file, those of {@code hot/} and those loaded from the archive.
+     *
+     * @param fingerprint fingerprint of the file
+     * @return the query
+     */
+    public static String eventsOf(String fingerprint) {
+        return "id:" + ClientUtils.escapeQueryChars(fingerprint + ":") + "*";
+    }
+
+    /**
      * The query for the events of a file in {@code hot/}, without those loaded from the archive.
      *
      * @param fingerprint fingerprint of the file

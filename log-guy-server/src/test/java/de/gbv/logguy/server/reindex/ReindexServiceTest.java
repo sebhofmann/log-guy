@@ -275,6 +275,32 @@ class ReindexServiceTest {
     }
 
     @Test
+    void plansASingleFile() throws Exception {
+        Instant now = file.meta().to().plus(Duration.ofDays(30));
+        Instant to = file.meta().to().plusMillis(1);
+        try (ReindexService service = service(now, Optional.empty())) {
+            Plan plan = service.planFile(file.fingerprint());
+            assertEquals("digibib", plan.app());
+            assertEquals(List.of(), plan.hotFiles());
+            assertEquals(List.of(file.fingerprint()), plan.archiveFiles());
+            assertEquals(file.meta().from(), plan.archiveFrom());
+            assertEquals(to, plan.archiveTo());
+            ReindexJob job = service.start("admin", plan);
+            await(job);
+            assertEquals(State.DONE, job.status().state());
+            assertLoaded(file.meta().from(), to, now);
+        }
+        Instant inWindow = file.meta().to().plus(Duration.ofDays(1));
+        try (ReindexService service = service(inWindow, Optional.empty())) {
+            ReindexException noIndexer = assertThrows(ReindexException.class,
+                () -> service.planFile(file.fingerprint()));
+            assertTrue(noIndexer.getMessage().contains("Indexer"), noIndexer.getMessage());
+            ReindexException unknown = assertThrows(ReindexException.class, () -> service.planFile("unbekannt"));
+            assertTrue(unknown.getMessage().contains("gibt es nicht"), unknown.getMessage());
+        }
+    }
+
+    @Test
     void expireDeletesOverdueEvents() throws IOException {
         Instant now = Instant.parse("2026-10-23T10:00:00Z");
         service(now, Optional.empty()).expire();

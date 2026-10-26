@@ -99,6 +99,18 @@ public class ArchiveStore {
     }
 
     /**
+     * Deletes a file from the archive.
+     *
+     * @param file the file
+     * @throws IOException if deleting fails
+     */
+    public void delete(ArchiveFile file) throws IOException {
+        files.remove(file.fingerprint(), file);
+        file.delete();
+        LOGGER.info("deleted {} from the archive", file.relativePath());
+    }
+
+    /**
      * Creates an empty file in the staging directory, to write an archive file again beside the current one.
      *
      * @param source meta data of the original in {@code hot/}
