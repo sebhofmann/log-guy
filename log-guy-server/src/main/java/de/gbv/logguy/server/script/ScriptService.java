@@ -20,7 +20,9 @@ import org.springframework.security.access.AccessDeniedException;
 
 import de.gbv.logguy.server.audit.Actor;
 import de.gbv.logguy.server.audit.AuditLog;
+import de.gbv.logguy.server.config.AppRegistry;
 import de.gbv.logguy.server.config.LogGuyProperties;
+import de.gbv.logguy.server.config.LogGuyProperties.AppProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.Right;
 import de.gbv.logguy.server.script.ScriptRequestException.Reason;
 import de.gbv.logguy.server.script.ScriptStore.Draft;
@@ -42,6 +44,8 @@ public class ScriptService {
 
     private final LogGuyProperties properties;
 
+    private final AppRegistry appRegistry;
+
     private final ScriptStore store;
 
     private final ScriptRuntime runtime;
@@ -56,15 +60,18 @@ public class ScriptService {
      * Creates the service.
      *
      * @param properties configuration
+     * @param appRegistry the configured applications as they are now
      * @param store the script directory
      * @param runtime the script runtime for checks
      * @param parsers the parser scripts
      * @param listeners take over activated scripts of other kinds, e.g. the pseudonymization
      * @param audit the audit log
      */
-    public ScriptService(LogGuyProperties properties, ScriptStore store, ScriptRuntime runtime, ParserRegistry parsers,
+    public ScriptService(LogGuyProperties properties, AppRegistry appRegistry, ScriptStore store, ScriptRuntime runtime,
+        ParserRegistry parsers,
         List<ScriptListener> listeners, AuditLog audit) {
         this.properties = properties;
+        this.appRegistry = appRegistry;
         this.store = store;
         this.runtime = runtime;
         this.parsers = parsers;
@@ -93,7 +100,7 @@ public class ScriptService {
      */
     public List<ScriptSummary> list(LogGuyUser user) throws IOException {
         Set<ScriptId> ids = new TreeSet<>(store.active().keySet());
-        for (String app : properties.apps().keySet()) {
+        for (String app : appRegistry.names()) {
             ids.add(new ScriptId(ScriptKind.PARSER, parsers.parserName(app)));
         }
         ids.addAll(Templates.ALWAYS_ACTIVE);
@@ -327,7 +334,22 @@ public class ScriptService {
      * @return the changed scripts and the errors
      * @throws IOException if the directory cannot be read
      */
-    public synchronized ReloadResult reload(ScriptId only) throws IOException {
+    public ReloadResult reload(ScriptId only) throws IOException {
+        return reload(only, appRegistry.apps());
+    }
+
+    /**
+     * Like {@link #reload(ScriptId)}, but also takes over the applications of a reloaded configuration. Their parsers
+     * are checked with the scripts, and nothing changes if one has errors. Afterwards new applications are indexed
+     * and searched like the others.
+     *
+     * @param only only this script, {@code null} for all
+     * @param configured the applications from now on
+     * @return the changed scripts and the errors
+     * @throws IOException if the directory cannot be read
+     */
+    public synchronized ReloadResult reload(ScriptId only, Map<String, AppProperties> configured)
+        throws IOException {
         Map<ScriptId, String> disk;
         if (only == null) {
             disk = store.readDisk();
@@ -357,7 +379,8 @@ public class ScriptService {
                 check(change.getKey(), change.getValue()).ifPresent(errors::add);
             }
         }
-        ParserRegistry.Prepared prepared = parsers.prepare(disk);
+        ParserRegistry.Prepared prepared = parsers.prepare(disk, configured);
+        boolean appsChanged = !configured.equals(appRegistry.apps());
         errors.addAll(prepared.errors());
         List<String> changed = changes.keySet().stream().map(ScriptId::toString).toList();
         if (!errors.isEmpty()) {
@@ -369,7 +392,11 @@ public class ScriptService {
                 store.recordHistory(change.getKey(), change.getValue(), Actor.FILESYSTEM);
             }
         }
-        if (changes.keySet().stream().anyMatch(id -> id.kind() == ScriptKind.PARSER)) {
+        if (appsChanged) {
+            appRegistry.update(configured);
+            LOGGER.info("applications are now {}", appRegistry.names());
+        }
+        if (appsChanged || changes.keySet().stream().anyMatch(id -> id.kind() == ScriptKind.PARSER)) {
             parsers.apply(prepared);
         }
         changes.keySet().stream().map(ScriptId::kind).filter(kind -> kind != ScriptKind.PARSER).distinct()

@@ -26,6 +26,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.util.unit.DataSize;
 
+import de.gbv.logguy.server.config.AppRegistry;
 import de.gbv.logguy.server.audit.Actor;
 import de.gbv.logguy.server.audit.Actor.Via;
 import de.gbv.logguy.server.audit.AuditLog;
@@ -87,6 +88,8 @@ class ScriptServiceTest {
 
     private ScriptStore store;
 
+    private AppRegistry apps;
+
     private ParserRegistry parsers;
 
     private ScriptService service;
@@ -115,10 +118,11 @@ class ScriptServiceTest {
             null, null, null, null, null, null, null, null, null);
         store = new ScriptStore(scripts, Clock.systemUTC(), JSON);
         store.scan();
-        parsers = new ParserRegistry(properties, runtime, store);
+        apps = new AppRegistry(properties);
+        parsers = new ParserRegistry(apps, runtime, store);
         assertEquals(List.of(), parsers.load());
         AuditLog audit = new AuditLog(dir.resolve("audit"), ZoneOffset.UTC, Clock.systemUTC(), JSON);
-        service = new ScriptService(properties, store, runtime, parsers,
+        service = new ScriptService(properties, apps, store, runtime, parsers,
             List.of((kind, s) -> notified.add(kind)), audit);
         service.recordStartVersions();
     }
@@ -281,6 +285,23 @@ class ScriptServiceTest {
         assertEquals(fixed, parsers.forApp("leo").orElseThrow().code());
         assertEquals(Via.FILESYSTEM, store.history(LEO).getFirst().via());
         assertEquals(2, store.history(LEO).size());
+    }
+
+    @Test
+    void reloadTakesOverNewApplications() throws Exception {
+        assertTrue(parsers.forApp("rolf").isEmpty());
+        Map<String, AppProperties> broken = Map.of("leo", new AppProperties(null, null), "rolf",
+            new AppProperties(null, "missing"));
+        assertFalse(service.reload(null, broken).errors().isEmpty());
+        assertFalse(apps.contains("rolf"));
+        assertTrue(parsers.forApp("rolf").isEmpty());
+
+        Map<String, AppProperties> added = Map.of("digibib", new AppProperties(null, "mycore-log4j"), "rolf",
+            new AppProperties(null, "leo"));
+        assertEquals(List.of(), service.reload(null, added).errors());
+        assertEquals(Set.of("digibib", "rolf"), apps.names());
+        assertEquals(LEO_PARSER, parsers.forApp("rolf").orElseThrow().code());
+        assertTrue(parsers.forApp("leo").isEmpty());
     }
 
     @Test

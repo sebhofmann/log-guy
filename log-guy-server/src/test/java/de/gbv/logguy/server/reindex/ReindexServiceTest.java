@@ -32,6 +32,7 @@ import org.springframework.util.unit.DataSize;
 
 import de.gbv.logguy.common.Fingerprint;
 import de.gbv.logguy.common.TestLogs;
+import de.gbv.logguy.server.config.AppRegistry;
 import de.gbv.logguy.server.archive.ArchiveFile;
 import de.gbv.logguy.server.archive.ArchiveStore;
 import de.gbv.logguy.server.archive.ArchiveWriter;
@@ -171,7 +172,8 @@ class ReindexServiceTest {
 
     private ReindexService service(Instant now, Optional<Instant> oldest) {
         Clock clock = Clock.fixed(now, ZoneOffset.UTC);
-        RetentionService retention = new RetentionService(properties, null, null, clock, null);
+        RetentionService retention =
+            new RetentionService(properties, new AppRegistry(properties), null, null, clock, null);
         return new ReindexService(properties, hot, archive, null, parsers, runtime, null, sink, app -> oldest,
             retention,
             clock);

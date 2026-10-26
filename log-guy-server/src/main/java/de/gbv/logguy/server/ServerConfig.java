@@ -36,6 +36,7 @@ import de.gbv.logguy.server.archive.ArchiveWriter;
 import de.gbv.logguy.server.archive.LifecycleFilters;
 import de.gbv.logguy.server.audit.AuditLog;
 import de.gbv.logguy.server.config.ConfigReloader;
+import de.gbv.logguy.server.config.AppRegistry;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.hot.HotStore;
 import de.gbv.logguy.server.index.Indexer;
@@ -203,6 +204,7 @@ public class ServerConfig {
      * The alerts. With {@code log-guy.alerts.enabled} false the indexer does not check events.
      *
      * @param properties configuration
+     * @param apps the configured applications
      * @param rules the alert rules
      * @param notifiers where notifications go
      * @param audit the audit log
@@ -212,10 +214,10 @@ public class ServerConfig {
      * @throws IOException if the alerts cannot be read
      */
     @Bean(destroyMethod = "close")
-    public AlertService alertService(LogGuyProperties properties, AlertRules rules, List<Notifier> notifiers,
-        AuditLog audit, Clock clock, JsonMapper json) throws IOException {
+    public AlertService alertService(LogGuyProperties properties, AppRegistry apps, AlertRules rules,
+        List<Notifier> notifiers, AuditLog audit, Clock clock, JsonMapper json) throws IOException {
         return new AlertService(properties.alerts(), rules, new AlertStore(properties.stateDir(), json), notifiers,
-            () -> properties.apps().keySet(), audit, clock);
+            apps::names, audit, clock);
     }
 
     /**
@@ -267,15 +269,17 @@ public class ServerConfig {
      * The archive search with its worker threads.
      *
      * @param properties configuration
+     * @param apps the configured applications
      * @param archive the archive
      * @param pseudonyms pseudonymizes the hits of pseudonymized jobs
      * @param clock clock for the limits
      * @return the search
      */
     @Bean(destroyMethod = "close")
-    public ArchiveSearch archiveSearch(LogGuyProperties properties, ArchiveStore archive, PseudonymService pseudonyms,
+    public ArchiveSearch archiveSearch(LogGuyProperties properties, AppRegistry apps, ArchiveStore archive,
+        PseudonymService pseudonyms,
         Clock clock) {
-        return new ArchiveSearch(properties, archive, pseudonyms, clock);
+        return new ArchiveSearch(properties, apps, archive, pseudonyms, clock);
     }
 
     /**
@@ -295,6 +299,7 @@ public class ServerConfig {
      * Drafts, activation and reload of scripts. Records the active scripts in the history at the start.
      *
      * @param properties configuration
+     * @param apps the configured applications
      * @param store the script directory
      * @param runtime the script runtime
      * @param parsers the parser scripts
@@ -304,9 +309,10 @@ public class ServerConfig {
      * @throws IOException if the history cannot be written
      */
     @Bean
-    public ScriptService scriptService(LogGuyProperties properties, ScriptStore store, ScriptRuntime runtime,
+    public ScriptService scriptService(LogGuyProperties properties, AppRegistry apps, ScriptStore store,
+        ScriptRuntime runtime,
         ParserRegistry parsers, List<ScriptListener> listeners, AuditLog audit) throws IOException {
-        ScriptService service = new ScriptService(properties, store, runtime, parsers, listeners, audit);
+        ScriptService service = new ScriptService(properties, apps, store, runtime, parsers, listeners, audit);
         service.recordStartVersions();
         return service;
     }
@@ -316,6 +322,7 @@ public class ServerConfig {
      *
      * @param environment the environment of the server
      * @param properties the configuration the server started with
+     * @param apps the applications
      * @param tokens the tokens
      * @param users the users
      * @param scripts the scripts
@@ -324,14 +331,15 @@ public class ServerConfig {
      */
     @Bean
     public ConfigReloader configReloader(ConfigurableEnvironment environment, LogGuyProperties properties,
-        TokenRegistry tokens, UserRegistry users, ScriptService scripts, AuditLog audit) {
-        return new ConfigReloader(environment, properties, tokens, users, scripts, audit);
+        AppRegistry apps, TokenRegistry tokens, UserRegistry users, ScriptService scripts, AuditLog audit) {
+        return new ConfigReloader(environment, properties, apps, tokens, users, scripts, audit);
     }
 
     /**
      * The search over Solr.
      *
      * @param properties configuration
+     * @param apps the configured applications
      * @param parsers the parser scripts with the declared fields
      * @param solr connection to Solr
      * @param clock clock for the default range
@@ -339,9 +347,10 @@ public class ServerConfig {
      * @return the service
      */
     @Bean
-    public SearchService searchService(LogGuyProperties properties, ParserRegistry parsers, SolrService solr,
+    public SearchService searchService(LogGuyProperties properties, AppRegistry apps, ParserRegistry parsers,
+        SolrService solr,
         Clock clock, JsonMapper json) {
-        return new SearchService(properties, parsers, solr, clock, json);
+        return new SearchService(properties, apps, parsers, solr, clock, json);
     }
 
     /**
@@ -361,6 +370,7 @@ public class ServerConfig {
      * Runs scripts against test sources.
      *
      * @param properties configuration
+     * @param apps the configured applications
      * @param store the hot storage
      * @param runtime the script runtime
      * @param scripts the scripts
@@ -372,10 +382,12 @@ public class ServerConfig {
      * @return the tester
      */
     @Bean
-    public ScriptTester scriptTester(LogGuyProperties properties, HotStore store, ScriptRuntime runtime,
+    public ScriptTester scriptTester(LogGuyProperties properties, AppRegistry apps, HotStore store,
+        ScriptRuntime runtime,
         ScriptService scripts, SearchService search, ParserRegistry parsers, PseudonymService pseudonyms,
         LifecycleFilters lifecycle, Clock clock) {
-        return new ScriptTester(properties, store, runtime, scripts, search, parsers, pseudonyms, lifecycle, clock);
+        return new ScriptTester(properties, apps, store, runtime, scripts, search, parsers, pseudonyms, lifecycle,
+            clock);
     }
 
     /**
@@ -420,6 +432,7 @@ public class ServerConfig {
      * The nightly cleanup of the index, of {@code hot/} and of the own log.
      *
      * @param properties configuration
+     * @param apps the configured applications
      * @param solr connection to Solr
      * @param serverLog the own log
      * @param clock clock for the limits
@@ -430,12 +443,13 @@ public class ServerConfig {
      * @return the service
      */
     @Bean
-    public RetentionService retentionService(LogGuyProperties properties, SolrService solr, ServerLog serverLog,
+    public RetentionService retentionService(LogGuyProperties properties, AppRegistry apps, SolrService solr,
+        ServerLog serverLog,
         Clock clock, HotStore hot, ArchiveStore archive, ObjectProvider<Indexer> indexer, ParserRegistry parsers) {
         HotCleaner cleaner = properties.archive().enabled()
             ? new HotCleaner(properties, hot, archive, indexer.getIfAvailable(), parsers, clock)
             : null;
-        return new RetentionService(properties, solr, serverLog, clock, cleaner);
+        return new RetentionService(properties, apps, solr, serverLog, clock, cleaner);
     }
 
     /**
@@ -533,6 +547,7 @@ public class ServerConfig {
      * Collects the numbers of the status page.
      *
      * @param properties configuration
+     * @param apps the configured applications
      * @param store the hot storage
      * @param indexer the indexer if it runs
      * @param archive the archive
@@ -547,11 +562,13 @@ public class ServerConfig {
      * @return the service
      */
     @Bean
-    public StatusService statusService(LogGuyProperties properties, HotStore store, ObjectProvider<Indexer> indexer,
+    public StatusService statusService(LogGuyProperties properties, AppRegistry apps, HotStore store,
+        ObjectProvider<Indexer> indexer,
         ArchiveStore archive, ObjectProvider<ArchiveWriter> writer, IngestService ingest, Deliveries deliveries,
         BackupService backup, SolrService solr, Clock clock, JsonMapper json, ObjectProvider<BuildProperties> build) {
         BuildProperties info = build.getIfAvailable();
-        return new StatusService(properties, store, indexer.getIfAvailable(), archive, writer.getIfAvailable(), ingest,
+        return new StatusService(properties, apps, store, indexer.getIfAvailable(), archive, writer.getIfAvailable(),
+            ingest,
             deliveries, backup, solr, clock, json,
             info == null ? null : info.getVersion());
     }

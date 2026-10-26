@@ -18,6 +18,7 @@ import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.request.AbstractUpdateRequest.ACTION;
 import org.apache.solr.client.solrj.request.UpdateRequest;
 
+import de.gbv.logguy.server.config.AppRegistry;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.AppProperties;
 import de.gbv.logguy.server.serverlog.ServerLog;
@@ -34,6 +35,8 @@ public class RetentionService {
 
     private final LogGuyProperties properties;
 
+    private final AppRegistry appRegistry;
+
     private final SolrService solr;
 
     private final ServerLog serverLog;
@@ -46,14 +49,17 @@ public class RetentionService {
      * Creates the service.
      *
      * @param properties configuration
+     * @param appRegistry the configured applications as they are now
      * @param solr connection to Solr
      * @param serverLog the own log, {@code null} if there is none
      * @param clock clock for the limits
      * @param hotCleaner deletes old originals from {@code hot/}, {@code null} if the archive is disabled
      */
-    public RetentionService(LogGuyProperties properties, SolrService solr, ServerLog serverLog, Clock clock,
+    public RetentionService(LogGuyProperties properties, AppRegistry appRegistry, SolrService solr, ServerLog serverLog,
+        Clock clock,
         HotCleaner hotCleaner) {
         this.properties = properties;
+        this.appRegistry = appRegistry;
         this.solr = solr;
         this.serverLog = serverLog;
         this.clock = clock;
@@ -70,7 +76,7 @@ public class RetentionService {
     public List<String> queries() {
         Instant now = clock.instant();
         Map<Integer, List<String>> appsByDays = new TreeMap<>();
-        for (Map.Entry<String, AppProperties> app : properties.apps().entrySet()) {
+        for (Map.Entry<String, AppProperties> app : appRegistry.apps().entrySet()) {
             Integer days = app.getValue().indexDays();
             if (days != null && days != properties.indexer().indexDays()) {
                 appsByDays.computeIfAbsent(days, d -> new ArrayList<>()).add(app.getKey());
@@ -110,7 +116,7 @@ public class RetentionService {
      * @return the start of the oldest day kept
      */
     public Instant windowStart(String app) {
-        AppProperties settings = properties.apps().get(app);
+        AppProperties settings = appRegistry.get(app);
         Integer days = settings == null ? null : settings.indexDays();
         return Instant.parse(limit(clock.instant(), days != null ? days : properties.indexer().indexDays()));
     }

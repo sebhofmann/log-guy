@@ -27,6 +27,7 @@ import org.apache.solr.client.solrj.util.ClientUtils;
 import org.apache.solr.common.SolrDocument;
 import org.apache.solr.common.params.CursorMarkParams;
 
+import de.gbv.logguy.server.config.AppRegistry;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.Right;
 import de.gbv.logguy.server.config.LogGuyProperties.SearchProperties;
@@ -61,6 +62,8 @@ public class SearchService {
 
     private final LogGuyProperties properties;
 
+    private final AppRegistry appRegistry;
+
     private final ParserRegistry parsers;
 
     private final SolrService solr;
@@ -73,14 +76,17 @@ public class SearchService {
      * Creates the service.
      *
      * @param properties configuration
+     * @param appRegistry the configured applications as they are now
      * @param parsers the parser scripts with the declared fields
      * @param solr connection to Solr
      * @param clock clock for the default range
      * @param json mapper for the JSON facet requests
      */
-    public SearchService(LogGuyProperties properties, ParserRegistry parsers, SolrService solr, Clock clock,
+    public SearchService(LogGuyProperties properties, AppRegistry appRegistry, ParserRegistry parsers, SolrService solr,
+        Clock clock,
         JsonMapper json) {
         this.properties = properties;
+        this.appRegistry = appRegistry;
         this.parsers = parsers;
         this.solr = solr;
         this.clock = clock;
@@ -134,7 +140,7 @@ public class SearchService {
      * @throws SearchException if an application is unknown or not allowed
      */
     public Set<String> apps(LogGuyUser user, Collection<String> requested) {
-        Set<String> allowed = user.readableApps(properties.apps().keySet());
+        Set<String> allowed = user.readableApps(appRegistry.names());
         if (requested.isEmpty()) {
             return allowed;
         }
@@ -185,7 +191,7 @@ public class SearchService {
      */
     public FieldsView describeFields(LogGuyUser user, Collection<String> requested) {
         LogGuyUser view = user.asPseudonymized();
-        Set<String> allowed = view.readableApps(properties.apps().keySet());
+        Set<String> allowed = view.readableApps(appRegistry.names());
         Set<String> apps = apps(view, requested);
         parsers.ensureLoaded();
         Map<String, FieldInfo> infos = new TreeMap<>();

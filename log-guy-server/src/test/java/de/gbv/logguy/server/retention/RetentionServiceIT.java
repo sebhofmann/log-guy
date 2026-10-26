@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.util.unit.DataSize;
 
+import de.gbv.logguy.server.config.AppRegistry;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.AppProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.HotProperties;
@@ -66,7 +67,8 @@ class RetentionServiceIT {
             new SearchProperties(Duration.ofHours(24), 100, 1000, 300, 8, 10, 100, 20, 500,
                 DataSize.ofKilobytes(512)),
             new RetentionProperties("0 30 2 * * *", true), null, null, null, null, null, null, null);
-        retention = new RetentionService(properties, service, null, Clock.fixed(NOW, ZoneOffset.UTC), null);
+        retention = new RetentionService(properties, new AppRegistry(properties), service, null,
+            Clock.fixed(NOW, ZoneOffset.UTC), null);
     }
 
     @AfterAll

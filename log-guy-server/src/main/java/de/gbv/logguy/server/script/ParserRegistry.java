@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import de.gbv.logguy.server.config.AppRegistry;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.AppProperties;
 import de.gbv.logguy.server.script.ScriptStore.ScriptId;
@@ -31,7 +32,7 @@ public class ParserRegistry {
 
     private static final Logger LOGGER = LogManager.getLogger();
 
-    private final LogGuyProperties properties;
+    private final AppRegistry apps;
 
     private final ScriptRuntime runtime;
 
@@ -44,12 +45,12 @@ public class ParserRegistry {
     /**
      * Creates the registry, scripts are loaded by {@link #load()}.
      *
-     * @param properties configuration
+     * @param apps the configured applications
      * @param runtime the script runtime
      * @param store the script directory with the active scripts
      */
-    public ParserRegistry(LogGuyProperties properties, ScriptRuntime runtime, ScriptStore store) {
-        this.properties = properties;
+    public ParserRegistry(AppRegistry apps, ScriptRuntime runtime, ScriptStore store) {
+        this.apps = apps;
         this.runtime = runtime;
         this.store = store;
     }
@@ -61,7 +62,7 @@ public class ParserRegistry {
      * @param runtime the script runtime
      */
     public ParserRegistry(LogGuyProperties properties, ScriptRuntime runtime) {
-        this(properties, runtime, scannedStore(properties));
+        this(new AppRegistry(properties), runtime, scannedStore(properties));
     }
 
     private static ScriptStore scannedStore(LogGuyProperties properties) {
@@ -96,10 +97,22 @@ public class ParserRegistry {
      * @return the checked parsers and the errors
      */
     public Prepared prepare(Map<ScriptId, String> scripts) {
+        return prepare(scripts, apps.apps());
+    }
+
+    /**
+     * Checks the parsers of the given applications with the given scripts, without activating anything, e.g. for a
+     * reload that adds applications.
+     *
+     * @param scripts the scripts to use, parsers missing here come from the templates
+     * @param configured the applications
+     * @return the checked parsers and the errors
+     */
+    public Prepared prepare(Map<ScriptId, String> scripts, Map<String, AppProperties> configured) {
         Map<String, ParserScript> result = new HashMap<>();
         Map<String, ParserScript> byName = new HashMap<>();
         List<String> errors = new ArrayList<>();
-        for (Map.Entry<String, AppProperties> app : properties.apps().entrySet()) {
+        for (Map.Entry<String, AppProperties> app : configured.entrySet()) {
             String name = parserName(app.getKey(), app.getValue());
             try {
                 ParserScript script = byName.get(name);
@@ -161,7 +174,7 @@ public class ParserRegistry {
      * @return the name, the application name if none is configured
      */
     public String parserName(String app) {
-        return parserName(app, properties.apps().get(app));
+        return parserName(app, apps.get(app));
     }
 
     /**
@@ -171,13 +184,13 @@ public class ParserRegistry {
      * @return the applications, sorted
      */
     public Set<String> appsUsing(String name) {
-        Set<String> apps = new TreeSet<>();
-        for (String app : properties.apps().keySet()) {
+        Set<String> using = new TreeSet<>();
+        for (String app : apps.names()) {
             if (parserName(app).equals(name)) {
-                apps.add(app);
+                using.add(app);
             }
         }
-        return apps;
+        return using;
     }
 
     private static String parserName(String app, AppProperties properties) {

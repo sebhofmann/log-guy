@@ -419,7 +419,8 @@ async function afterChange(message, text) {
 async function reloadFromDisk() {
     try {
         const report = await sendJson('POST', '/admin/reload');
-        const changed = report.scripts.length ? `Geändert: ${report.scripts.join(', ')}.` : 'Keine Änderungen.';
+        const changed = report.scripts.length || report.apps.length
+            ? `Geändert: ${report.scripts.concat(report.apps).join(', ')}.` : 'Keine Änderungen.';
         const restart = report.restartNeeded.length
             ? ` Erst nach einem Neustart wirksam: ${report.restartNeeded.join(', ')}.` : '';
         window.alert(changed + restart);

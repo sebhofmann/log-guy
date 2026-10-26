@@ -69,7 +69,7 @@ log-guy:
 - Jedes Token gilt nur auf seinem eigenen Endpunkt: `ingest` auf `/api/v1/streams`, `api` auf `/api/**` außer den Streams, `mcp` nur auf dem MCP-Pfad (`log-guy.mcp.path`). Ein Token am falschen Endpunkt behandelt log-guy wie ein unbekanntes, Antwort 401.
 - `read_pseudonymized` gilt auch in GUI und API. Suche, Zeitleiste, Facetten und Kontext laufen dann durch dieselbe Pseudonymisierung wie beim MCP, mit den Pseudonymen der GUI-Session. Ein API-Token bekommt bei jeder Anfrage neue Pseudonyme. Wer für eine Anwendung `read` und für eine andere nur `read_pseudonymized` hat, sieht eine Suche über beide ganz pseudonymisiert und nur eine Suche über Anwendungen mit `read` im Klartext. Das ist einfacher und sicherer als eine Mischung pro Event, weil Facetten und Zeitleiste zu keiner einzelnen Anwendung gehören. `/api/v1/fields` nennt diese Anwendungen unter `pseudonymized`, die GUI markiert sie und die Suche mit „pseudonymisiert“.
 - Skript-Tests gegen Daten einer Anwendung brauchen in GUI und API `read`, denn sie zeigen die Zeilen im Klartext.
-- Änderungen an Nutzern und Tokens übernimmt log-guy ohne Neustart nach `log-guy reload`. Alle anderen Änderungen prüft der Reload ebenfalls, sie wirken aber erst nach einem Neustart, siehe [Skripte](Skript-Verwaltung.md).
+- Änderungen an Anwendungen, Nutzern und Tokens übernimmt log-guy ohne Neustart nach `log-guy reload`. Alle anderen Änderungen prüft der Reload ebenfalls, sie wirken aber erst nach einem Neustart, siehe [Skripte](Skript-Verwaltung.md).
 
 ### GUI-Anmeldung
 

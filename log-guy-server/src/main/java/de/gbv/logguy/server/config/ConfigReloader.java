@@ -8,6 +8,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeSet;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -20,6 +21,7 @@ import org.springframework.core.env.StandardEnvironment;
 
 import de.gbv.logguy.server.audit.Actor;
 import de.gbv.logguy.server.audit.AuditLog;
+import de.gbv.logguy.server.config.LogGuyProperties.AppProperties;
 import de.gbv.logguy.server.script.ScriptService;
 import de.gbv.logguy.server.script.ScriptService.ReloadResult;
 import de.gbv.logguy.server.script.ScriptStore.ScriptId;
@@ -28,15 +30,15 @@ import de.gbv.logguy.server.security.UserRegistry;
 
 /**
  * Reads {@code application.yml} and the scripts again while the server runs, like {@code nginx -s reload}. Everything
- * is checked first, nothing changes if there is an error. Users and tokens take effect at once, all other settings
- * only after a restart.
+ * is checked first, nothing changes if there is an error. Applications, users and tokens take effect at once, all
+ * other settings only after a restart.
  */
 public class ConfigReloader {
 
     private static final Logger LOGGER = LogManager.getLogger();
 
     /** Settings that a reload takes over. */
-    private static final Set<String> LIVE = Set.of("users", "tokens");
+    private static final Set<String> LIVE = Set.of("apps", "users", "tokens");
 
     private static final String CONFIG_SOURCE_PREFIX = "Config resource";
 
@@ -45,6 +47,8 @@ public class ConfigReloader {
     private final ConfigurableEnvironment environment;
 
     private final LogGuyProperties started;
+
+    private final AppRegistry apps;
 
     private final TokenRegistry tokens;
 
@@ -59,15 +63,18 @@ public class ConfigReloader {
      *
      * @param environment the environment of the running server, for command line and default properties
      * @param started the configuration the server started with
+     * @param apps the applications to update
      * @param tokens the tokens to update
      * @param users the users to update
      * @param scripts the scripts to reload
      * @param audit the audit log
      */
-    public ConfigReloader(ConfigurableEnvironment environment, LogGuyProperties started, TokenRegistry tokens,
+    public ConfigReloader(ConfigurableEnvironment environment, LogGuyProperties started, AppRegistry apps,
+        TokenRegistry tokens,
         UserRegistry users, ScriptService scripts, AuditLog audit) {
         this.environment = environment;
         this.started = started;
+        this.apps = apps;
         this.tokens = tokens;
         this.users = users;
         this.scripts = scripts;
@@ -85,7 +92,8 @@ public class ConfigReloader {
     public synchronized Report reload(Actor actor, ScriptId only) throws IOException {
         if (only != null) {
             ReloadResult result = scripts.reload(only);
-            Report report = new Report(result.errors().isEmpty(), result.changed(), List.of(), result.errors());
+            Report report = new Report(result.errors().isEmpty(), result.changed(), List.of(), List.of(),
+                result.errors());
             log(actor, only.toString(), report);
             return report;
         }
@@ -93,27 +101,52 @@ public class ConfigReloader {
         try {
             properties = read();
         } catch (BindException | IllegalStateException e) {
-            Report report = new Report(false, List.of(), List.of(), List.of("Konfiguration: " + message(e)));
+            Report report = Report.failed(List.of(), List.of("Konfiguration: " + message(e)));
             log(actor, "*", report);
             return report;
         }
         List<String> errors = ConfigChecker.check(properties);
         if (!errors.isEmpty()) {
-            Report report = new Report(false, List.of(), List.of(), errors);
+            Report report = Report.failed(List.of(), errors);
             log(actor, "*", report);
             return report;
         }
-        ReloadResult result = scripts.reload(null);
+        List<String> changedApps = changedApps(apps.apps(), properties.apps());
+        ReloadResult result = scripts.reload(null, properties.apps());
         if (!result.errors().isEmpty()) {
-            Report report = new Report(false, result.changed(), List.of(), result.errors());
+            Report report = Report.failed(result.changed(), result.errors());
             log(actor, "*", report);
             return report;
         }
         tokens.update(properties.tokens());
         users.update(properties.users());
-        Report report = new Report(true, result.changed(), restartNeeded(started, properties), List.of());
+        Report report = new Report(true, result.changed(), changedApps, restartNeeded(started, properties),
+            List.of());
         log(actor, "*", report);
         return report;
+    }
+
+    /**
+     * The applications that a reload adds, removes or changes.
+     *
+     * @param before the applications now
+     * @param after the applications of the new configuration
+     * @return e.g. {@code +rolf}, {@code -old}, {@code ~digibib}, sorted by name
+     */
+    static List<String> changedApps(Map<String, AppProperties> before, Map<String, AppProperties> after) {
+        Set<String> names = new TreeSet<>(before.keySet());
+        names.addAll(after.keySet());
+        List<String> changed = new ArrayList<>();
+        for (String name : names) {
+            if (!before.containsKey(name)) {
+                changed.add("+" + name);
+            } else if (!after.containsKey(name)) {
+                changed.add("-" + name);
+            } else if (!Objects.equals(before.get(name), after.get(name))) {
+                changed.add("~" + name);
+            }
+        }
+        return changed;
     }
 
     /**
@@ -163,13 +196,13 @@ public class ConfigReloader {
 
     private void log(Actor actor, String target, Report report) {
         if (report.ok()) {
-            LOGGER.info("reload by {}: scripts {}, restart needed for {}", actor.label(), report.scripts(),
-                report.restartNeeded());
+            LOGGER.info("reload by {}: scripts {}, applications {}, restart needed for {}", actor.label(),
+                report.scripts(), report.apps(), report.restartNeeded());
         } else {
             LOGGER.warn("reload by {} failed: {}", actor.label(), report.errors());
         }
-        audit.log(actor, "reload", target, Map.of("ok", report.ok(), "scripts", report.scripts(), "restartNeeded",
-            report.restartNeeded(), "errors", report.errors()));
+        audit.log(actor, "reload", target, Map.of("ok", report.ok(), "scripts", report.scripts(), "apps",
+            report.apps(), "restartNeeded", report.restartNeeded(), "errors", report.errors()));
     }
 
     private static String message(Exception e) {
@@ -189,9 +222,22 @@ public class ConfigReloader {
      *
      * @param ok whether the new state was taken over
      * @param scripts the scripts that changed on disk
+     * @param apps the applications added ({@code +}), removed ({@code -}) or changed ({@code ~})
      * @param restartNeeded settings that changed but need a restart
      * @param errors the errors, nothing was taken over if not empty
      */
-    public record Report(boolean ok, List<String> scripts, List<String> restartNeeded, List<String> errors) {
+    public record Report(boolean ok, List<String> scripts, List<String> apps, List<String> restartNeeded,
+        List<String> errors) {
+
+        /**
+         * A reload that took over nothing.
+         *
+         * @param scripts the scripts that changed on disk
+         * @param errors the errors
+         * @return the report
+         */
+        public static Report failed(List<String> scripts, List<String> errors) {
+            return new Report(false, scripts, List.of(), List.of(), errors);
+        }
     }
 }

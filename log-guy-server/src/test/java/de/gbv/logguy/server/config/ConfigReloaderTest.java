@@ -20,12 +20,25 @@ class ConfigReloaderTest {
     }
 
     @Test
-    void usersAreLiveAppsNeedRestart() {
+    void appsAndUsersAreLiveOtherSettingsNeedRestart() {
         Map<String, AppProperties> apps = Map.of("digibib", new AppProperties(7, null));
         LogGuyProperties before = properties(apps, List.of());
         assertEquals(List.of(), ConfigReloader.restartNeeded(before,
             properties(apps, List.of(new UserProperties("anna", "x", List.of())))));
-        assertEquals(List.of("log-guy.apps"), ConfigReloader.restartNeeded(before,
+        assertEquals(List.of(), ConfigReloader.restartNeeded(before,
             properties(Map.of("digibib", new AppProperties(3, null)), List.of())));
+        LogGuyProperties zone = new LogGuyProperties(Path.of("/tmp"), ZoneId.of("UTC"), apps, List.of(), List.of(),
+            null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        assertEquals(List.of("log-guy.zone"), ConfigReloader.restartNeeded(before, zone));
+    }
+
+    @Test
+    void changedAppsAreListed() {
+        Map<String, AppProperties> before = Map.of("digibib", new AppProperties(7, null), "old",
+            new AppProperties(7, null));
+        Map<String, AppProperties> after = Map.of("digibib", new AppProperties(3, null), "rolf",
+            new AppProperties(7, null));
+        assertEquals(List.of("~digibib", "-old", "+rolf"), ConfigReloader.changedApps(before, after));
+        assertEquals(List.of(), ConfigReloader.changedApps(before, before));
     }
 }

@@ -7,6 +7,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
 
+import de.gbv.logguy.server.config.AppRegistry;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.script.ParserRegistry;
 import de.gbv.logguy.server.script.ScriptRuntime;
@@ -60,17 +61,28 @@ public class CommonConfig {
     }
 
     /**
+     * The configured applications, replaced by a reload.
+     *
+     * @param properties configuration of the start
+     * @return the registry
+     */
+    @Bean
+    public AppRegistry appRegistry(LogGuyProperties properties) {
+        return new AppRegistry(properties);
+    }
+
+    /**
      * The parser scripts, not yet loaded.
      *
-     * @param properties configuration
+     * @param apps the configured applications
      * @param runtime the script runtime
      * @param store the script directory
      * @return the registry
      */
     @Bean
     @Lazy
-    public ParserRegistry parserRegistry(LogGuyProperties properties, ScriptRuntime runtime, ScriptStore store) {
-        return new ParserRegistry(properties, runtime, store);
+    public ParserRegistry parserRegistry(AppRegistry apps, ScriptRuntime runtime, ScriptStore store) {
+        return new ParserRegistry(apps, runtime, store);
     }
 
     /**

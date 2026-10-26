@@ -28,6 +28,7 @@ import jakarta.servlet.http.HttpSession;
 import de.gbv.logguy.server.alert.Alert.State;
 import de.gbv.logguy.server.audit.Actor;
 import de.gbv.logguy.server.audit.Actor.Via;
+import de.gbv.logguy.server.config.AppRegistry;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.AlertProperties;
 import de.gbv.logguy.server.pseudonym.Pseudonyms;
@@ -56,6 +57,8 @@ public class AlertController {
 
     private final LogGuyProperties properties;
 
+    private final AppRegistry appRegistry;
+
     private final CurrentUser currentUser;
 
     private final JsonMapper json;
@@ -68,16 +71,18 @@ public class AlertController {
      * @param alerts the alerts
      * @param texts pseudonymizes texts for pseudonymized readers
      * @param properties configuration
+     * @param appRegistry the configured applications as they are now
      * @param currentUser resolves the user
      * @param json serializes the stream
      * @param request the current request, for the pseudonyms of the session
      */
-    public AlertController(AlertService alerts, AlertTexts texts, LogGuyProperties properties,
+    public AlertController(AlertService alerts, AlertTexts texts, LogGuyProperties properties, AppRegistry appRegistry,
         CurrentUser currentUser, JsonMapper json, HttpServletRequest request) {
         this.alerts = alerts;
         this.texts = texts;
         this.settings = properties.alerts();
         this.properties = properties;
+        this.appRegistry = appRegistry;
         this.currentUser = currentUser;
         this.json = json;
         this.request = request;
@@ -178,7 +183,7 @@ public class AlertController {
     @GetMapping("/rules")
     public AlertService.RuleStatus rules() {
         LogGuyUser user = currentUser.get();
-        Set<String> readable = user.asPseudonymized().readableApps(properties.apps().keySet());
+        Set<String> readable = user.asPseudonymized().readableApps(appRegistry.names());
         AlertService.RuleStatus status = alerts.ruleStatus();
         List<AlertService.RuleInfo> visible = status.rules().stream()
             .filter(rule -> user.isAdmin() || rule.apps().stream()

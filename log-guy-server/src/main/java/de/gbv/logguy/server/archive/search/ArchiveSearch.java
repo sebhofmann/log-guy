@@ -33,6 +33,7 @@ import de.gbv.logguy.server.archive.ArchiveMeta;
 import de.gbv.logguy.server.archive.ArchiveStore;
 import de.gbv.logguy.server.archive.search.ArchiveSearchJob.Owner;
 import de.gbv.logguy.server.archive.search.ArchiveSearchJob.State;
+import de.gbv.logguy.server.config.AppRegistry;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.ArchiveSearchProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.Right;
@@ -60,6 +61,8 @@ public class ArchiveSearch implements AutoCloseable {
 
     private final LogGuyProperties properties;
 
+    private final AppRegistry appRegistry;
+
     private final ArchiveSearchProperties settings;
 
     private final ArchiveStore archive;
@@ -76,13 +79,16 @@ public class ArchiveSearch implements AutoCloseable {
      * Creates the search with its worker threads.
      *
      * @param properties configuration, for the applications and the limits
+     * @param appRegistry the configured applications as they are now
      * @param archive the archive
      * @param pseudonyms pseudonymizes the hits of pseudonymized jobs
      * @param clock clock for the limits
      */
-    public ArchiveSearch(LogGuyProperties properties, ArchiveStore archive, PseudonymService pseudonyms,
+    public ArchiveSearch(LogGuyProperties properties, AppRegistry appRegistry, ArchiveStore archive,
+        PseudonymService pseudonyms,
         Clock clock) {
         this.properties = properties;
+        this.appRegistry = appRegistry;
         this.settings = properties.archive().search();
         this.archive = archive;
         this.pseudonyms = pseudonyms;
@@ -104,7 +110,7 @@ public class ArchiveSearch implements AutoCloseable {
      */
     public Set<String> apps(LogGuyUser user) {
         LogGuyUser view = user.asPseudonymized();
-        Set<String> known = new TreeSet<>(properties.apps().keySet());
+        Set<String> known = new TreeSet<>(appRegistry.names());
         archive.files().forEach(file -> known.add(file.meta().app()));
         Set<String> allowed = new TreeSet<>();
         for (String app : known) {

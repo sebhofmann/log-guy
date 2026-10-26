@@ -28,6 +28,7 @@ import de.gbv.logguy.server.alert.RuleTester;
 import de.gbv.logguy.server.alert.RuleTester.RuleTestResult;
 import de.gbv.logguy.server.archive.LifecycleFilters;
 import de.gbv.logguy.server.archive.LifecycleFilters.LifecycleTestResult;
+import de.gbv.logguy.server.config.AppRegistry;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.AlertProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.Right;
@@ -69,6 +70,8 @@ public class ScriptTester {
 
     private final LogGuyProperties properties;
 
+    private final AppRegistry appRegistry;
+
     private final ScriptProperties settings;
 
     private final HotStore hot;
@@ -91,6 +94,7 @@ public class ScriptTester {
      * Creates the tester.
      *
      * @param properties configuration
+     * @param appRegistry the configured applications as they are now
      * @param hot the hot storage
      * @param runtime the script runtime
      * @param scripts the scripts
@@ -100,10 +104,12 @@ public class ScriptTester {
      * @param lifecycle runs tests of lifecycle filters
      * @param clock clock for the time of a test
      */
-    public ScriptTester(LogGuyProperties properties, HotStore hot, ScriptRuntime runtime, ScriptService scripts,
+    public ScriptTester(LogGuyProperties properties, AppRegistry appRegistry, HotStore hot, ScriptRuntime runtime,
+        ScriptService scripts,
         SearchService search, ParserRegistry parsers, PseudonymService pseudonyms, LifecycleFilters lifecycle,
         Clock clock) {
         this.properties = properties;
+        this.appRegistry = appRegistry;
         this.settings = properties.scripts();
         this.hot = hot;
         this.runtime = runtime;
@@ -253,7 +259,7 @@ public class ScriptTester {
         } catch (ScriptException e) {
             throw new ScriptRequestException(Reason.INVALID, "Das Skript ist fehlerhaft: " + e.getMessage());
         }
-        Set<String> apps = new TreeSet<>(user.readableApps(properties.apps().keySet()));
+        Set<String> apps = new TreeSet<>(user.readableApps(appRegistry.names()));
         apps.removeIf(app -> !rule.appliesTo(app));
         if (source != null && source.app() != null) {
             if (!apps.contains(source.app())) {
@@ -421,7 +427,7 @@ public class ScriptTester {
         int max = source.lines() == null ? settings.testLines() : Math.clamp(source.lines(), 1, settings.testLines());
         if (source.text() != null) {
             List<String> lines = split(source.text());
-            String app = source.app() != null && properties.apps().containsKey(source.app()) ? source.app() : null;
+            String app = source.app() != null && appRegistry.contains(source.app()) ? source.app() : null;
             return new Lines(lines.subList(0, Math.min(lines.size(), max)), "eingefügte Zeilen", null, null, app);
         }
         if (source.file() != null) {
@@ -438,7 +444,7 @@ public class ScriptTester {
         if (source.app() == null) {
             throw new ScriptRequestException(Reason.INVALID, "Eine Testquelle fehlt: Anwendung, Datei oder Text.");
         }
-        if (!properties.apps().containsKey(source.app())) {
+        if (!appRegistry.contains(source.app())) {
             throw new ScriptRequestException(Reason.NOT_FOUND, "Die Anwendung " + source.app() + " gibt es nicht.");
         }
         requireRead(user, source.app());

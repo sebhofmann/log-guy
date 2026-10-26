@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 import de.gbv.logguy.server.audit.Actor;
 import de.gbv.logguy.server.audit.Actor.Via;
 import de.gbv.logguy.server.audit.AuditLog;
+import de.gbv.logguy.server.config.AppRegistry;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.Right;
 import de.gbv.logguy.server.reindex.ReindexJob.Plan;
@@ -47,6 +48,8 @@ public class ReindexController {
 
     private final LogGuyProperties properties;
 
+    private final AppRegistry appRegistry;
+
     private final CurrentUser currentUser;
 
     private final AuditLog audit;
@@ -56,15 +59,18 @@ public class ReindexController {
      *
      * @param reindex the reindex jobs
      * @param retention knows the index window of each application
-     * @param properties configuration, for the known applications
+     * @param properties configuration
+     * @param appRegistry the configured applications as they are now
      * @param currentUser resolves the user
      * @param audit the audit log
      */
     public ReindexController(ReindexService reindex, RetentionService retention, LogGuyProperties properties,
+        AppRegistry appRegistry,
         CurrentUser currentUser, AuditLog audit) {
         this.reindex = reindex;
         this.retention = retention;
         this.properties = properties;
+        this.appRegistry = appRegistry;
         this.currentUser = currentUser;
         this.audit = audit;
     }
@@ -77,7 +83,7 @@ public class ReindexController {
     @GetMapping
     public Map<String, Object> overview() {
         LogGuyUser user = currentUser.get();
-        Set<String> known = new TreeSet<>(properties.apps().keySet());
+        Set<String> known = new TreeSet<>(appRegistry.names());
         List<Map<String, Object>> apps = new ArrayList<>();
         for (String app : known) {
             boolean hot = user.may(Right.SCRIPTS, app);

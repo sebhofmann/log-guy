@@ -142,7 +142,7 @@ public class AdminController {
             only = script == null || script.isBlank() ? null : ScriptId.parse(script);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest()
-                .body(new Report(false, List.of(), List.of(), List.of("Unbekanntes Skript: " + script)));
+                .body(Report.failed(List.of(), List.of("Unbekanntes Skript: " + script)));
         }
         Report report = reloader.reload(actor, only);
         return ResponseEntity.status(report.ok() ? HttpStatus.OK : HttpStatus.UNPROCESSABLE_CONTENT).body(report);

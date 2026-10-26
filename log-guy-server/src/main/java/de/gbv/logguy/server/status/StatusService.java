@@ -28,6 +28,7 @@ import org.apache.solr.client.solrj.response.json.BucketJsonFacet;
 import org.apache.solr.client.solrj.response.json.NestableJsonFacet;
 
 import de.gbv.logguy.server.alert.Deliveries;
+import de.gbv.logguy.server.config.AppRegistry;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.AppProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.TokenKind;
@@ -55,6 +56,8 @@ public class StatusService {
 
     private final LogGuyProperties properties;
 
+    private final AppRegistry appRegistry;
+
     private final HotStore store;
 
     private final Indexer indexer;
@@ -81,6 +84,7 @@ public class StatusService {
      * Creates the service.
      *
      * @param properties configuration
+     * @param appRegistry the configured applications as they are now
      * @param store the hot storage
      * @param indexer the indexer, {@code null} if it is disabled
      * @param archive the archive
@@ -93,10 +97,12 @@ public class StatusService {
      * @param json mapper for facet requests
      * @param version version of log-guy, {@code null} if unknown
      */
-    public StatusService(LogGuyProperties properties, HotStore store, Indexer indexer, ArchiveStore archive,
+    public StatusService(LogGuyProperties properties, AppRegistry appRegistry, HotStore store, Indexer indexer,
+        ArchiveStore archive,
         ArchiveWriter writer, IngestService ingest, Deliveries deliveries, BackupService backup, SolrService solr,
         Clock clock, JsonMapper json, String version) {
         this.properties = properties;
+        this.appRegistry = appRegistry;
         this.store = store;
         this.indexer = indexer;
         this.archive = archive;
@@ -214,11 +220,11 @@ public class StatusService {
     private List<AppView> apps(Map<String, AppCounts> counts) {
         Map<String, Backlog> backlog = indexer == null ? Map.of() : indexer.backlogByApp();
         Map<String, Long> parseErrors = indexer == null ? Map.of() : indexer.parseErrors();
-        Set<String> names = new TreeSet<>(properties.apps().keySet());
+        Set<String> names = new TreeSet<>(appRegistry.names());
         names.addAll(counts.keySet());
         List<AppView> apps = new ArrayList<>();
         for (String name : names) {
-            AppProperties app = properties.apps().get(name);
+            AppProperties app = appRegistry.get(name);
             AppCounts count = counts.getOrDefault(name, new AppCounts(null, 0, 0, 0));
             Backlog behind = backlog.getOrDefault(name, new Backlog(0, 0));
             String parser = app == null ? null : app.parser() != null ? app.parser() : name;

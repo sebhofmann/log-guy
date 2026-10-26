@@ -26,6 +26,7 @@ import org.springframework.util.unit.DataSize;
 
 import de.gbv.logguy.common.Fingerprint;
 import de.gbv.logguy.common.TestLogs;
+import de.gbv.logguy.server.config.AppRegistry;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.AppProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.GrantProperties;
@@ -133,7 +134,7 @@ class SearchServiceIT {
             }
         }
         service.client().commit();
-        search = new SearchService(properties, parsers, service, Clock.systemUTC(), JSON);
+        search = new SearchService(properties, new AppRegistry(properties), parsers, service, Clock.systemUTC(), JSON);
         context = new ContextService(properties, store, null);
         ScriptStore scripts = new ScriptStore(dataDir.resolve("scripts"), Clock.systemUTC(), JSON);
         scripts.scan();

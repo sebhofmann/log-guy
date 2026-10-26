@@ -28,6 +28,7 @@ import org.springframework.util.unit.DataSize;
 
 import de.gbv.logguy.common.Fingerprint;
 import de.gbv.logguy.common.TestLogs;
+import de.gbv.logguy.server.config.AppRegistry;
 import de.gbv.logguy.server.audit.Actor;
 import de.gbv.logguy.server.audit.Actor.Via;
 import de.gbv.logguy.server.audit.AuditLog;
@@ -120,13 +121,15 @@ class ScriptTesterTest {
         file.append(0, SAMPLE, SAMPLE.length, null, Instant.now());
         store = new ScriptStore(scripts, Clock.systemUTC(), JSON);
         store.scan();
-        ParserRegistry parsers = new ParserRegistry(properties, runtime, store);
+        AppRegistry apps = new AppRegistry(properties);
+        ParserRegistry parsers = new ParserRegistry(apps, runtime, store);
         assertEquals(List.of(), parsers.load());
         AuditLog audit = new AuditLog(dir.resolve("audit"), ZoneOffset.UTC, Clock.systemUTC(), JSON);
-        ScriptService service = new ScriptService(properties, store, runtime, parsers, List.of(), audit);
+        ScriptService service = new ScriptService(properties, apps, store, runtime, parsers, List.of(), audit);
         pseudonyms = new PseudonymService(runtime, store, JSON);
         tester =
-            new ScriptTester(properties, hot, runtime, service, null, parsers, pseudonyms, null, Clock.systemUTC());
+            new ScriptTester(properties, apps, hot, runtime, service, null, parsers, pseudonyms, null,
+                Clock.systemUTC());
     }
 
     @AfterEach

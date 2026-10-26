@@ -350,6 +350,7 @@ public class Indexer implements AutoCloseable {
             }
             return;
         }
+        missingParsers.remove(meta.app());
         Parser parser = parser(script);
         if (cursor.reader == null) {
             cursor.reader = new EventReader(cursor.state.offset(), (int) settings.maxEventSize().toBytes());

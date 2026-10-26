@@ -26,6 +26,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import de.gbv.logguy.server.config.AppRegistry;
 import de.gbv.logguy.server.archive.ArchiveFile;
 import de.gbv.logguy.server.archive.ArchiveStore;
 import de.gbv.logguy.server.archive.search.ArchiveSearchJob.Owner;
@@ -85,7 +86,8 @@ class ArchiveSearchTest {
         ScriptStore scripts = new ScriptStore(dataDir.resolve("scripts"), Clock.systemUTC(), JSON);
         scripts.scan();
         pseudonyms = new PseudonymService(runtime, scripts, JSON);
-        search = new ArchiveSearch(properties, archive, pseudonyms, Clock.fixed(NOW, ZoneOffset.UTC));
+        search = new ArchiveSearch(properties, new AppRegistry(properties), archive, pseudonyms,
+            Clock.fixed(NOW, ZoneOffset.UTC));
 
         ArchiveFile file = archive.getOrCreate(meta("fp1", "host1", "digibib"));
         append(file, DAY1, """
@@ -266,7 +268,8 @@ class ArchiveSearchTest {
     @Test
     void stopsAtTheHitLimit() throws Exception {
         search.close();
-        search = new ArchiveSearch(properties(2), archive, pseudonyms, Clock.fixed(NOW, ZoneOffset.UTC));
+        search = new ArchiveSearch(properties(2), new AppRegistry(properties(2)), archive, pseudonyms,
+            Clock.fixed(NOW, ZoneOffset.UTC));
         ArchiveSearchJob job = finished(search.start(user("digibib", Right.READ, Right.ARCHIVE), owner(),
             new Pseudonyms(), request("2026", false, null)));
         assertEquals(State.LIMIT, job.status().state());
