@@ -235,56 +235,6 @@ header.top .logout button {
   font-family: var(--mono);
 }
 
-.filter-bar .apps {
-  position: relative;
-}
-
-.filter-bar .apps summary {
-  padding: 4px 10px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--panel);
-  cursor: pointer;
-  max-width: 320px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.filter-bar .apps[open] {
-  z-index: 10;
-}
-
-.filter-bar .app-list {
-  position: absolute;
-  top: 34px;
-  left: 0;
-  min-width: 240px;
-  max-height: 50vh;
-  overflow: auto;
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--panel);
-  box-shadow: 0 4px 16px rgb(0 0 0 / 15%);
-}
-
-.filter-bar .app-list label {
-  display: block;
-  padding: 2px 0;
-  white-space: nowrap;
-}
-
-.filter-bar .app-list button {
-  margin-top: 8px;
-}
-
-.filter-bar .app-list .app-group + label:not(.app-group) {
-  margin-top: 4px;
-  padding-top: 6px;
-  border-top: 1px solid var(--border);
-}
-
 .ranges {
   display: flex;
 }
@@ -395,6 +345,15 @@ header.top .logout button {
   text-overflow: ellipsis;
   font-family: var(--mono);
   font-size: 12px;
+}
+
+.facet-value.warn {
+  color: var(--warn);
+}
+
+.facets > .badge {
+  display: inline-block;
+  margin-top: 8px;
 }
 
 .facet-count {

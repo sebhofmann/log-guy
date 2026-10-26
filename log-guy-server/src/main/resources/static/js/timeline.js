@@ -91,13 +91,21 @@ export class Timeline {
                 value: (u, v, s, idx) => (idx == null ? '' : formatNumber(this.layers[i][idx])),
             });
         });
+        const style = getComputedStyle(this.chartBox);
+        const text = style.getPropertyValue('--muted').trim();
+        const grid = style.getPropertyValue('--border').trim();
+        const axis = { stroke: text, grid: { stroke: grid }, ticks: { stroke: grid } };
         const options = {
             ...this.size(),
             series,
             scales: { x: { time: true }, y: { range: (u, min, max) => [0, Math.max(1, max)] } },
             axes: [
-                { values: (u, ticks, space, incr) => ticks.map(t => tick(t, incr)) },
-                { size: 50, values: (u, ticks) => ticks.map(t => (Number.isInteger(t) ? formatNumber(t) : '')) },
+                { ...axis, values: (u, ticks, space, incr) => ticks.map(t => tick(t, incr)) },
+                {
+                    ...axis,
+                    size: 50,
+                    values: (u, ticks) => ticks.map(t => (Number.isInteger(t) ? formatNumber(t) : '')),
+                },
             ],
             legend: { show: names.length > 0, live: true },
             cursor: { drag: { x: true, y: false, setScale: false }, points: { show: false } },
