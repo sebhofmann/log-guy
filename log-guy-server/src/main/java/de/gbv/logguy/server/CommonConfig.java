@@ -30,7 +30,7 @@ public class CommonConfig {
     @Bean(destroyMethod = "close")
     @Lazy
     public ScriptRuntime scriptRuntime(LogGuyProperties properties) {
-        return new ScriptRuntime(properties.scripts().eventTimeout());
+        return new ScriptRuntime(properties.scripts().eventTimeout(), properties.scripts().loadTimeout());
     }
 
     /**

@@ -39,9 +39,12 @@ public final class Parser implements AutoCloseable {
         this.script = script;
         this.context = runtime.newContext();
         try {
-            Value exports = context.eval(ScriptRuntime.module("parser/" + script.name() + ".js", script.code()));
+            Value exports = runtime.evalModule(context, "parser/" + script.name(), script.code());
             this.parse = exports.getMember("parse");
             this.isStart = script.hasIsStart() ? exports.getMember("isStart") : null;
+        } catch (ScriptException e) {
+            context.close();
+            throw e;
         } catch (PolyglotException e) {
             context.close();
             throw new ScriptException(script.name() + ": " + e.getMessage(), e);

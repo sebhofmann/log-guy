@@ -108,7 +108,7 @@ public class AlertRules implements ScriptListener {
      */
     public static RuleDefinition define(ScriptRuntime runtime, String name, String code) throws ScriptException {
         try (Context context = runtime.newContext()) {
-            Value exports = context.eval(ScriptRuntime.module("rule/" + name + ".js", code));
+            Value exports = runtime.evalModule(context, "rule/" + name, code);
             return RuleDefinition.read(name, code, ScriptStore.hash(code), exports);
         } catch (PolyglotException e) {
             throw new ScriptException("rule/" + name + ": " + e.getMessage(), e);
@@ -262,11 +262,10 @@ public class AlertRules implements ScriptListener {
                 for (RuleDefinition rule : now) {
                     Context context = runtime.newContext();
                     try {
-                        Value exports = context.eval(ScriptRuntime.module("rule/" + rule.name() + ".js",
-                            rule.code()));
+                        Value exports = runtime.evalModule(context, "rule/" + rule.name(), rule.code());
                         contexts.put(rule.name(), new Loaded(rule, context, member(exports, "check"),
                             member(exports, "message")));
-                    } catch (PolyglotException e) {
+                    } catch (ScriptException | PolyglotException e) {
                         context.close();
                         errors.failed(rule, e.getMessage());
                     }

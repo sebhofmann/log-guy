@@ -74,7 +74,7 @@ class ArchiveWriterTest {
 
     @BeforeAll
     static void startRuntime() {
-        runtime = new ScriptRuntime(Duration.ofMillis(200));
+        runtime = new ScriptRuntime(Duration.ofMillis(200), Duration.ofSeconds(5));
     }
 
     @AfterAll
@@ -89,7 +89,9 @@ class ArchiveWriterTest {
         properties = new LogGuyProperties(dataDir, ZoneId.of("Europe/Berlin"),
             Map.of("digibib", new AppProperties(null, "mycore-log4j")), List.of(), List.of(), null,
             new HotProperties(DataSize.ofKilobytes(64), Duration.ofSeconds(60), Duration.ofSeconds(5), 3),
-            new ScriptProperties(scriptDir, Duration.ofMillis(200), DataSize.ofKilobytes(256), 1000, 100), null,
+            new ScriptProperties(scriptDir, Duration.ofMillis(200), Duration.ofSeconds(5), 100,
+                DataSize.ofKilobytes(256), 1000, 100),
+            null,
             null, null, null, null, null,
             new ArchiveProperties(true, 2, Duration.ofMillis(50), 3, 7, PLACEHOLDER, "[f {filter}]", null), null, null,
             null, null);

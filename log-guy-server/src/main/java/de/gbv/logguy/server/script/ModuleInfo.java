@@ -31,7 +31,7 @@ public record ModuleInfo(List<String> apps) {
         throws ScriptException {
         String label = kind.dir() + "/" + name;
         try (Context context = runtime.newContext()) {
-            Value exports = context.eval(ScriptRuntime.module(label + ".js", code));
+            Value exports = runtime.evalModule(context, label, code);
             Value meta = exports.getMember("meta");
             if (meta == null || !meta.hasMembers()) {
                 throw new ScriptException(label + ": export meta is missing", null);

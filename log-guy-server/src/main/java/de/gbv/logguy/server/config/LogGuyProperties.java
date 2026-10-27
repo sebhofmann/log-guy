@@ -261,11 +261,15 @@ public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppPropert
      *
      * @param dir directory with {@code parser/}, {@code rule/}, {@code lifecycle/} and {@code pseudonym/}
      * @param eventTimeout time after which a single script call is cancelled
+     * @param loadTimeout time after which the evaluation of a module, i.e. its top level code, is cancelled
+     * @param checkCache how many checked versions of scripts keep their result, so listing scripts does not evaluate
+     *     every draft again
      * @param maxSize largest script that can be saved
      * @param testLines most lines a test reads from its source
      * @param testEvents most events a test returns for display
      */
-    public record ScriptProperties(Path dir, Duration eventTimeout, DataSize maxSize, int testLines, int testEvents) {
+    public record ScriptProperties(Path dir, Duration eventTimeout, Duration loadTimeout, int checkCache,
+        DataSize maxSize, int testLines, int testEvents) {
     }
 
     /**

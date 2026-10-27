@@ -49,6 +49,8 @@ Zurückrollen heißt: eine Fassung aus `.history/` wieder aktivieren. Liegt die 
 
 Skripte sind höchstens `log-guy.scripts.max-size` groß, Standard 256 KB.
 
+Prüfen, Testen und Laden werten den Code auf oberster Ebene des Moduls aus, höchstens `log-guy.scripts.load-timeout` lang (Standard 2 s), siehe [Parser-Skripte](Parser-Skripte.md). Das Ergebnis der Prüfung, also Fehler und `meta.apps`, merkt sich log-guy pro Code-Hash für die letzten `log-guy.scripts.check-cache` Fassungen (Standard 1.000). Die Liste der Skripte wertet einen Entwurf so nur einmal aus und nicht bei jedem Aufruf. Aktivieren und Reload prüfen immer neu.
+
 ### Testen
 
 Testquellen, für alle Arten gleich:
@@ -95,12 +97,14 @@ Dabei gelten zwei Einschränkungen:
 
 - **Freigabe durch einen Menschen:** Entwürfe, die per MCP entstehen, aktiviert standardmäßig ein Mensch in der GUI. Er sieht dort den Unterschied zur aktiven Fassung und das letzte Testergebnis. Ein MCP-Token mit `activate: true` darf Parser und Meldungsregeln selbst aktivieren. Lifecycle-Filter und Pseudonymisierung brauchen immer einen Menschen.
 - **Alles pseudonymisiert:** Auch Testergebnisse laufen durch die aktive Pseudonymisierung. Testet das LLM einen Entwurf der Pseudonymisierung selbst, bekommt es nur Statistiken zurück, z.B. 412 Nutzer und 1.380 IP-Adressen ersetzt und 3 mailadressenähnliche Werte übrig, mit Zeilennummer, aber ohne den Wert.
+- **Eigener Code gibt nur Zahlen:** Ein Parser kann Werte so umkodieren, dass keine Regel der Pseudonymisierung sie erkennt. Beispiel-Events, Feldwerte und Fehlertexte gibt es per MCP deshalb nur für die aktive Fassung, die ein Mensch freigegeben hat, also im Dateisystem, in GUI oder API aktiviert oder als Vorlage. Für ungespeicherten Code, Entwürfe und per MCP aktivierte Fassungen liefert `test_script` nur Zahlen: Zeilen, Events, Fehler, Events pro Sekunde, die deklarierten Felder, die Zahl der undeklarierten Felder und die Häufigkeit der Fehlerarten ohne Text. Tests von Meldungsregeln, Lifecycle-Filtern und Pseudonymisierung liefern per MCP immer nur Zahlen.
 
 Warum so streng: Das LLM liest Logtext, den Fremde geschrieben haben, z.B. URLs und User-Agents. Eine Prompt Injection darin könnte es dazu bringen, die Pseudonymisierung abzuschwächen oder Werte so umzukodieren, dass keine Regel sie mehr erkennt. Meldungen kann eine Regel nur an Ziele aus `application.yml` schicken, nicht an beliebige Adressen.
 
 ### Rechte
 
-- `scripts` pro Anwendung: Parser, Meldungsregeln und Lifecycle-Filter dieser Anwendung bearbeiten, testen und aktivieren. Setzt `read` für dieselben Anwendungen voraus.
+- `scripts` pro Anwendung: Parser, Meldungsregeln und Lifecycle-Filter dieser Anwendung bearbeiten, testen und aktivieren. Setzt `read` für dieselben Anwendungen voraus, auch per MCP. `read_pseudonymized` genügt nicht, denn ein Skript sieht die Zeilen im Klartext und könnte sie in seinen Ergebnissen weitergeben.
+- Wer `scripts` für keine Anwendung hat, bekommt beim Speichern, Testen und Aktivieren sofort 403. log-guy prüft das, bevor es irgendeinen Code auswertet, auch nicht `meta.apps`.
 - Skripte, die alle Anwendungen betreffen (`apps: ["*"]`), und alle Pseudonymisierungs-Skripte brauchen `admin`.
 - Für einen Parser zählen die Anwendungen, die ihn benutzen. Benutzt ihn keine, braucht er `admin`.
 - Für Meldungsregeln und Lifecycle-Filter zählen die Muster in `meta.apps`, beim Ändern die der aktiven Fassung und die des Entwurfs. Ein Muster mit `*` braucht `admin`.

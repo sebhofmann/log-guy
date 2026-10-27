@@ -105,13 +105,14 @@ class SearchServiceIT {
         solr = new SolrTestContainer();
         service = new SolrService(solr.properties());
         service.init();
-        runtime = new ScriptRuntime(Duration.ofMillis(50));
+        runtime = new ScriptRuntime(Duration.ofMillis(50), Duration.ofSeconds(5));
         LogGuyProperties properties = new LogGuyProperties(dataDir, ZoneId.of("Europe/Berlin"),
             Map.of("digibib", new AppProperties(null, "mycore-log4j", List.of("mir", "produktiv")), "other",
                 new AppProperties(null, "mycore-log4j", List.of("mir"))),
             List.of(), List.of(), new IngestProperties(DataSize.ofMegabytes(8), 4, Duration.ofSeconds(1)),
             new HotProperties(DataSize.ofKilobytes(64), Duration.ofSeconds(60), Duration.ofSeconds(5), 3),
-            new ScriptProperties(dataDir.resolve("scripts"), Duration.ofMillis(50), DataSize.ofKilobytes(256), 10000,
+            new ScriptProperties(dataDir.resolve("scripts"), Duration.ofMillis(50), Duration.ofSeconds(5), 100,
+                DataSize.ofKilobytes(256), 10000,
                 500),
             solr.properties(),
             new IndexerProperties(true, 2, Duration.ofMillis(100), 500, DataSize.ofKilobytes(64),

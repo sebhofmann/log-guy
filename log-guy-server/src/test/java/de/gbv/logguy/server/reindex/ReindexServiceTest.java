@@ -100,7 +100,7 @@ class ReindexServiceTest {
 
     @BeforeAll
     static void startRuntime() {
-        runtime = new ScriptRuntime(Duration.ofMillis(200));
+        runtime = new ScriptRuntime(Duration.ofMillis(200), Duration.ofSeconds(5));
     }
 
     @AfterAll
@@ -115,7 +115,9 @@ class ReindexServiceTest {
         properties = new LogGuyProperties(dataDir, ZoneId.of("Europe/Berlin"),
             Map.of("digibib", new AppProperties(null, "mycore-log4j")), List.of(), List.of(), null,
             new HotProperties(DataSize.ofKilobytes(16), Duration.ofSeconds(60), Duration.ofSeconds(5), 3),
-            new ScriptProperties(scriptDir, Duration.ofMillis(200), DataSize.ofKilobytes(256), 1000, 100), null,
+            new ScriptProperties(
+                scriptDir, Duration.ofMillis(200), Duration.ofSeconds(5), 100, DataSize.ofKilobytes(256), 1000, 100),
+            null,
             new IndexerProperties(true, 2, Duration.ofMillis(100), 50, DataSize.ofKilobytes(64),
                 DataSize.ofMegabytes(64), Duration.ofSeconds(5), DataSize.ofMegabytes(1), 7, Duration.ofSeconds(10)),
             null, null, null, null,

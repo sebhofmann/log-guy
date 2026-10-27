@@ -26,7 +26,7 @@ class SolrParserTest {
 
     @BeforeAll
     static void setUp() throws Exception {
-        runtime = new ScriptRuntime(Duration.ofMillis(50));
+        runtime = new ScriptRuntime(Duration.ofMillis(50), Duration.ofSeconds(5));
         solr = ParserScript.load(runtime, "solr", ParserRegistry.template("solr"));
     }
 

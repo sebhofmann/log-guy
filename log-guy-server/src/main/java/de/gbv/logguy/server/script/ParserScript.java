@@ -41,7 +41,7 @@ public record ParserScript(String name, String code, String version, Map<String,
      */
     public static ParserScript load(ScriptRuntime runtime, String name, String code) throws ScriptException {
         try (Context context = runtime.newContext()) {
-            Value exports = context.eval(ScriptRuntime.module("parser/" + name + ".js", code));
+            Value exports = runtime.evalModule(context, "parser/" + name, code);
             Value parse = exports.getMember("parse");
             if (parse == null || !parse.canExecute()) {
                 throw new ScriptException(name + ": export parse(text) is missing", null);

@@ -14,6 +14,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.graalvm.polyglot.Context;
 import org.graalvm.polyglot.Engine;
+import org.graalvm.polyglot.PolyglotException;
 import org.graalvm.polyglot.SandboxPolicy;
 import org.graalvm.polyglot.Source;
 import org.graalvm.polyglot.Value;
@@ -22,11 +23,12 @@ import org.graalvm.polyglot.proxy.ProxyExecutable;
 
 /**
  * GraalJS for all scripts: one shared engine, one sandboxed context per thread and script, a watchdog that cancels
- * calls running longer than {@code event-timeout}.
+ * calls running longer than {@code event-timeout} and module evaluations running longer than {@code load-timeout}.
  * <p>
  * Contexts run with {@link SandboxPolicy#CONSTRAINED}: no file, network or Java access, no threads, output discarded.
- * A heap limit per context ({@code sandbox.MaxHeapMemory}) exists only in Oracle GraalVM, not in the community
- * edition used here.
+ * Limits for heap and CPU time per context ({@code sandbox.MaxHeapMemory}, {@code sandbox.MaxCPUTime}) exist only in
+ * Oracle GraalVM, not in the community edition used here. Memory is therefore only limited indirectly by the time
+ * limits.
  */
 public class ScriptRuntime implements AutoCloseable {
 
@@ -39,6 +41,8 @@ public class ScriptRuntime implements AutoCloseable {
     private final Engine engine;
 
     private final long timeoutNanos;
+
+    private final Duration loadTimeout;
 
     private static final ThreadLocal<BinaryOperator<String>> PSEUDONYMS = new ThreadLocal<>();
 
@@ -54,8 +58,9 @@ public class ScriptRuntime implements AutoCloseable {
      * Creates the runtime.
      *
      * @param eventTimeout time after which a single call is cancelled
+     * @param loadTimeout time after which the evaluation of a module, i.e. its top level code, is cancelled
      */
-    public ScriptRuntime(Duration eventTimeout) {
+    public ScriptRuntime(Duration eventTimeout, Duration loadTimeout) {
         this.engine = Engine.newBuilder(JS)
             .sandbox(SandboxPolicy.CONSTRAINED)
             .out(OutputStream.nullOutputStream())
@@ -63,6 +68,7 @@ public class ScriptRuntime implements AutoCloseable {
             .option("engine.WarnInterpreterOnly", "false")
             .build();
         this.timeoutNanos = eventTimeout.toNanos();
+        this.loadTimeout = loadTimeout;
         this.watchdog = Thread.ofPlatform().daemon().name("script-watchdog").start(this::watch);
         LOGGER.info("GraalJS {} on {} {}, runtime compilation {}", engine.getVersion(),
             System.getProperty("java.vm.name"), System.getProperty("java.vm.version"),
@@ -167,13 +173,50 @@ public class ScriptRuntime implements AutoCloseable {
     }
 
     /**
+     * Evaluates an ES module under the watchdog. Its top level code is cancelled if it does not end within
+     * {@code load-timeout}. Every module evaluation goes through here, so a script cannot block a thread with code
+     * outside its functions.
+     *
+     * @param context the context to evaluate the module in
+     * @param label name of the module without {@code .js}, e.g. {@code parser/digibib}, used in error messages
+     * @param code the code
+     * @return the exports of the module
+     * @throws ScriptException if the module throws, has a syntax error or runs too long
+     */
+    public Value evalModule(Context context, String label, String code) throws ScriptException {
+        Call call = start(context, loadTimeout.toNanos());
+        try {
+            Value exports = context.eval(module(label + ".js", code));
+            if (end(call)) {
+                // finished just before the watchdog fired, the interrupt may hit the next call of this context
+                throw timeout(label);
+            }
+            return exports;
+        } catch (PolyglotException e) {
+            if (end(call)) {
+                throw timeout(label);
+            }
+            throw new ScriptException(label + ": " + e.getMessage(), e);
+        }
+    }
+
+    private ScriptException timeout(String label) {
+        return new ScriptException(label + ": evaluating the module took longer than " + loadTimeout.toMillis()
+            + " ms", null);
+    }
+
+    /**
      * Starts watching a call. The call is interrupted if it does not end within {@code event-timeout}.
      *
      * @param context the context the call runs in
      * @return the handle, to be ended with {@link #end(Call)}
      */
     public Call start(Context context) {
-        Call call = new Call(context, System.nanoTime() + timeoutNanos);
+        return start(context, timeoutNanos);
+    }
+
+    private Call start(Context context, long nanos) {
+        Call call = new Call(context, System.nanoTime() + nanos);
         running.add(call);
         return call;
     }

@@ -23,7 +23,7 @@ class ApacheErrorParserTest {
 
     @BeforeAll
     static void setUp() throws Exception {
-        runtime = new ScriptRuntime(Duration.ofMillis(50));
+        runtime = new ScriptRuntime(Duration.ofMillis(50), Duration.ofSeconds(5));
         apache = ParserScript.load(runtime, "apache-error", ParserRegistry.template("apache-error"));
     }
 

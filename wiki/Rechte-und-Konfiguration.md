@@ -11,7 +11,7 @@ Anwendungen, Nutzer, Rechte und Tokens stehen in der Spring-Konfiguration applic
 | `archive` | Archivsuche, Archivtage temporär laden, Log-Browser: Dateien im Archiv ansehen, durchsuchen und neu indexieren, mit Klarwerten auch herunterladen |
 | `delete` | Dateien aus `hot/`, Archiv, Backup und Index löschen und für die Agenten sperren, Sperren aufheben |
 | `admin` | Solr-Befehle, Lifecycle-Status, Neuaufbau, Originale in `hot/` im Log-Browser, alle Anwendungen, schließt alle anderen Rechte ein |
-| `scripts` | Parser, Meldungsregeln und Lifecycle-Filter der Anwendung bearbeiten, testen und aktivieren, setzt read voraus |
+| `scripts` | Parser, Meldungsregeln und Lifecycle-Filter der Anwendung bearbeiten, testen und aktivieren, setzt `read` voraus, `read_pseudonymized` genügt nicht |
 
 Rechte werden pro Anwendung vergeben. Muster wie `digibib*` treffen `digibib` und `digibib-apache` zusammen.
 
@@ -71,7 +71,7 @@ log-guy:
 | --- | --- | --- |
 | `ingest` | einem Host | nur in die Anwendungen dieses Hosts schreiben |
 | `api` | einem Nutzer | was der Nutzer darf, optional eingeschränkt |
-| `mcp` | einem Nutzer | was der Nutzer darf, immer pseudonymisiert, `read_pseudonymized` genügt. Skripte nur als Entwurf, aktivieren nur mit activate: true |
+| `mcp` | einem Nutzer | was der Nutzer darf, immer pseudonymisiert, `read_pseudonymized` genügt zum Lesen. Skripte nur mit `read` und `scripts`, nur als Entwurf, aktivieren nur mit activate: true |
 
 - `log-guy token create --kind ingest --name agent-app1 --host app1 --apps digibib,digibib-apache` erzeugt ein Token, zeigt es einmal an und gibt den Eintrag für `application.yml` mit dem Hash aus. Eintragen muss ihn der Mensch selbst, denn ein Programm, das die YAML-Datei umschreibt, würde Kommentare und Reihenfolge zerstören.
 - Tokens beginnen mit `lg_<art>_`, z.B. `lg_ingest_...`, danach 32 Zufallsbytes in Base64. Konfiguriert ist nur `sha256:<hex>` des ganzen Tokens.

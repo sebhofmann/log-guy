@@ -30,7 +30,7 @@ class ParserTest {
 
     @BeforeAll
     static void setUp() throws Exception {
-        runtime = new ScriptRuntime(Duration.ofMillis(50));
+        runtime = new ScriptRuntime(Duration.ofMillis(50), Duration.ofSeconds(5));
         mycore = ParserScript.load(runtime, "mycore-log4j", ParserRegistry.template("mycore-log4j"));
     }
 

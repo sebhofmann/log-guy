@@ -308,7 +308,7 @@ public class PseudonymService implements ScriptListener, AutoCloseable {
             ModuleInfo info = ModuleInfo.check(runtime, ScriptKind.PSEUDONYM, id.name(), code);
             Context context = runtime.newContext();
             try {
-                Value exports = context.eval(ScriptRuntime.module(id + ".js", code));
+                Value exports = runtime.evalModule(context, id.toString(), code);
                 Value meta = exports.getMember("meta");
                 Set<String> fields = new TreeSet<>();
                 Value list = meta.getMember("fields");
@@ -319,6 +319,9 @@ public class PseudonymService implements ScriptListener, AutoCloseable {
                 }
                 return new Module(id, info.apps(), Set.copyOf(fields), context, exports.getMember("apply"),
                     new ReentrantLock());
+            } catch (ScriptException e) {
+                context.close();
+                throw e;
             } catch (PolyglotException | ClassCastException e) {
                 context.close();
                 throw new ScriptException(id + ": " + e.getMessage(), e);

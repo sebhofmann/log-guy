@@ -49,6 +49,8 @@ class McpEndpointTest {
 
     private static final String API_TOKEN = "lg_api_test";
 
+    private static final String SCRIPTS_MCP_TOKEN = "lg_mcp_scripts";
+
     private static final String PSEUDONYMIZED_API_TOKEN = "lg_api_anna";
 
     private static final byte[] SAMPLE = TestLogs.mycoreSample();
@@ -90,6 +92,15 @@ class McpEndpointTest {
         registry.add("log-guy.tokens[3].kind", () -> "api");
         registry.add("log-guy.tokens[3].user", () -> "anna");
         registry.add("log-guy.tokens[3].hash", () -> TokenRegistry.hash(PSEUDONYMIZED_API_TOKEN));
+        registry.add("log-guy.users[2].name", () -> "sam");
+        registry.add("log-guy.users[2].password-hash", () -> hash);
+        registry.add("log-guy.users[2].grants[0].apps", () -> "digi*");
+        registry.add("log-guy.users[2].grants[0].rights", () -> "read_pseudonymized,scripts");
+        registry.add("log-guy.tokens[4].name", () -> "sam-mcp");
+        registry.add("log-guy.tokens[4].kind", () -> "mcp");
+        registry.add("log-guy.tokens[4].user", () -> "sam");
+        registry.add("log-guy.tokens[4].activate", () -> "true");
+        registry.add("log-guy.tokens[4].hash", () -> TokenRegistry.hash(SCRIPTS_MCP_TOKEN));
     }
 
     @LocalServerPort
@@ -257,5 +268,45 @@ class McpEndpointTest {
         }
         assertTrue(Files.readString(dataDir.resolve("audit").toFile().listFiles()[0].toPath())
             .contains("mcp.save_draft"));
+    }
+
+    @Test
+    void ownParserCodeOnlyGivesNumbers() throws Exception {
+        String code = """
+            export const fields = { secret: { type: "string" } };
+            export function parse(text) {
+                if (text.includes("ERROR")) {
+                    throw new Error("fehlertext-0815 " + text);
+                }
+                return { message: text, secret: "geheim-4711 " + text, ["leak-" + text.length]: 1 };
+            }
+            """;
+        String lines = new String(SAMPLE).lines().limit(200).reduce((a, b) -> a + "\n" + b).orElseThrow();
+        try (McpSyncClient client = client(ADMIN_MCP_TOKEN)) {
+            CallToolResult result = client.callTool(new CallToolRequest("test_script", Map.of("kind", "parser",
+                "name", "mcp-own", "app", "digibib", "code", code, "text", lines)));
+            String out = text(result);
+            assertFalse(Boolean.TRUE.equals(result.isError()), out);
+            assertTrue(out.contains("\"events\"") && out.contains("\"errorKinds\""), out);
+            assertFalse(out.contains("geheim-4711"), out);
+            assertFalse(out.contains("fehlertext-0815"), out);
+            assertFalse(out.contains("leak-"), out);
+            assertFalse(IPV4.matcher(out).find(), out);
+            assertFalse(out.contains(lines.lines().findFirst().orElseThrow().substring(0, 23)), out);
+        }
+    }
+
+    @Test
+    void scriptsNeedPlainRead() throws Exception {
+        String code = Files.readString(Path.of("src/main/resources/templates/parser/mycore-log4j.js"));
+        try (McpSyncClient client = client(SCRIPTS_MCP_TOKEN)) {
+            CallToolResult draft = client.callTool(new CallToolRequest("save_draft", Map.of("kind", "parser",
+                "name", "mycore-log4j", "code", code + "\n// changed\n")));
+            assertTrue(draft.isError(), text(draft));
+            assertTrue(text(draft).contains("Zugriff verweigert"), text(draft));
+            CallToolResult test = client.callTool(new CallToolRequest("test_script", Map.of("kind", "parser",
+                "name", "mycore-log4j", "app", "digibib", "code", code, "text", "a line")));
+            assertTrue(test.isError(), text(test));
+        }
     }
 }

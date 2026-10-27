@@ -6,6 +6,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -43,6 +44,7 @@ import de.gbv.logguy.server.pseudonym.PseudonymService.PseudonymTestResult;
 import de.gbv.logguy.server.pseudonym.Pseudonyms;
 import de.gbv.logguy.server.script.ScriptController;
 import de.gbv.logguy.server.script.ScriptException;
+import de.gbv.logguy.server.script.ScriptKind;
 import de.gbv.logguy.server.script.ScriptRequestException;
 import de.gbv.logguy.server.script.ScriptService;
 import de.gbv.logguy.server.script.ScriptService.Caller;
@@ -238,7 +240,9 @@ public class McpTools {
                 """, false, (call, args) -> scripts.saveDraft(call.caller(), scriptId(args), required(args, "code"),
                 string(args, "base"))));
         tools.add(tool("test_script", "Testet ein Skript gegen Logzeilen, eine Meldungsregel gegen "
-            + "die indexierten Events der letzten 24 Stunden. Ohne code wird der Entwurf getestet, sonst die aktive Fassung.",
+            + "die indexierten Events der letzten 24 Stunden. Ohne code wird der Entwurf getestet, sonst die aktive Fassung. "
+            + "Beispiel-Events eines Parsers gibt es nur für die von einem Menschen freigegebene aktive Fassung, "
+            + "sonst nur Zahlen.",
             SCRIPT_SCHEMA + """
                 ,"code": {"type": "string", "description": "zu testender Code, sonst Entwurf oder aktive Fassung"},
                 "active": {"type": "boolean", "description": "aktive Fassung testen, auch wenn es einen Entwurf gibt"},
@@ -538,10 +542,15 @@ public class McpTools {
         String app = string(args, "app");
         TestSource source = new TestSource(app, integer(args, "lines").orElse(null), instant(args, "from")
             .orElse(null), instant(args, "to").orElse(null), null, string(args, "text"));
-        Object result = tester.test(call.user(), id, string(args, "code"), bool(args, "active"), source);
-        if (result instanceof ParserTestResult parser) {
-            return parserResult(call.session(), app, parser);
+        if (id.kind() == ScriptKind.PARSER) {
+            String tested = scripts.codeForTest(call.user(), id, string(args, "code"), bool(args, "active"));
+            ParserTestResult parser = tester.testParser(call.user(), id, tested, false, source);
+            // a parser that is not approved by a human may encode plain values so no pseudonymization rule finds
+            // them, so its test gives only numbers
+            return scripts.isApprovedActive(id, tested) ? parserResult(call.session(), app, parser)
+                : parserNumbers(parser);
         }
+        Object result = tester.test(call.user(), id, string(args, "code"), bool(args, "active"), source);
         if (result instanceof PseudonymTestResult test) {
             Map<String, Integer> suspicious = new TreeMap<>();
             test.suspicious().forEach(s -> suspicious.merge(s.field() + " " + s.category(), 1, Integer::sum));
@@ -579,6 +588,23 @@ public class McpTools {
         }
         throw new ScriptRequestException(ScriptRequestException.Reason.INVALID,
             "Dieses Testergebnis gibt es über MCP nicht.");
+    }
+
+    // no field values, error texts or names the script returned, these could carry plain values
+    private static Map<String, Object> parserNumbers(ParserTestResult result) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("source", result.source());
+        out.put("lines", result.lines());
+        out.put("events", result.events());
+        out.put("errors", result.errors());
+        out.put("eventsPerSecond", result.eventsPerSecond());
+        out.put("declared", result.declared());
+        out.put("undeclared", result.undeclared().size());
+        out.put("errorKinds", result.errorCounts().values().stream().sorted(Comparator.reverseOrder()).toList());
+        out.put("truncated", result.truncated());
+        out.put("note", "Nur Zahlen: Beispiel-Events, Feldwerte und Fehlertexte gibt es über MCP nur für die "
+            + "aktive Fassung, die ein Mensch freigegeben hat.");
+        return out;
     }
 
     private ParserTestResult parserResult(Pseudonyms session, String app, ParserTestResult result) {

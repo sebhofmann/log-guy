@@ -74,7 +74,7 @@ class IndexerIT {
     static void startSolr() throws Exception {
         solr = new SolrTestContainer();
         service = new SolrService(solr.properties());
-        runtime = new ScriptRuntime(Duration.ofMillis(50));
+        runtime = new ScriptRuntime(Duration.ofMillis(50), Duration.ofSeconds(5));
         List<String> first = service.init();
         assertTrue(first.stream().anyMatch(s -> s.contains("uploaded")), first.toString());
         List<String> second = service.init();
@@ -101,7 +101,8 @@ class IndexerIT {
             List.of(), List.of(),
             new IngestProperties(DataSize.ofMegabytes(8), 4, Duration.ofSeconds(1)),
             new HotProperties(DataSize.ofKilobytes(64), Duration.ofSeconds(60), Duration.ofSeconds(5), 3),
-            new ScriptProperties(dataDir.resolve("scripts"), Duration.ofMillis(50), DataSize.ofKilobytes(256), 10000,
+            new ScriptProperties(dataDir.resolve("scripts"), Duration.ofMillis(50), Duration.ofSeconds(5), 100,
+                DataSize.ofKilobytes(256), 10000,
                 500),
             solr.properties(),
             new IndexerProperties(true, 2, Duration.ofMillis(100), 500, DataSize.ofKilobytes(64),

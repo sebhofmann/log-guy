@@ -96,7 +96,7 @@ class ScriptTesterTest {
 
     @BeforeAll
     static void startRuntime() {
-        runtime = new ScriptRuntime(Duration.ofMillis(500));
+        runtime = new ScriptRuntime(Duration.ofMillis(500), Duration.ofSeconds(5));
     }
 
     @AfterAll
@@ -113,7 +113,9 @@ class ScriptTesterTest {
             Map.of("digibib", new AppProperties(null, "mycore-log4j"), "leo", new AppProperties(null, "leo")),
             List.of(), List.of(), null,
             new HotProperties(DataSize.ofKilobytes(64), Duration.ofSeconds(60), Duration.ofSeconds(5), 3),
-            new ScriptProperties(scripts, Duration.ofMillis(500), DataSize.ofKilobytes(16), 1000, 20), null,
+            new ScriptProperties(scripts, Duration.ofMillis(500), Duration.ofSeconds(5), 100, DataSize.ofKilobytes(16),
+                1000, 20),
+            null,
             new IndexerProperties(true, 2, Duration.ofMillis(100), 500, DataSize.ofKilobytes(64),
                 DataSize.ofMegabytes(64), Duration.ofSeconds(5), DataSize.ofMegabytes(1), 7, Duration.ofSeconds(10)),
             null, null, null, null, null, null, null, null, null);

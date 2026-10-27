@@ -95,6 +95,10 @@ log-guy:
   scripts:
     dir: /etc/log-guy/scripts
     event-timeout: 50ms
+    # top level code of a module, evaluated when a script is loaded, checked or tested
+    load-timeout: 2s
+    # checked script versions whose result is kept, so the script list does not evaluate every draft again
+    check-cache: 1000
     max-size: 256KB
     test-lines: 20000
     test-events: 500

@@ -42,7 +42,7 @@ class AlertRulesTest {
 
     @BeforeAll
     static void startRuntime() {
-        runtime = new ScriptRuntime(Duration.ofMillis(200));
+        runtime = new ScriptRuntime(Duration.ofMillis(200), Duration.ofSeconds(5));
     }
 
     @AfterAll

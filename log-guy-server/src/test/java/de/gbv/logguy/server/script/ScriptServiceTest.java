@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Files;
@@ -81,6 +82,18 @@ class ScriptServiceTest {
     private static final LogGuyUser NO_READ =
         LogGuyUser.of("max", List.of(new GrantProperties(List.of("leo"), Set.of(Right.SCRIPTS))));
 
+    private static final LogGuyUser READER =
+        LogGuyUser.of("rita", List.of(new GrantProperties(List.of("leo"), Set.of(Right.READ))));
+
+    private static final LogGuyUser PSEUDONYMIZED_SCRIPTS = LogGuyUser.of("paul",
+        List.of(new GrantProperties(List.of("leo"), Set.of(Right.READ_PSEUDONYMIZED, Right.SCRIPTS))))
+        .asPseudonymized();
+
+    private static final String LOOP = "while (true) {}\n";
+
+    /** Short, because some tests evaluate an endless loop once. */
+    private static final Duration LOAD_TIMEOUT = Duration.ofSeconds(1);
+
     private static ScriptRuntime runtime;
 
     @TempDir
@@ -98,7 +111,7 @@ class ScriptServiceTest {
 
     @BeforeAll
     static void startRuntime() {
-        runtime = new ScriptRuntime(Duration.ofMillis(200));
+        runtime = new ScriptRuntime(Duration.ofMillis(200), LOAD_TIMEOUT);
     }
 
     @AfterAll
@@ -114,7 +127,9 @@ class ScriptServiceTest {
         LogGuyProperties properties = new LogGuyProperties(dir.resolve("data"), ZoneId.of("Europe/Berlin"),
             Map.of("digibib", new AppProperties(null, "mycore-log4j"), "leo", new AppProperties(null, null)),
             List.of(), List.of(), null, null,
-            new ScriptProperties(scripts, Duration.ofMillis(200), DataSize.ofKilobytes(16), 1000, 100), null, null,
+            new ScriptProperties(scripts, Duration.ofMillis(200), LOAD_TIMEOUT, 100, DataSize.ofKilobytes(16), 1000,
+                100),
+            null, null,
             null, null, null, null, null, null, null, null, null);
         store = new ScriptStore(scripts, Clock.systemUTC(), JSON);
         store.scan();
@@ -312,5 +327,61 @@ class ScriptServiceTest {
         ScriptRequestException e = assertThrows(ScriptRequestException.class,
             () -> service.saveDraft(gui(LEO_ADMIN), LEO, big, null));
         assertEquals(Reason.INVALID, e.reason());
+    }
+
+    @Test
+    void withoutScriptRightNothingIsEvaluated() throws Exception {
+        String looping = LOOP + RULE;
+        Duration fast = LOAD_TIMEOUT.dividedBy(2);
+        assertTimeoutPreemptively(fast, () -> assertThrows(AccessDeniedException.class,
+            () -> service.saveDraft(gui(READER), ERRORS, looping, null)));
+        assertTimeoutPreemptively(fast, () -> assertThrows(AccessDeniedException.class,
+            () -> service.codeForTest(READER, ERRORS, looping, false)));
+        store.saveDraft(ERRORS, looping, null, Actor.FILESYSTEM);
+        assertTimeoutPreemptively(fast, () -> assertThrows(AccessDeniedException.class,
+            () -> service.activate(gui(READER), ERRORS, false, false)));
+        assertTimeoutPreemptively(fast, () -> assertEquals(List.of(), service.list(READER)));
+        assertTrue(store.draft(ERRORS).isPresent(), "nothing changed");
+    }
+
+    @Test
+    void draftsAreCheckedOnceNotOnEveryList() throws Exception {
+        store.saveDraft(LEO, LOOP + LEO_PARSER, null, Actor.FILESYSTEM);
+        long start = System.nanoTime();
+        String error = service.list(ROOT).stream().filter(s -> s.name().equals("leo")).findFirst().orElseThrow()
+            .draft().error();
+        assertTrue(Duration.ofNanos(System.nanoTime() - start).compareTo(LOAD_TIMEOUT) >= 0);
+        assertTrue(error.contains("took longer than"), error);
+        assertTimeoutPreemptively(LOAD_TIMEOUT.dividedBy(2), () -> service.list(ROOT));
+        assertTimeoutPreemptively(LOAD_TIMEOUT.dividedBy(2), () -> service.get(ROOT, LEO));
+    }
+
+    @Test
+    void scriptsNeedPlainReadAlsoOverMcp() throws Exception {
+        assertTrue(PSEUDONYMIZED_SCRIPTS.mayRead("leo"));
+        assertFalse(service.may(PSEUDONYMIZED_SCRIPTS, LEO, LEO_PARSER, null));
+        assertThrows(AccessDeniedException.class,
+            () -> service.saveDraft(mcp(PSEUDONYMIZED_SCRIPTS, false), LEO, LEO_PARSER + "\n// leak\n", null));
+        assertThrows(AccessDeniedException.class, () -> service.codeForTest(PSEUDONYMIZED_SCRIPTS, LEO, null, true));
+        assertThrows(AccessDeniedException.class,
+            () -> service.saveDraft(mcp(PSEUDONYMIZED_SCRIPTS, false), ERRORS, RULE, null));
+        assertTrue(store.draft(LEO).isEmpty());
+        assertTrue(service.may(LEO_ADMIN.asPseudonymized(), LEO, LEO_PARSER, null));
+    }
+
+    @Test
+    void onlyActiveVersionsApprovedByHumansAreApproved() throws Exception {
+        assertTrue(service.isApprovedActive(LEO, LEO_PARSER));
+        assertTrue(service.isApprovedActive(MYCORE, service.get(ROOT, MYCORE).code()), "template");
+        String changed = LEO_PARSER + "\n// by mcp\n";
+        service.saveDraft(mcp(LEO_ADMIN, true), LEO, changed, null);
+        assertFalse(service.isApprovedActive(LEO, changed), "draft");
+        service.activate(mcp(LEO_ADMIN, true), LEO, false, false);
+        assertFalse(service.isApprovedActive(LEO, changed), "activated over MCP");
+        assertFalse(service.isApprovedActive(LEO, LEO_PARSER), "no longer active");
+        String byHand = changed + "// by hand\n";
+        service.saveDraft(gui(LEO_ADMIN), LEO, byHand, null);
+        service.activate(gui(LEO_ADMIN), LEO, false, false);
+        assertTrue(service.isApprovedActive(LEO, byHand));
     }
 }

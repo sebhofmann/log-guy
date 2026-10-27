@@ -447,10 +447,12 @@ public class LifecycleFilters implements ScriptListener {
         static Filter load(ScriptRuntime runtime, JsonMapper json, Definition definition) throws ScriptException {
             Context context = runtime.newContext();
             try {
-                Value exports = context.eval(ScriptRuntime.module("lifecycle/" + definition.name() + ".js",
-                    definition.code()));
+                Value exports = runtime.evalModule(context, "lifecycle/" + definition.name(), definition.code());
                 return new Filter(runtime, json, definition, context, function(exports, "line"),
                     function(exports, "fields"));
+            } catch (ScriptException e) {
+                context.close();
+                throw e;
             } catch (PolyglotException e) {
                 context.close();
                 throw new ScriptException("lifecycle/" + definition.name() + ": " + e.getMessage(), e);

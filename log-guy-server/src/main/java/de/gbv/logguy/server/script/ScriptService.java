@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -57,6 +58,8 @@ public class ScriptService {
 
     private final AuditLog audit;
 
+    private final Map<CheckKey, Checked> checked;
+
     /**
      * Creates the service.
      *
@@ -78,6 +81,16 @@ public class ScriptService {
         this.parsers = parsers;
         this.listeners = List.copyOf(listeners);
         this.audit = audit;
+        int cacheSize = properties.scripts().checkCache();
+        this.checked = Collections.synchronizedMap(new LinkedHashMap<>(16, 0.75f, true) {
+
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<CheckKey, Checked> eldest) {
+                return size() > cacheSize;
+            }
+        });
     }
 
     /**
@@ -308,23 +321,36 @@ public class ScriptService {
     }
 
     /**
-     * Checks a script of any kind.
+     * Checks a script of any kind. The module is always evaluated again, e.g. before it is activated.
      *
      * @param id the script
      * @param code the code
      * @return the error, empty if the script is fine
      */
     public Optional<String> check(ScriptId id, String code) {
+        return Optional.ofNullable(evaluate(id, code).error());
+    }
+
+    // the result of an earlier check of the same code, so listing scripts does not evaluate every draft again
+    private Checked checked(ScriptId id, String code) {
+        Checked result = checked.get(new CheckKey(id, ScriptStore.hash(code)));
+        return result != null ? result : evaluate(id, code);
+    }
+
+    private Checked evaluate(ScriptId id, String code) {
+        Checked result;
         try {
             if (id.kind() == ScriptKind.PARSER) {
                 ParserScript.load(runtime, id.name(), code);
+                result = new Checked(List.of(), null);
             } else {
-                ModuleInfo.check(runtime, id.kind(), id.name(), code);
+                result = new Checked(ModuleInfo.check(runtime, id.kind(), id.name(), code).apps(), null);
             }
-            return Optional.empty();
         } catch (ScriptException e) {
-            return Optional.of(e.getMessage());
+            result = new Checked(List.of(), e.getMessage());
         }
+        checked.put(new CheckKey(id, ScriptStore.hash(code)), result);
+        return result;
     }
 
     /**
@@ -423,17 +449,15 @@ public class ScriptService {
         if (code == null) {
             return List.of();
         }
-        try {
-            return ModuleInfo.check(runtime, id.kind(), id.name(), code).apps();
-        } catch (ScriptException e) {
-            return List.of();
-        }
+        return checked(id, code).apps();
     }
 
     /**
      * Whether the user may see and edit a script, judged by the active code and the draft. Scripts with {@code *}
      * or an application group in {@code meta.apps} are for administrators only, because the applications they
-     * cover change with the configuration.
+     * cover change with the configuration. A user without {@link Right#SCRIPTS} for any application is turned away
+     * before any code is evaluated. {@link Right#READ} is needed in plain, {@link Right#READ_PSEUDONYMIZED} is not
+     * enough, also over MCP: a script sees the plain lines and could hand them out in its results.
      *
      * @param user the user
      * @param id the script
@@ -442,6 +466,9 @@ public class ScriptService {
      * @return true if allowed
      */
     public boolean may(LogGuyUser user, ScriptId id, String active, String draft) {
+        if (!user.hasRight(Right.SCRIPTS)) {
+            return false;
+        }
         if (id.kind() == ScriptKind.PSEUDONYM) {
             return user.isAdmin();
         }
@@ -463,7 +490,7 @@ public class ScriptService {
             || patterns.stream().anyMatch(pattern -> pattern.contains("*") || AppGroups.isGroup(pattern))) {
             return user.isAdmin();
         }
-        return patterns.stream().allMatch(app -> user.may(Right.SCRIPTS, app) && user.mayRead(app));
+        return patterns.stream().allMatch(app -> user.may(Right.SCRIPTS, app) && user.may(Right.READ, app));
     }
 
     private void require(LogGuyUser user, ScriptId id, String active, String draft) {
@@ -546,13 +573,38 @@ public class ScriptService {
         boolean conflict = current != null && !current.equals(draft.meta().base());
         return new DraftSummary(ScriptStore.hash(draft.code()), draft.meta().base(), conflict, draft.meta().user(),
             draft.meta().token(), draft.meta().via(), draft.meta().updated(), draft.meta().test(),
-            check(id, draft.code()).orElse(null));
+            checked(id, draft.code()).error());
     }
 
     private static Map<String, Object> details(String key, Object value) {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put(key, value);
         return map;
+    }
+
+    /**
+     * Whether the code is the active version of a script that a human approved: activated in GUI or API, from the
+     * file system or a template, but not by an MCP token with {@code activate: true}.
+     *
+     * @param id the script
+     * @param code the code
+     * @return true if the code is active and was not activated over MCP
+     * @throws IOException if the script directory cannot be read
+     */
+    public boolean isApprovedActive(ScriptId id, String code) throws IOException {
+        Optional<String> active = activeCode(id);
+        if (active.isEmpty() || !active.get().equals(code)) {
+            return false;
+        }
+        String hash = ScriptStore.hash(code);
+        return store.history(id).stream().filter(version -> hash.equals(version.hash())).findFirst()
+            .map(version -> version.via() != Actor.Via.MCP).orElse(true);
+    }
+
+    private record CheckKey(ScriptId id, String hash) {
+    }
+
+    private record Checked(List<String> apps, String error) {
     }
 
     /**
