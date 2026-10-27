@@ -1,6 +1,7 @@
 package de.gbv.logguy.server.reindex;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -21,6 +22,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.solr.common.SolrInputDocument;
 import org.junit.jupiter.api.AfterAll;
@@ -174,6 +178,10 @@ class ReindexServiceTest {
     }
 
     private ReindexService service(Instant now, Optional<Instant> oldest) {
+        return service(now, oldest, sink);
+    }
+
+    private ReindexService service(Instant now, Optional<Instant> oldest, DocumentSink sink) {
         Clock clock = Clock.fixed(now, ZoneOffset.UTC);
         RetentionService retention =
             new RetentionService(properties, new AppRegistry(properties), null, null, clock, null);
@@ -300,6 +308,53 @@ class ReindexServiceTest {
             assertTrue(noIndexer.getMessage().contains("Indexer"), noIndexer.getMessage());
             ReindexException unknown = assertThrows(ReindexException.class, () -> service.planFile("unbekannt"));
             assertTrue(unknown.getMessage().contains("gibt es nicht"), unknown.getMessage());
+        }
+    }
+
+    @Test
+    void holdWaitsForTheRunningLoadAndDropsTheRestOfTheFile() throws Exception {
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch gate = new CountDownLatch(1);
+        DocumentSink slow = new DocumentSink() {
+            @Override
+            public void add(List<SolrInputDocument> documents) throws Exception {
+                entered.countDown();
+                gate.await();
+                sent.addAll(documents);
+            }
+
+            @Override
+            public void delete(String query) {
+                deleted.add(query);
+            }
+        };
+        Instant now = file.meta().to().plus(Duration.ofDays(30));
+        try (ReindexService service = service(now, Optional.empty(), slow)) {
+            ReindexJob job = service.start("admin",
+                service.plan("digibib", file.meta().from(), file.meta().to().plusSeconds(1), Source.ARCHIVE));
+            assertTrue(entered.await(30, TimeUnit.SECONDS), "first batch not sent");
+            AtomicBoolean held = new AtomicBoolean();
+            Thread deleting = Thread.ofVirtual().start(() -> {
+                try {
+                    service.hold(file.fingerprint());
+                    held.set(true);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+            deleting.join(Duration.ofMillis(200));
+            assertFalse(held.get(), "hold waits until the batch being sent has arrived");
+            gate.countDown();
+            deleting.join(Duration.ofSeconds(30));
+            assertTrue(held.get());
+            // the delete query of the file runs here, nothing may arrive after it
+            int beforeDelete = sent.size();
+            await(job);
+            service.release(file.fingerprint());
+            assertEquals(State.DONE, job.status().state());
+            assertEquals(List.of(), job.status().failed());
+            assertEquals(beforeDelete, sent.size());
+            assertEquals(properties.indexer().batchSize(), beforeDelete);
         }
     }
 

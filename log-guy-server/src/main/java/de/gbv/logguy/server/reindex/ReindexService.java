@@ -12,7 +12,9 @@ import java.util.Deque;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -86,6 +88,12 @@ public class ReindexService implements AutoCloseable {
         Thread.ofPlatform().name("reindex").factory());
 
     private final Deque<ReindexJob> jobs = new ArrayDeque<>();
+
+    /** Files being deleted, their events are not loaded. */
+    private final Set<String> held = ConcurrentHashMap.newKeySet();
+
+    /** The file the worker loads from the archive right now, guarded by {@code held}. */
+    private String loading;
 
     /**
      * Creates the service.
@@ -342,6 +350,49 @@ public class ReindexService implements AutoCloseable {
     }
 
     /**
+     * Keeps jobs from loading events of a file while it is deleted: waits until the worker has stopped loading the
+     * file, afterwards no job sends events of it until {@link #release(String)}. Delete the events from the index
+     * after this call, so none come back.
+     *
+     * @param fingerprint fingerprint of the file
+     * @throws InterruptedException if waiting is interrupted
+     */
+    public void hold(String fingerprint) throws InterruptedException {
+        synchronized (held) {
+            held.add(fingerprint);
+            while (fingerprint.equals(loading)) {
+                held.wait();
+            }
+        }
+    }
+
+    /**
+     * Lets jobs load a file again after {@link #hold(String)}.
+     *
+     * @param fingerprint fingerprint of the file
+     */
+    public void release(String fingerprint) {
+        held.remove(fingerprint);
+    }
+
+    private boolean loading(String fingerprint) {
+        synchronized (held) {
+            if (held.contains(fingerprint)) {
+                return false;
+            }
+            loading = fingerprint;
+            return true;
+        }
+    }
+
+    private void loaded() {
+        synchronized (held) {
+            loading = null;
+            held.notifyAll();
+        }
+    }
+
+    /**
      * Deletes the loaded events whose expiry date has passed. Errors are logged, the next run tries again.
      */
     public void expire() {
@@ -365,16 +416,27 @@ public class ReindexService implements AutoCloseable {
                 if (job.cancelled()) {
                     break;
                 }
-                ArchiveFile file = archive.find(fingerprint).orElse(null);
-                if (file == null) {
-                    job.fail(fingerprint);
+                if (!loading(fingerprint)) {
+                    // deleted while the job waited
+                    job.fileDone();
                     continue;
                 }
                 try {
-                    load(job, file, parser, runner);
-                } catch (IOException e) {
-                    LOGGER.error("reindex {}: cannot read {}", job.id(), file.relativePath(), e);
-                    job.fail(file.relativePath());
+                    ArchiveFile file = archive.find(fingerprint).orElse(null);
+                    if (file == null) {
+                        job.fail(fingerprint);
+                    } else {
+                        try {
+                            load(job, file, parser, runner);
+                        } catch (IOException e) {
+                            if (!held.contains(fingerprint)) {
+                                LOGGER.error("reindex {}: cannot read {}", job.id(), file.relativePath(), e);
+                                job.fail(file.relativePath());
+                            }
+                        }
+                    }
+                } finally {
+                    loaded();
                 }
                 job.fileDone();
             }
@@ -403,14 +465,14 @@ public class ReindexService implements AutoCloseable {
         Loader loader = new Loader(job, file, meta, parser, runner, range.first() > 0);
         EventReader reader = new EventReader(frames.get(range.first()).raw(),
             (int) properties.indexer().maxEventSize().toBytes());
-        for (int i = range.first(); i <= range.last() && !job.cancelled(); i++) {
+        for (int i = range.first(); i <= range.last() && !job.cancelled() && !loader.dropped(); i++) {
             byte[] data = file.readFrame(frames.get(i));
             for (RawEvent event : reader.feed(data, parser::isStart)) {
                 loader.add(event);
             }
             job.progress(data.length, 0);
         }
-        if (!job.cancelled()) {
+        if (!job.cancelled() && !loader.dropped()) {
             for (RawEvent event : reader.tail(parser::isStart)) {
                 loader.add(event);
             }
@@ -549,8 +611,15 @@ public class ReindexService implements AutoCloseable {
             }
         }
 
+        /** Whether the file is being deleted, then its events are dropped. */
+        private boolean dropped() {
+            return held.contains(meta.fingerprint());
+        }
+
         private void flush() throws Exception {
-            if (!batch.isEmpty()) {
+            if (dropped()) {
+                batch.clear();
+            } else if (!batch.isEmpty()) {
                 DocumentBatches.add(sink, batch);
                 job.progress(0, batch.size());
                 batch.clear();

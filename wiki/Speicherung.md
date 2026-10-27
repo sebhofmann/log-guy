@@ -52,10 +52,11 @@ Der Log-Browser in der GUI und die API `/api/v1/files` machen sichtbar, was log-
 Löschen nimmt eine Datei überall heraus: Original in `hot/`, gefilterte Fassung in `archive/`, die Kopie im Backup und ihre Events in Solr, auch die aus dem Archiv geladenen. Die Reihenfolge:
 
 1. Mit Sperre: Eintrag in `state/deleted.json`, atomar geschrieben, bevor etwas gelöscht wird.
-2. Der Archiv-Schreiber wird für diese Datei angehalten, ein laufender Durchgang wird abgewartet.
-3. In `hot/` und `archive/` jeweils zuerst `.meta.json`, dann Frames, `.idx` und Reste, wie beim nächtlichen Löschen. Nach einem Absturz dazwischen lädt log-guy die Reste beim Start nicht.
-4. Der Indexer vergisst die Datei, sobald gerade kein Thread an ihr arbeitet, dann löscht log-guy die Events per `id:<fingerprint>:*`. Ist Solr nicht erreichbar, gilt die Datei trotzdem als gelöscht und die Antwort nennt den Fehler unter `indexError`.
-5. Die Kopie im Backup wird sofort gelöscht, läuft gerade ein Backup, an dessen Ende. Ältere Stände des Backup-Ziels, etwa Snapshots, sind nicht Teil von log-guy.
+2. Aufträge, die Events aus dem Archiv laden, lassen die Datei ab jetzt aus. Lädt der Auftrag gerade aus ihr, wartet das Löschen, bis der Stapel, der gerade an Solr geht, angekommen ist, den Rest der Datei verwirft der Auftrag. So schreibt er nach Schritt 5 keine Events zurück in den Index. Ein wartender Auftrag überspringt die Datei, ohne sie als Fehler zu melden.
+3. Der Archiv-Schreiber wird für diese Datei angehalten, ein laufender Durchgang wird abgewartet.
+4. In `hot/` und `archive/` jeweils zuerst `.meta.json`, dann Frames, `.idx` und Reste, wie beim nächtlichen Löschen. Nach einem Absturz dazwischen lädt log-guy die Reste beim Start nicht.
+5. Der Indexer vergisst die Datei, sobald gerade kein Thread an ihr arbeitet, dann löscht log-guy die Events per `id:<fingerprint>:*`. Ist Solr nicht erreichbar, gilt die Datei trotzdem als gelöscht und die Antwort nennt den Fehler unter `indexError`.
+6. Die Kopie im Backup wird sofort gelöscht, läuft gerade ein Backup, an dessen Ende. Ältere Stände des Backup-Ziels, etwa Snapshots, sind nicht Teil von log-guy.
 
 Gesperrt heißt: Fragt ein Agent nach der Datei oder schickt sie erneut, z.B. nach dem Verlust seines Zustands, antwortet log-guy mit „abgeschlossen“ und der Länge zum Zeitpunkt des Löschens, und der Agent hört auf. Ohne Sperre würde der Agent eine noch vorhandene Datei von vorn neu einliefern. Läuft während des Löschens mit Sperre noch ein Append, scheitert er an der gelöschten Datei, und log-guy antwortet ebenfalls mit „abgeschlossen“. Wird die Sperre aufgehoben, nimmt log-guy die Datei wieder an. Löschen und Aufheben stehen mit Nutzer, Host, Pfaden und Tag im Audit-Log.
 

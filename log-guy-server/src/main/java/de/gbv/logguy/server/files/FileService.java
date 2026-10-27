@@ -37,6 +37,7 @@ import de.gbv.logguy.server.hot.HotStore;
 import de.gbv.logguy.server.index.EventDocuments;
 import de.gbv.logguy.server.index.Indexer;
 import de.gbv.logguy.server.index.Indexer.DocumentSink;
+import de.gbv.logguy.server.reindex.ReindexService;
 
 /**
  * The log browser: lists the files of {@code hot/} and {@code archive/}, reads them page by page, searches in them
@@ -62,6 +63,8 @@ public class FileService {
 
     private final DocumentSink sink;
 
+    private final ReindexService reindex;
+
     private final DeletedFiles deleted;
 
     private final BackupService backup;
@@ -77,18 +80,21 @@ public class FileService {
      * @param writer the archive writer, {@code null} if it does not run
      * @param indexer the indexer, {@code null} if it does not run
      * @param sink the index, for deleting the events of a file
+     * @param reindex loads events from the archive, {@code null} if it does not run
      * @param deleted the blocked files
      * @param backup the backup, for deleting the copies of deleted files
      * @param clock clock for the time of a deletion
      */
     public FileService(FilesProperties settings, HotStore hot, ArchiveStore archive, ArchiveWriter writer,
-        Indexer indexer, DocumentSink sink, DeletedFiles deleted, BackupService backup, Clock clock) {
+        Indexer indexer, DocumentSink sink, ReindexService reindex, DeletedFiles deleted, BackupService backup,
+        Clock clock) {
         this.settings = settings;
         this.hot = hot;
         this.archive = archive;
         this.writer = writer;
         this.indexer = indexer;
         this.sink = sink;
+        this.reindex = reindex;
         this.deleted = deleted;
         this.backup = backup;
         this.clock = clock;
@@ -547,7 +553,8 @@ public class FileService {
 
     /**
      * Deletes a file from {@code hot/}, the archive and the index. The archive writer and the indexer are held off
-     * the file while it is deleted. With {@code block} the stream API answers the file as closed afterwards, so an
+     * the file while it is deleted, and jobs loading events from the archive drop the events of the file until they
+     * are deleted from the index. With {@code block} the stream API answers the file as closed afterwards, so an
      * agent does not send it again.
      *
      * @param fingerprint fingerprint
@@ -567,6 +574,20 @@ public class FileService {
             deleted.add(new DeletedFiles.Entry(fingerprint, info.host(), info.app(), path, length,
                 clock.instant(), user));
         }
+        if (reindex != null) {
+            reindex.hold(fingerprint);
+        }
+        try {
+            return delete(info, block, user);
+        } finally {
+            if (reindex != null) {
+                reindex.release(fingerprint);
+            }
+        }
+    }
+
+    private DeleteResult delete(FileInfo info, boolean block, String user) throws IOException, InterruptedException {
+        String fingerprint = info.fingerprint();
         boolean hotDeleted = false;
         boolean archiveDeleted = false;
         String archivePath = null;

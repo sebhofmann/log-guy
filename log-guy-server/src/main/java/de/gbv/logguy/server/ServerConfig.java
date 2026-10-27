@@ -463,6 +463,7 @@ public class ServerConfig {
      * @param writer the archive writer if it runs
      * @param indexer the indexer if it runs
      * @param solr the index, for deleting the events of a file
+     * @param reindex loads events from the archive, holds off a file while it is deleted
      * @param deleted the blocked files
      * @param backup the backup, for deleting the copies of deleted files
      * @param clock clock for the time of a deletion
@@ -471,9 +472,9 @@ public class ServerConfig {
     @Bean
     public FileService fileService(FilesProperties settings, HotStore hot, ArchiveStore archive,
         ObjectProvider<ArchiveWriter> writer, ObjectProvider<Indexer> indexer, SolrService solr,
-        DeletedFiles deleted, BackupService backup, Clock clock) {
+        ReindexService reindex, DeletedFiles deleted, BackupService backup, Clock clock) {
         return new FileService(settings, hot, archive, writer.getIfAvailable(), indexer.getIfAvailable(), solr,
-            deleted, backup, clock);
+            reindex, deleted, backup, clock);
     }
 
     /**

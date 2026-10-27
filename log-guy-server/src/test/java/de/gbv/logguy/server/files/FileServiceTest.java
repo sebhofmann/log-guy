@@ -147,7 +147,7 @@ class FileServiceTest {
         deleted = new DeletedFiles(properties.stateDir(), JSON);
         FilesProperties settings = new FilesProperties(50, DataSize.ofKilobytes(16), DataSize.ofKilobytes(64), 5,
             DataSize.ofKilobytes(64), 10);
-        service = new FileService(settings, hot, archive, null, null, sink, deleted, null, Clock.systemUTC());
+        service = new FileService(settings, hot, archive, null, null, sink, null, deleted, null, Clock.systemUTC());
     }
 
     @AfterEach
