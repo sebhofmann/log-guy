@@ -22,7 +22,10 @@ import org.springframework.util.unit.DataSize;
 
 import de.gbv.logguy.common.Fingerprint;
 import de.gbv.logguy.common.TestLogs;
+import de.gbv.logguy.common.StreamStatus;
 import de.gbv.logguy.server.config.LogGuyProperties.HotProperties;
+import de.gbv.logguy.server.storage.DamagedFileException;
+import de.gbv.logguy.server.storage.FailingOpener;
 import tools.jackson.databind.json.JsonMapper;
 
 class HotFileTest {
@@ -161,5 +164,143 @@ class HotFileTest {
         file.flushAged(NOW.plusSeconds(61));
         assertEquals(1, file.frameCount());
         assertArrayEquals(Arrays.copyOf(sample, 5000), readAll(file));
+    }
+
+    private HotFile create(FailingOpener opener) throws IOException {
+        return HotFile.create(root, fingerprint, "app1", "digibib", LocalDate.of(2026, 10, 23), NOW, SETTINGS, JSON,
+            opener);
+    }
+
+    private Path path(String suffix) {
+        return root.resolve("app1/digibib/2026-10-23-" + fingerprint + suffix);
+    }
+
+    private StreamStatus send(HotFile file, int from, int to) throws Exception {
+        return file.append(from, Arrays.copyOfRange(sample, from, to), to - from, null, NOW);
+    }
+
+    @Test
+    void failedTailWriteIsCutBackAndTheChunkSentAgainIsStoredOnce() throws Exception {
+        FailingOpener opener = FailingOpener.forSuffixes(".tail");
+        HotFile file = create(opener);
+        send(file, 0, 5000);
+        opener.failAfter(1000);
+        assertThrows(IOException.class, () -> send(file, 5000, 8000));
+        assertEquals(5000, file.length());
+        assertEquals(Long.BYTES + 5000, Files.size(path(".tail")));
+        assertEquals(List.of(), file.problems());
+        opener.heal();
+        // the agent got an error and sends the same chunk again
+        assertEquals(8000, send(file, 5000, 8000).length());
+        file.release();
+        HotFile loaded = reload();
+        assertEquals(8000, loaded.length());
+        assertArrayEquals(Arrays.copyOf(sample, 8000), readAll(loaded));
+    }
+
+    @Test
+    void damagedTailIsWrittenAgainBeforeTheNextAppend() throws Exception {
+        FailingOpener opener = FailingOpener.forSuffixes(".tail", ".tail.tmp");
+        HotFile file = create(opener);
+        send(file, 0, 5000);
+        opener.failAfter(1000).failTruncate();
+        assertThrows(DamagedFileException.class, () -> send(file, 5000, 8000));
+        assertEquals(1, file.problems().size(), file.problems().toString());
+        long damagedSize = Files.size(path(".tail"));
+        assertEquals(Long.BYTES + 6000, damagedSize);
+        // still no space: nothing lands behind the rest of the failed write
+        assertThrows(IOException.class, () -> send(file, 5000, 8000));
+        assertEquals(damagedSize, Files.size(path(".tail")));
+        opener.heal();
+        assertEquals(8000, send(file, 5000, 8000).length());
+        assertEquals(List.of(), file.problems());
+        file.release();
+        HotFile loaded = reload();
+        assertArrayEquals(Arrays.copyOf(sample, 8000), readAll(loaded));
+    }
+
+    @Test
+    void restartWithADamagedTailKeepsOnlyBytesOfTheStream() throws Exception {
+        FailingOpener opener = FailingOpener.forSuffixes(".tail", ".tail.tmp");
+        HotFile file = create(opener);
+        send(file, 0, 5000);
+        opener.failAfter(1000).failTruncate();
+        assertThrows(DamagedFileException.class, () -> send(file, 5000, 8000));
+        file.release();
+        // the rest of the failed write are the next bytes of the stream, at their offsets
+        HotFile loaded = reload();
+        assertEquals(6000, loaded.length());
+        send(loaded, (int) loaded.length(), sample.length);
+        assertArrayEquals(sample, readAll(loaded));
+    }
+
+    @Test
+    void failedIndexWriteIsCutBackAndAllFramesSurviveARestart() throws Exception {
+        FailingOpener opener = FailingOpener.forSuffixes(".idx");
+        HotFile file = create(opener);
+        send(file, 0, 40_000);
+        int frames = file.frameCount();
+        long idxSize = Files.size(path(".idx"));
+        long zstSize = Files.size(path(".log.zst"));
+        opener.failAfter(10);
+        assertThrows(IOException.class, () -> send(file, 40_000, 60_000));
+        assertEquals(frames, file.frameCount());
+        assertEquals(idxSize, Files.size(path(".idx")));
+        assertEquals(zstSize, Files.size(path(".log.zst")));
+        assertEquals(List.of(), file.problems());
+        opener.heal();
+        // the bytes are already stored, sending them again changes nothing, the next chunk writes the frames
+        assertEquals(60_000, send(file, 40_000, 60_000).length());
+        send(file, 60_000, sample.length);
+        file.close(sample.length, null, NOW);
+        HotFile loaded = reload();
+        assertEquals(List.of(), loaded.problems());
+        assertEquals(file.frameCount(), loaded.frameCount());
+        assertArrayEquals(sample, readAll(loaded));
+    }
+
+    @Test
+    void damagedIndexIsCutBackBeforeTheNextFrame() throws Exception {
+        FailingOpener opener = FailingOpener.forSuffixes(".idx");
+        HotFile file = create(opener);
+        send(file, 0, 40_000);
+        long idxSize = Files.size(path(".idx"));
+        opener.failAfter(10).failTruncate();
+        assertThrows(DamagedFileException.class, () -> send(file, 40_000, 60_000));
+        assertEquals(idxSize + 10, Files.size(path(".idx")));
+        assertEquals(1, file.problems().size(), file.problems().toString());
+        opener.heal();
+        send(file, 60_000, sample.length);
+        assertEquals(List.of(), file.problems());
+        file.close(sample.length, null, NOW);
+        HotFile loaded = reload();
+        assertEquals(List.of(), loaded.problems());
+        assertEquals(file.frameCount(), loaded.frameCount());
+        assertArrayEquals(sample, readAll(loaded));
+    }
+
+    @Test
+    void brokenIndexLineInTheMiddleIsReportedAndLaterFramesAreKept() throws Exception {
+        HotFile file = create();
+        send(file, 0, sample.length);
+        file.close(sample.length, null, NOW);
+        int frames = file.frameCount();
+        assertTrue(frames > 3, "frames: " + frames);
+        // what a failed write without rollback left behind: half a line, the next line directly behind it
+        List<String> lines = Files.readAllLines(path(".idx"));
+        StringBuilder broken = new StringBuilder();
+        for (int i = 0; i < lines.size(); i++) {
+            if (i == 2) {
+                broken.append(lines.get(i), 0, 15);
+            }
+            broken.append(lines.get(i)).append('\n');
+        }
+        Files.writeString(path(".idx"), broken);
+        HotFile loaded = reload();
+        assertEquals(1, loaded.problems().size(), loaded.problems().toString());
+        assertEquals(frames, loaded.frameCount());
+        assertArrayEquals(sample, readAll(loaded));
+        assertEquals(lines, Files.readAllLines(path(".idx")));
+        assertEquals(List.of(), reload().problems());
     }
 }

@@ -134,10 +134,26 @@ public class StatusService {
             LOGGER.warn("Solr status failed", e);
             solrView = new SolrView(false, e.getMessage(), -1, List.of());
         }
-        return new StatusView(now, system(), indexerView(), archiveView(), deliveries.stats(), backup.status(),
+        return new StatusView(now, system(), storageProblems(), indexerView(), archiveView(), deliveries.stats(),
+            backup.status(),
             agents(),
             apps(counts),
             solrView);
+    }
+
+    private List<StorageProblem> storageProblems() {
+        List<StorageProblem> problems = new ArrayList<>();
+        for (HotFile file : store.files()) {
+            for (String problem : file.problems()) {
+                problems.add(new StorageProblem("hot", file.relativePath(), problem));
+            }
+        }
+        for (ArchiveFile file : archive.files()) {
+            for (String problem : file.problems()) {
+                problems.add(new StorageProblem("archive", file.relativePath(), problem));
+            }
+        }
+        return problems;
     }
 
     private SystemView system() {
@@ -269,6 +285,7 @@ public class StatusService {
      *
      * @param generated when it was collected
      * @param system the server
+     * @param storage files in {@code hot/} and {@code archive/} that were repaired with loss on load or are damaged
      * @param indexer the indexer
      * @param archive the archive writer
      * @param notifications mails and webhooks since the start
@@ -276,9 +293,19 @@ public class StatusService {
      * @param apps one entry per configured or indexed application
      * @param solr the Solr collection
      */
-    public record StatusView(Instant generated, SystemView system, IndexerView indexer, ArchiveView archive,
-        Deliveries.Stats notifications, BackupService.Status backup, List<AgentView> agents, List<AppView> apps,
-        SolrView solr) {
+    public record StatusView(Instant generated, SystemView system, List<StorageProblem> storage,
+        IndexerView indexer, ArchiveView archive, Deliveries.Stats notifications, BackupService.Status backup,
+        List<AgentView> agents, List<AppView> apps, SolrView solr) {
+    }
+
+    /**
+     * A problem with a stored file, see {@link HotFile#problems()} and {@link ArchiveFile#problems()}.
+     *
+     * @param store {@code hot} or {@code archive}
+     * @param path path of the file below the store
+     * @param problem what is wrong
+     */
+    public record StorageProblem(String store, String path, String problem) {
     }
 
     /**

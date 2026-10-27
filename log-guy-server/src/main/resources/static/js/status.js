@@ -25,6 +25,7 @@ function render(status) {
         + `aktualisiert alle ${REFRESH / 1000} Sekunden`));
     content.replaceChildren(
         system(status.system),
+        storage(status.storage),
         indexer(status.indexer),
         archive(status.archive),
         notifications(status.notifications),
@@ -132,6 +133,18 @@ function system(s) {
         ['Datenverzeichnis', disk],
         ['hot/', `${bytes(s.hotBytes)} in ${formatNumber(s.hotFiles)} Dateien`],
     ]));
+}
+
+// Files in hot/ and archive/ that were repaired with loss on load or cannot be written at the moment.
+function storage(problems) {
+    if (problems.length === 0) {
+        return section('Speicher', element('p', null, 'Keine Probleme mit Dateien in hot/ und archive/.'));
+    }
+    const note = element('p', 'error', `${formatNumber(problems.length)} Probleme mit Dateien in hot/ und archive/. `
+        + 'Beschädigte Dateien nehmen keine Daten an, bis wieder geschrieben werden kann. Beim Laden reparierte '
+        + 'Dateien stehen hier bis zum nächsten Start, Einzelheiten im Server-Log.');
+    const rows = problems.map(p => [`${p.store}/`, p.path, p.problem]);
+    return section('Speicher', note, table(['Bereich', 'Datei', 'Problem'], rows));
 }
 
 function indexer(i) {

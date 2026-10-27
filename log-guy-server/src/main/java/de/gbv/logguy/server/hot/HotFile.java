@@ -12,7 +12,9 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.locks.ReentrantLock;
 
 import org.apache.logging.log4j.LogManager;
@@ -22,6 +24,10 @@ import com.github.luben.zstd.Zstd;
 
 import de.gbv.logguy.common.StreamStatus;
 import de.gbv.logguy.server.config.LogGuyProperties.HotProperties;
+import de.gbv.logguy.server.storage.Appends;
+import de.gbv.logguy.server.storage.DamagedFileException;
+import de.gbv.logguy.server.storage.FileChannelOpener;
+import de.gbv.logguy.server.storage.FrameIndex;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -37,6 +43,11 @@ import tools.jackson.databind.json.JsonMapper;
  * Bytes are synced to the {@code .tail} before {@link #append} returns. A frame is first synced to the
  * {@code .log.zst}, then to the {@code .idx}, then the {@code .tail} is replaced. After a crash in between, the
  * offset in the {@code .tail} shows which of its bytes are already in a frame.
+ * <p>
+ * Appends to {@code .tail}, {@code .log.zst} and {@code .idx} go through {@link Appends}: a write that fails, e.g. on
+ * a full disk, is cut back, so a chunk sent again after an error is stored once. If cutting back fails as well, the
+ * file is damaged: the {@code .tail} is written again from memory, and until that succeeds no bytes are appended.
+ * The damage is listed in {@link #problems()} like the problems {@link FrameIndex} finds in the {@code .idx} on load.
  */
 public final class HotFile {
 
@@ -67,6 +78,8 @@ public final class HotFile {
 
     private final JsonMapper json;
 
+    private final FileChannelOpener opener;
+
     private final ReentrantLock lock = new ReentrantLock();
 
     // set by delete(), a writer still holding this instance must not create the files again
@@ -86,7 +99,20 @@ public final class HotFile {
 
     private FileChannel tailChannel;
 
-    private HotFile(Path dir, String name, String relativeDir, HotProperties settings, JsonMapper json) {
+    // size of the valid lines in the .idx, the next line is written there
+    private long idxSize;
+
+    // the .tail on disk may differ from the memory, it is written again before the next append
+    private boolean tailDirty;
+
+    // problems found on load, they stay until the next start
+    private final List<String> loadProblems = new ArrayList<>();
+
+    // files with bytes behind their end that could not be cut off, by path
+    private final Map<Path, String> damaged = new LinkedHashMap<>();
+
+    private HotFile(Path dir, String name, String relativeDir, HotProperties settings, JsonMapper json,
+        FileChannelOpener opener) {
         this.zstPath = dir.resolve(name + ZST_SUFFIX);
         this.idxPath = dir.resolve(name + IDX_SUFFIX);
         this.tailPath = dir.resolve(name + TAIL_SUFFIX);
@@ -94,6 +120,7 @@ public final class HotFile {
         this.relativePath = relativeDir + "/" + name + ZST_SUFFIX;
         this.settings = settings;
         this.json = json;
+        this.opener = opener;
     }
 
     /**
@@ -112,10 +139,30 @@ public final class HotFile {
      */
     static HotFile create(Path root, String fingerprint, String host, String app, LocalDate created, Instant now,
         HotProperties settings, JsonMapper json) throws IOException {
+        return create(root, fingerprint, host, app, created, now, settings, json, FileChannelOpener.DEFAULT);
+    }
+
+    /**
+     * Creates a new, empty file that writes through the given channels.
+     *
+     * @param root the {@code hot/} directory
+     * @param fingerprint fingerprint of the file
+     * @param host host the file comes from, already validated
+     * @param app application, already validated
+     * @param created day of the first byte
+     * @param now time of the first byte
+     * @param settings frame settings
+     * @param json mapper for {@code .idx} and {@code .meta.json}
+     * @param opener opens all channels the file writes through
+     * @return the new file
+     * @throws IOException if the files cannot be written
+     */
+    static HotFile create(Path root, String fingerprint, String host, String app, LocalDate created, Instant now,
+        HotProperties settings, JsonMapper json, FileChannelOpener opener) throws IOException {
         String relativeDir = host + "/" + app;
         Path dir = root.resolve(relativeDir);
         Files.createDirectories(dir);
-        HotFile file = new HotFile(dir, created + "-" + fingerprint, relativeDir, settings, json);
+        HotFile file = new HotFile(dir, created + "-" + fingerprint, relativeDir, settings, json, opener);
         // left over by a crash during delete
         Files.deleteIfExists(file.zstPath);
         Files.deleteIfExists(file.idxPath);
@@ -139,43 +186,48 @@ public final class HotFile {
      */
     static HotFile load(Path root, Path metaPath, HotProperties settings, JsonMapper json, Instant now)
         throws IOException {
+        return load(root, metaPath, settings, json, now, FileChannelOpener.DEFAULT);
+    }
+
+    /**
+     * Loads an existing file that writes through the given channels and repairs what a crash may have left behind.
+     *
+     * @param root the {@code hot/} directory
+     * @param metaPath path of the {@code .meta.json}
+     * @param settings frame settings
+     * @param json mapper for {@code .idx} and {@code .meta.json}
+     * @param now current time, the age of pending bytes starts again
+     * @param opener opens all channels the file writes through
+     * @return the loaded file
+     * @throws IOException if the files cannot be read
+     */
+    static HotFile load(Path root, Path metaPath, HotProperties settings, JsonMapper json, Instant now,
+        FileChannelOpener opener) throws IOException {
         String fileName = metaPath.getFileName().toString();
         String name = fileName.substring(0, fileName.length() - META_SUFFIX.length());
         Path dir = metaPath.getParent();
         String relativeDir = root.relativize(dir).toString().replace('\\', '/');
-        HotFile file = new HotFile(dir, name, relativeDir, settings, json);
+        HotFile file = new HotFile(dir, name, relativeDir, settings, json, opener);
         file.meta = json.readValue(metaPath.toFile(), FileMeta.class);
         file.recover(now);
         return file;
     }
 
     private void recover(Instant now) throws IOException {
-        if (Files.exists(idxPath)) {
-            byte[] idx = Files.readAllBytes(idxPath);
-            int valid = 0;
-            int start = 0;
-            for (int i = 0; i < idx.length; i++) {
-                if (idx[i] == '\n') {
-                    String line = new String(idx, start, i - start, StandardCharsets.UTF_8);
-                    try {
-                        frames.add(json.readValue(line, Frame.class));
-                    } catch (RuntimeException e) {
-                        LOGGER.warn("{}: ignoring broken index line after frame {}", idxPath, frames.size());
-                        break;
-                    }
-                    valid = i + 1;
-                    start = i + 1;
-                }
-            }
-            if (valid < idx.length) {
-                LOGGER.warn("{}: truncating index from {} to {} bytes", idxPath, idx.length, valid);
-                truncate(idxPath, valid);
-            }
-        }
+        FrameIndex.Recovered<Frame> index = FrameIndex.recover(idxPath, frameFormat(), opener);
+        frames.addAll(index.frames());
+        idxSize = index.size();
+        loadProblems.addAll(index.problems());
         long zstSize = Files.exists(zstPath) ? Files.size(zstPath) : 0;
+        int indexed = frames.size();
         while (!frames.isEmpty() && frames.getLast().zstEnd() > zstSize) {
-            LOGGER.error("{}: frame at {} is missing in the zst file", zstPath, frames.getLast().raw());
+            String problem = "frame at " + frames.getLast().raw() + " is missing in the zst file";
+            LOGGER.error("{}: {}", zstPath, problem);
+            loadProblems.add(problem);
             frames.removeLast();
+        }
+        if (frames.size() < indexed) {
+            idxSize = FrameIndex.write(idxPath, frames, frameFormat(), opener);
         }
         long zstEnd = frames.isEmpty() ? 0 : frames.getLast().zstEnd();
         if (zstSize > zstEnd) {
@@ -242,11 +294,12 @@ public final class HotFile {
             int from = (int) skip;
             int count = length - from;
             FileChannel channel = tailChannel();
-            ByteBuffer buffer = ByteBuffer.wrap(data, from, count);
-            while (buffer.hasRemaining()) {
-                channel.write(buffer);
+            try {
+                Appends.writeAt(channel, tailPath, Long.BYTES + tailLength, ByteBuffer.wrap(data, from, count));
+            } catch (DamagedFileException e) {
+                repairTail(e);
+                throw e;
             }
-            channel.force(false);
             if (tail.length < tailLength + count) {
                 tail = Arrays.copyOf(tail, Math.max(tailLength + count, tail.length * 2));
             }
@@ -420,24 +473,17 @@ public final class HotFile {
         }
         byte[] compressed = Zstd.compress(Arrays.copyOf(tail, cut), settings.compressionLevel());
         long zstOffset = frames.isEmpty() ? 0 : frames.getLast().zstEnd();
-        try (FileChannel channel = FileChannel.open(zstPath, StandardOpenOption.CREATE, StandardOpenOption.WRITE)) {
-            ByteBuffer buffer = ByteBuffer.wrap(compressed);
-            long position = zstOffset;
-            while (buffer.hasRemaining()) {
-                position += channel.write(buffer, position);
-            }
-            channel.force(false);
-        }
+        writeAt(zstPath, zstOffset, compressed);
         Frame frame = new Frame(zstOffset, compressed.length, tailBase, cut, meta.lastReceived());
         byte[] line = (json.writeValueAsString(frame) + "\n").getBytes(StandardCharsets.UTF_8);
-        try (FileChannel channel = FileChannel.open(idxPath, StandardOpenOption.CREATE, StandardOpenOption.WRITE,
-            StandardOpenOption.APPEND)) {
-            ByteBuffer buffer = ByteBuffer.wrap(line);
-            while (buffer.hasRemaining()) {
-                channel.write(buffer);
-            }
-            channel.force(false);
+        try {
+            writeAt(idxPath, idxSize, line);
+        } catch (IOException e) {
+            // the frame is not indexed, its data are cut off by the next write or on load anyway
+            Appends.cutBackQuietly(opener, zstPath, zstOffset);
+            throw e;
         }
+        idxSize += line.length;
         frames.add(frame);
         System.arraycopy(tail, cut, tail, 0, tailLength - cut);
         tailLength -= cut;
@@ -451,10 +497,46 @@ public final class HotFile {
         writeMeta();
     }
 
+    /**
+     * Writes bytes at the end of the valid data of {@code .log.zst} or {@code .idx} and keeps track of damage.
+     */
+    private void writeAt(Path path, long end, byte[] data) throws IOException {
+        try {
+            Appends.writeAt(opener, path, end, data);
+        } catch (DamagedFileException e) {
+            markDamaged(path, e);
+            throw e;
+        }
+        if (damaged.remove(path) != null) {
+            LOGGER.info("{}: repaired, appending again", path);
+        }
+    }
+
+    private void markDamaged(Path path, DamagedFileException e) {
+        LOGGER.error("{} is damaged, nothing is appended until it is repaired", path, e);
+        damaged.put(path, e.getMessage());
+    }
+
+    /**
+     * A failed append to the {@code .tail} could not be cut back. Writes the {@code .tail} again from memory; if
+     * that fails as well, the next append tries it again before writing anything.
+     */
+    private void repairTail(DamagedFileException e) {
+        markDamaged(tailPath, e);
+        try {
+            rewriteTail();
+            damaged.remove(tailPath);
+            LOGGER.info("{}: written again from memory", tailPath);
+        } catch (IOException rewrite) {
+            e.addSuppressed(rewrite);
+        }
+    }
+
     private void rewriteTail() throws IOException {
         closeChannel();
+        tailDirty = true;
         Path tmp = tailPath.resolveSibling(tailPath.getFileName() + TMP_SUFFIX);
-        try (FileChannel channel = FileChannel.open(tmp, StandardOpenOption.CREATE, StandardOpenOption.WRITE,
+        try (FileChannel channel = opener.open(tmp, StandardOpenOption.CREATE, StandardOpenOption.WRITE,
             StandardOpenOption.TRUNCATE_EXISTING)) {
             ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES + tailLength);
             buffer.putLong(tailBase).put(tail, 0, tailLength).flip();
@@ -464,14 +546,19 @@ public final class HotFile {
             channel.force(false);
         }
         Files.move(tmp, tailPath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        tailDirty = false;
     }
 
     private FileChannel tailChannel() throws IOException {
         if (tailChannel == null) {
-            if (!Files.exists(tailPath)) {
+            if (tailDirty || !Files.exists(tailPath)) {
                 rewriteTail();
+                if (damaged.remove(tailPath) != null) {
+                    LOGGER.info("{}: written again from memory, appending again", tailPath);
+                }
             }
-            tailChannel = FileChannel.open(tailPath, StandardOpenOption.WRITE, StandardOpenOption.APPEND);
+            // no APPEND: bytes are written where the valid data end, see Appends
+            tailChannel = opener.open(tailPath, StandardOpenOption.WRITE);
         }
         return tailChannel;
     }
@@ -493,7 +580,7 @@ public final class HotFile {
 
     private void writeMeta() throws IOException {
         Path tmp = metaPath.resolveSibling(metaPath.getFileName() + TMP_SUFFIX);
-        try (FileChannel channel = FileChannel.open(tmp, StandardOpenOption.CREATE, StandardOpenOption.WRITE,
+        try (FileChannel channel = opener.open(tmp, StandardOpenOption.CREATE, StandardOpenOption.WRITE,
             StandardOpenOption.TRUNCATE_EXISTING)) {
             ByteBuffer buffer = ByteBuffer.wrap(json.writeValueAsBytes(meta));
             while (buffer.hasRemaining()) {
@@ -504,8 +591,8 @@ public final class HotFile {
         Files.move(tmp, metaPath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
     }
 
-    private static void truncate(Path path, long size) throws IOException {
-        try (FileChannel channel = FileChannel.open(path, StandardOpenOption.WRITE)) {
+    private void truncate(Path path, long size) throws IOException {
+        try (FileChannel channel = opener.open(path, StandardOpenOption.WRITE)) {
             channel.truncate(size);
             channel.force(false);
         }
@@ -651,6 +738,46 @@ public final class HotFile {
         } finally {
             lock.unlock();
         }
+    }
+
+    /**
+     * Problems with the files on disk: what was repaired with loss on load, and files that are damaged now because a
+     * failed write could not be undone.
+     *
+     * @return messages, empty if everything is fine
+     */
+    public List<String> problems() {
+        lock.lock();
+        try {
+            List<String> result = new ArrayList<>(loadProblems);
+            result.addAll(damaged.values());
+            return result;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private FrameIndex.Format<Frame> frameFormat() {
+        return new FrameIndex.Format<>() {
+
+            @Override
+            public Frame parse(String line) {
+                return json.readValue(line, Frame.class);
+            }
+
+            @Override
+            public String format(Frame frame) {
+                return json.writeValueAsString(frame);
+            }
+
+            @Override
+            public boolean follows(Frame previous, Frame next) {
+                long zst = previous == null ? 0 : previous.zstEnd();
+                long raw = previous == null ? 0 : previous.rawEnd();
+                return next.zst() == zst && next.raw() == raw && next.zlen() > 0 && next.rlen() > 0
+                    && next.received() != null;
+            }
+        };
     }
 
     /**
