@@ -29,6 +29,7 @@ import de.gbv.logguy.server.config.AppGroups;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.AppProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.ArchiveProperties;
+import de.gbv.logguy.server.config.LogGuyProperties.ArchivePseudonymizeProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.GrantProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.HotProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.Right;
@@ -36,6 +37,8 @@ import de.gbv.logguy.server.config.LogGuyProperties.ScriptProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.SearchProperties;
 import de.gbv.logguy.server.hot.HotFile;
 import de.gbv.logguy.server.hot.HotStore;
+import de.gbv.logguy.server.pseudonym.ArchiveTokens;
+import de.gbv.logguy.server.pseudonym.PseudonymService;
 import de.gbv.logguy.server.script.ScriptKind;
 import de.gbv.logguy.server.script.ScriptRuntime;
 import de.gbv.logguy.server.script.ScriptStore;
@@ -45,7 +48,7 @@ import de.gbv.logguy.server.security.LogGuyUser;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * The context passes the lifecycle filters like the archive and the index.
+ * The context passes the lifecycle filters and the pseudonymization like the archive and the index.
  */
 class ContextServiceTest {
 
@@ -103,6 +106,8 @@ class ContextServiceTest {
 
     private String fingerprint;
 
+    private String mueller;
+
     private long passwordOffset;
 
     @BeforeEach
@@ -122,18 +127,20 @@ class ContextServiceTest {
                 DataSize.ofKilobytes(512)),
             null, null, null,
             new ArchiveProperties(true, 2, Duration.ofMillis(50), 3, 7, "[line {filter} {offset}]", "[field {filter}]",
-                null),
+                null, new ArchivePseudonymizeProperties(List.of("IP"))),
             null, null, null, null);
         HotStore hot = new HotStore(properties, JSON, Clock.systemUTC());
         fingerprint = Fingerprint.of(LOG);
         HotFile file = hot.getOrCreate(fingerprint, "app1", "digibib");
         file.append(0, LOG, LOG.length, "/logs/mycore.log", Instant.now());
         file.close(LOG.length, "/logs/mycore.log", Instant.now());
+        mueller = new ArchiveTokens(file.meta().key(), Set.of("IP")).token("Nutzer", "mueller");
         passwordOffset = new String(LOG, StandardCharsets.UTF_8).indexOf("2026-10-01T00:00:02");
         scripts = new ScriptStore(scriptDir, Clock.systemUTC(), JSON);
         scripts.scan();
         filters = new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE);
-        context = new ContextService(properties, hot, null, filters);
+        context = new ContextService(properties, hot, null, filters,
+            new PseudonymService(runtime, scripts, JSON, () -> AppGroups.NONE));
     }
 
     @AfterEach
@@ -155,7 +162,9 @@ class ContextServiceTest {
         assertFalse(text.contains("\r"), text);
         assertEquals(List.of("2026-10-01T00:00:00,000 INFO  guest MCRServlet: start from 192.168.17.0"),
             view.before());
-        assertEquals("2026-10-01T00:00:02,000 WARN  mueller MCRServlet: login failed password=***",
+        // pseudonymized with the key of the file, the same token as in the archive
+        assertTrue(mueller.matches("\\[Nutzer#[0-9a-f]{8}]"), mueller);
+        assertEquals("2026-10-01T00:00:02,000 WARN  " + mueller + " MCRServlet: login failed password=***",
             view.lines().get(0));
         long boom = new String(LOG, StandardCharsets.UTF_8).indexOf("2026-10-01T00:00:03");
         assertEquals("[line zeilen " + boom + "]", view.lines().get(1));

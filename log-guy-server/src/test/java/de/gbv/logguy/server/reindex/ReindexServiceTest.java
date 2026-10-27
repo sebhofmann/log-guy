@@ -53,6 +53,7 @@ import de.gbv.logguy.server.hot.HotFile;
 import de.gbv.logguy.server.hot.HotStore;
 import de.gbv.logguy.server.index.EventReader;
 import de.gbv.logguy.server.index.Indexer.DocumentSink;
+import de.gbv.logguy.server.pseudonym.PseudonymService;
 import de.gbv.logguy.server.reindex.ReindexJob.Plan;
 import de.gbv.logguy.server.reindex.ReindexJob.State;
 import de.gbv.logguy.server.reindex.ReindexService.Source;
@@ -125,7 +126,7 @@ class ReindexServiceTest {
             new IndexerProperties(true, 2, Duration.ofMillis(100), 50, DataSize.ofKilobytes(64),
                 DataSize.ofMegabytes(64), Duration.ofSeconds(5), DataSize.ofMegabytes(1), 7, Duration.ofSeconds(10)),
             null, null, null, null,
-            new ArchiveProperties(true, 2, Duration.ofMillis(50), 3, 7, "[x]", "[f {filter}]", null),
+            new ArchiveProperties(true, 2, Duration.ofMillis(50), 3, 7, "[x]", "[f {filter}]", null, null),
             new ReindexProperties(Duration.ofHours(24), "-", Duration.ofDays(92), 5), null, null, null);
         hot = new HotStore(properties, JSON, Clock.systemUTC());
         archive = new ArchiveStore(properties, JSON);
@@ -142,7 +143,8 @@ class ReindexServiceTest {
         source.close(data.length, "/logs/mycore-app.log", Instant.now());
         ScriptStore scripts = new ScriptStore(scriptDir, Clock.systemUTC(), JSON);
         try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive,
-            new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE), parsers, runtime)) {
+            new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE),
+            new PseudonymService(runtime, scripts, JSON, () -> AppGroups.NONE), parsers, runtime)) {
             Instant deadline = Instant.now().plusSeconds(30);
             while (!archive.find(source.fingerprint()).map(a -> a.meta().closed()).orElse(false)) {
                 assertTrue(Instant.now().isBefore(deadline), "archive not written");

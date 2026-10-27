@@ -37,6 +37,7 @@ import de.gbv.logguy.server.config.AppGroups;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.AppProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.ArchiveProperties;
+import de.gbv.logguy.server.config.LogGuyProperties.ArchivePseudonymizeProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.HotProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.ScriptProperties;
 import de.gbv.logguy.server.hot.HotFile;
@@ -44,11 +45,14 @@ import de.gbv.logguy.server.files.DeletedFiles;
 import de.gbv.logguy.server.hot.HotStore;
 import de.gbv.logguy.server.ingest.IngestException;
 import de.gbv.logguy.server.ingest.IngestService;
+import de.gbv.logguy.server.pseudonym.ArchiveTokens;
+import de.gbv.logguy.server.pseudonym.PseudonymService;
 import de.gbv.logguy.server.retention.HotCleaner;
 import de.gbv.logguy.server.script.ParsedEvent;
 import de.gbv.logguy.server.script.Parser;
 import de.gbv.logguy.server.script.ParserRegistry;
 import de.gbv.logguy.server.script.ParserScript;
+import de.gbv.logguy.server.script.ScriptKind;
 import de.gbv.logguy.server.script.ScriptRuntime;
 import de.gbv.logguy.server.script.ScriptStore;
 import de.gbv.logguy.server.script.TextFunctions;
@@ -93,7 +97,9 @@ class ArchiveWriterTest {
                 DataSize.ofKilobytes(256), 1000, 100),
             null,
             null, null, null, null, null,
-            new ArchiveProperties(true, 2, Duration.ofMillis(50), 3, 7, PLACEHOLDER, "[f {filter}]", null), null, null,
+            new ArchiveProperties(true, 2, Duration.ofMillis(50), 3, 7, PLACEHOLDER, "[f {filter}]", null,
+                new ArchivePseudonymizeProperties(List.of("IP"))),
+            null, null,
             null, null);
         scripts = new ScriptStore(scriptDir, Clock.systemUTC(), JSON);
         // the sample has shortened IP addresses already, two full ones show the filter
@@ -152,6 +158,10 @@ class ArchiveWriterTest {
         return String.join("\n", out);
     }
 
+    private PseudonymService pseudonyms() {
+        return new PseudonymService(runtime, scripts, JSON, () -> AppGroups.NONE);
+    }
+
     private ParserRegistry parsers() {
         ParserRegistry parsers = new ParserRegistry(properties, runtime);
         assertTrue(parsers.load().isEmpty());
@@ -165,7 +175,7 @@ class ArchiveWriterTest {
             ArchiveStore archive = new ArchiveStore(properties, JSON);
             LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE);
             assertTrue(filters.errors().isEmpty(), filters.errors().toString());
-            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, parsers(), runtime)) {
+            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, pseudonyms(), parsers(), runtime)) {
                 await(() -> archive.find(file.fingerprint()).map(a -> a.meta().closed()).orElse(false));
                 assertEquals(0, writer.backlog());
             }
@@ -180,8 +190,9 @@ class ArchiveWriterTest {
             assertEquals(sample.length, meta.sourceLength());
             assertEquals(content.split("\n").length, meta.lines());
             assertEquals(List.of("/logs/mycore-app.log"), meta.paths());
-            assertEquals(1, meta.filters().size());
+            assertEquals(2, meta.filters().size());
             assertTrue(meta.filters().getFirst().startsWith("ip-kuerzen@"), meta.filters().toString());
+            assertTrue(meta.filters().getLast().startsWith("pseudonym@"), meta.filters().toString());
             assertEquals(0, meta.filterErrors());
             try (Parser parser = new Parser(runtime, mycore())) {
                 String[] lines = new String(sample, StandardCharsets.UTF_8).split("\n");
@@ -217,7 +228,7 @@ class ArchiveWriterTest {
             HotFile file = fill(hot, data, true);
             ArchiveStore archive = new ArchiveStore(properties, JSON);
             LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE);
-            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, parsers(), runtime)) {
+            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, pseudonyms(), parsers(), runtime)) {
                 await(() -> archive.find(file.fingerprint()).map(a -> a.meta().closed()).orElse(false));
             }
             List<ArchiveFrame> frames = archive.find(file.fingerprint()).orElseThrow().frames();
@@ -259,7 +270,7 @@ class ArchiveWriterTest {
             HotFile file = fill(hot, sample, true);
             ArchiveStore archive = new ArchiveStore(properties, JSON);
             LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE);
-            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, parsers(), runtime)) {
+            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, pseudonyms(), parsers(), runtime)) {
                 await(() -> archive.find(file.fingerprint()).map(a -> a.meta().closed()).orElse(false));
                 assertEquals(1, writer.filterErrors());
                 assertTrue(writer.droppedLines() > 0);
@@ -271,7 +282,7 @@ class ArchiveWriterTest {
             long offset = new String(sample, StandardCharsets.UTF_8).indexOf("2026-10-01T09:00:00,000 WARN");
             assertTrue(content.contains("[zurückgehalten kaputt " + offset + "]\n"), content);
             assertEquals(1, target.meta().filterErrors());
-            assertEquals(3, target.meta().filters().size(), target.meta().filters().toString());
+            assertEquals(4, target.meta().filters().size(), target.meta().filters().toString());
         }
     }
 
@@ -294,14 +305,14 @@ class ArchiveWriterTest {
             HotFile clean = fill(hot, other, true);
             ArchiveStore archive = new ArchiveStore(properties, JSON);
             LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE);
-            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, parsers(), runtime)) {
+            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, pseudonyms(), parsers(), runtime)) {
                 await(() -> archive.find(file.fingerprint()).map(a -> a.meta().closed()).orElse(false)
                     && archive.find(clean.fingerprint()).map(a -> a.meta().closed()).orElse(false));
                 ArchiveFile before = archive.find(file.fingerprint()).orElseThrow();
                 assertEquals(1, before.meta().filterErrors());
 
                 writeScript("kaputt", broken.replace("throw new Error(\"kaputt\")", "return text + \" [geprüft]\""));
-                filters.changed(de.gbv.logguy.server.script.ScriptKind.LIFECYCLE, scripts);
+                filters.changed(ScriptKind.LIFECYCLE, scripts);
                 ArchiveWriter.RefilterReport report = writer.refilter(null, false);
                 assertEquals(List.of(before.relativePath()), report.refiltered());
                 assertEquals(0, report.placeholders());
@@ -332,7 +343,7 @@ class ArchiveWriterTest {
             HotFile open = fill(hot, live, false);
             ArchiveStore archive = new ArchiveStore(properties, JSON);
             LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE);
-            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, parsers(), runtime)) {
+            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, pseudonyms(), parsers(), runtime)) {
                 await(() -> archive.find(file.fingerprint()).map(a -> a.meta().closed()).orElse(false));
             }
             Instant to = archive.find(file.fingerprint()).orElseThrow().meta().to();
@@ -371,15 +382,181 @@ class ArchiveWriterTest {
             ArchiveStore archive = new ArchiveStore(properties, JSON);
             LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE);
             assertEquals(1, filters.errors().size());
-            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, parsers(), runtime)) {
+            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, pseudonyms(), parsers(), runtime)) {
                 Thread.sleep(300);
                 assertTrue(archive.find(file.fingerprint()).isEmpty());
                 assertEquals(1, writer.pausedBy().size());
 
                 Files.delete(properties.scripts().dir().resolve("lifecycle/syntaxfehler.js"));
-                filters.changed(de.gbv.logguy.server.script.ScriptKind.LIFECYCLE, scriptsAfterScan());
+                filters.changed(ScriptKind.LIFECYCLE, scriptsAfterScan());
                 await(() -> archive.find(file.fingerprint()).map(a -> a.meta().closed()).orElse(false));
             }
+        }
+    }
+
+    // structure of real lines from prod-logs/, the logins and the mail address are made up
+    private static final String PERSONAL = """
+        2025-03-05T00:03:04,550 WARN  guest MCRUserManager: Could not find requested user: mueller
+        2025-03-05T00:08:30,227 INFO   MCRSessionFilter: user detected: mueller
+        2025-03-05T00:09:59,999 INFO  mueller MCRMODSEmbargoReleaseCronjob: Searching embargoed objects
+        2025-03-05T00:10:00,000 INFO  schulze MCRServlet: request from 192.0.2.17, mailto:anna.schulze@example.org
+        2025-03-05T00:10:01,000 INFO  [Nutzer#0badc0de] MCRServlet: already pseudonymized
+        """;
+
+    private void writePseudonymScript(String name, String code) throws IOException {
+        Path dir = properties.scripts().dir().resolve("pseudonym");
+        Files.createDirectories(dir);
+        Files.writeString(dir.resolve(name + ".js"), code);
+        scripts.scan();
+    }
+
+    @Test
+    void pseudonymizesWithTokensOfTheFile() throws Exception {
+        byte[] first = PERSONAL.getBytes(StandardCharsets.UTF_8);
+        byte[] second = ("2025-03-05T00:00:00,000 INFO  guest MCRServlet: another file\n" + PERSONAL)
+            .getBytes(StandardCharsets.UTF_8);
+        try (HotStore hot = new HotStore(properties, JSON, Clock.systemUTC())) {
+            HotFile one = fill(hot, first, true);
+            HotFile two = fill(hot, second, true);
+            ArchiveStore archive = new ArchiveStore(properties, JSON);
+            LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE);
+            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, pseudonyms(), parsers(),
+                runtime)) {
+                await(() -> archive.find(one.fingerprint()).map(a -> a.meta().closed()).orElse(false)
+                    && archive.find(two.fingerprint()).map(a -> a.meta().closed()).orElse(false));
+            }
+            ArchiveTokens tokens = new ArchiveTokens(one.meta().key(), Set.of("IP"));
+            String mueller = tokens.token("Nutzer", "mueller");
+            String content = new String(readAll(archive.find(one.fingerprint()).orElseThrow()),
+                StandardCharsets.UTF_8);
+            assertEquals("""
+                2025-03-05T00:03:04,550 WARN  guest MCRUserManager: Could not find requested user: %s
+                2025-03-05T00:08:30,227 INFO   MCRSessionFilter: user detected: %s
+                2025-03-05T00:09:59,999 INFO  %s MCRMODSEmbargoReleaseCronjob: Searching embargoed objects
+                2025-03-05T00:10:00,000 INFO  %s MCRServlet: request from 192.0.2.0, mailto:%s
+                2025-03-05T00:10:01,000 INFO  [Nutzer#0badc0de] MCRServlet: already pseudonymized
+                """.formatted(mueller, mueller, mueller, tokens.token("Nutzer", "schulze"),
+                tokens.token("Mail", "anna.schulze@example.org")), content);
+            assertTrue(content.contains("[Mail#"), content);
+
+            // another file, other tokens for the same values
+            String other = new String(readAll(archive.find(two.fingerprint()).orElseThrow()),
+                StandardCharsets.UTF_8);
+            assertFalse(other.contains(mueller), other);
+            assertTrue(other.contains(new ArchiveTokens(two.meta().key(), Set.of("IP")).token("Nutzer", "mueller")));
+            assertFalse(other.contains("mueller"), other);
+            assertTrue(archive.find(one.fingerprint()).orElseThrow().meta().filters().getLast()
+                .startsWith("pseudonym@"));
+        }
+    }
+
+    @Test
+    void pseudonymizeWritesTheArchiveAgainWithANewScript() throws Exception {
+        byte[] data = PERSONAL.getBytes(StandardCharsets.UTF_8);
+        try (HotStore hot = new HotStore(properties, JSON, Clock.systemUTC())) {
+            HotFile file = fill(hot, data, true);
+            ArchiveStore archive = new ArchiveStore(properties, JSON);
+            LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE);
+            PseudonymService pseudonyms = pseudonyms();
+            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, pseudonyms, parsers(),
+                runtime)) {
+                await(() -> archive.find(file.fingerprint()).map(a -> a.meta().closed()).orElse(false));
+                ArchiveFile before = archive.find(file.fingerprint()).orElseThrow();
+                String label = before.meta().filters().getLast();
+                assertEquals(new ArchiveWriter.PseudonymizeReport(List.of(), 0, 1, List.of(), 0, List.of()),
+                    writer.pseudonymize(null, false));
+
+                // a new script for a value the standard script leaves alone
+                writePseudonymScript("cronjob", """
+                    export const meta = { apps: ["*"] };
+                    export function apply(event) {
+                        event.message = event.message.replace(/\\w+Cronjob/, found => ps("Job", found));
+                        return event;
+                    }
+                    """);
+                pseudonyms.changed(ScriptKind.PSEUDONYM, scripts);
+                ArchiveWriter.PseudonymizeReport report = writer.pseudonymize("digibib", false);
+                assertEquals(List.of(before.relativePath()), report.pseudonymized());
+                assertEquals(0, report.newKeys());
+                assertTrue(report.failed().isEmpty(), report.failed().toString());
+                assertThrows(IOException.class, () -> readAll(before));
+
+                ArchiveFile after = archive.find(file.fingerprint()).orElseThrow();
+                ArchiveTokens tokens = new ArchiveTokens(file.meta().key(), Set.of("IP"));
+                String content = new String(readAll(after), StandardCharsets.UTF_8);
+                // the tokens of the first pass stay, the new script adds its own with the key of the file
+                assertTrue(content.contains("INFO  " + tokens.token("Nutzer", "mueller") + " "
+                    + tokens.token("Job", "MCRMODSEmbargoReleaseCronjob") + ": Searching"), content);
+                assertTrue(content.contains("[Nutzer#0badc0de] MCRServlet"), content);
+                assertTrue(after.meta().closed());
+                assertEquals(before.meta().lines(), after.meta().lines());
+                assertFalse(after.meta().filters().contains(label), after.meta().filters().toString());
+                assertEquals(1, after.meta().filters().stream().filter(f -> f.startsWith("pseudonym@")).count());
+                assertEquals(1, writer.pseudonymize(null, false).unchanged());
+
+                // without the original the key is random, the tokens of the archive stay as they are
+                hot.delete(file);
+                report = writer.pseudonymize(null, true);
+                assertEquals(1, report.newKeys());
+                assertEquals(content, new String(readAll(archive.find(file.fingerprint()).orElseThrow()),
+                    StandardCharsets.UTF_8));
+            }
+            new ArchiveStore(properties, JSON);
+            assertFalse(Files.exists(properties.archiveDir().resolve(".refilter")));
+        }
+    }
+
+    @Test
+    void failingPseudonymizationWritesThePlaceholder() throws Exception {
+        writePseudonymScript("kaputt", """
+            export const meta = { apps: ["*"] };
+            export function apply(event) {
+                if (event.message.includes("schulze")) {
+                    throw new Error("kaputt");
+                }
+                return event;
+            }
+            """);
+        byte[] data = PERSONAL.getBytes(StandardCharsets.UTF_8);
+        try (HotStore hot = new HotStore(properties, JSON, Clock.systemUTC())) {
+            HotFile file = fill(hot, data, true);
+            ArchiveStore archive = new ArchiveStore(properties, JSON);
+            LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE);
+            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, pseudonyms(), parsers(),
+                runtime)) {
+                await(() -> archive.find(file.fingerprint()).map(a -> a.meta().closed()).orElse(false));
+                assertEquals(1, writer.filterErrors());
+            }
+            ArchiveFile target = archive.find(file.fingerprint()).orElseThrow();
+            String content = new String(readAll(target), StandardCharsets.UTF_8);
+            long offset = PERSONAL.indexOf("2025-03-05T00:10:00,000");
+            assertTrue(content.contains("[zurückgehalten pseudonym/kaputt " + offset + "]\n"), content);
+            assertFalse(content.contains("schulze"), content);
+            assertEquals(1, target.meta().filterErrors());
+        }
+    }
+
+    @Test
+    void pausesWhileAPseudonymizationScriptDoesNotLoad() throws Exception {
+        writePseudonymScript("syntaxfehler", "export const meta = { apps: [\"*\"] ;");
+        try (HotStore hot = new HotStore(properties, JSON, Clock.systemUTC())) {
+            HotFile file = fill(hot, PERSONAL.getBytes(StandardCharsets.UTF_8), true);
+            ArchiveStore archive = new ArchiveStore(properties, JSON);
+            LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE);
+            PseudonymService pseudonyms = pseudonyms();
+            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, pseudonyms, parsers(),
+                runtime)) {
+                Thread.sleep(300);
+                assertTrue(archive.find(file.fingerprint()).isEmpty());
+                assertEquals(1, writer.pausedBy().size());
+
+                Files.delete(properties.scripts().dir().resolve("pseudonym/syntaxfehler.js"));
+                pseudonyms.changed(ScriptKind.PSEUDONYM, scriptsAfterScan());
+                await(() -> archive.find(file.fingerprint()).map(a -> a.meta().closed()).orElse(false));
+            }
+            String content = new String(readAll(archive.find(file.fingerprint()).orElseThrow()),
+                StandardCharsets.UTF_8);
+            assertFalse(content.contains("mueller"), content);
         }
     }
 
@@ -398,7 +575,7 @@ class ArchiveWriterTest {
             file.flushAged(Instant.now().plusSeconds(120));
             ArchiveStore archive = new ArchiveStore(properties, JSON);
             LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE);
-            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, parsers(), runtime)) {
+            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, pseudonyms(), parsers(), runtime)) {
                 long framed = file.framedLength();
                 assertTrue(framed < cut);
                 await(() -> archive.find(file.fingerprint()).map(a -> a.meta().sourceLength() == framed)
@@ -421,7 +598,7 @@ class ArchiveWriterTest {
             HotFile file = fill(hot, sample, true);
             ArchiveStore archive = new ArchiveStore(properties, JSON);
             LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE);
-            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, parsers(), runtime)) {
+            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, pseudonyms(), parsers(), runtime)) {
                 await(() -> archive.find(file.fingerprint()).map(a -> a.meta().closed()).orElse(false));
             }
             ArchiveFile target = archive.find(file.fingerprint()).orElseThrow();

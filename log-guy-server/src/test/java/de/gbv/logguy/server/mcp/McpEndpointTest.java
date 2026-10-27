@@ -172,21 +172,21 @@ class McpEndpointTest {
     }
 
     @Test
-    void contextIsPseudonymizedPerSession() {
+    void contextIsShownAsTheArchiveHasIt() {
         String first;
         try (McpSyncClient client = client(MCP_TOKEN)) {
             CallToolResult context = client.callTool(new CallToolRequest("get_context",
                 Map.of("id", id, "before", 0, "after", 200)));
             first = text(context);
             assertFalse(Boolean.TRUE.equals(context.isError()), first);
-            assertTrue(first.contains("$IP1"), first);
-            assertFalse(IPV4.matcher(first).find(), first);
-            assertTrue(new String(SAMPLE).contains("ip=66.249.64.0"));
+            // shortened IPs stay in the archive, no session pseudonyms on top
+            assertTrue(first.contains("ip=66.249.64.0"), first);
+            assertFalse(first.contains("$IP"), first);
         }
         try (McpSyncClient client = client(MCP_TOKEN)) {
             String second = text(client.callTool(new CallToolRequest("get_context",
                 Map.of("id", id, "before", 0, "after", 200))));
-            assertEquals(first, second, "a new session numbers again from 1");
+            assertEquals(first, second, "the same lines in every session");
         }
     }
 
@@ -204,11 +204,11 @@ class McpEndpointTest {
         String path = "/api/v1/events/" + id + "/context?before=0&after=200";
         HttpResponse<String> anna = get(path, PSEUDONYMIZED_API_TOKEN);
         assertEquals(200, anna.statusCode(), anna.body());
-        assertTrue(anna.body().contains("$IP1"), anna.body());
-        assertFalse(IPV4.matcher(anna.body()).find(), anna.body());
         HttpResponse<String> root = get(path, API_TOKEN);
         assertEquals(200, root.statusCode(), root.body());
         assertTrue(root.body().contains("ip=66.249.64.0"));
+        // the context is shown as the archive has it, the same for everyone
+        assertEquals(root.body(), anna.body());
 
         HttpResponse<String> fields = get("/api/v1/fields", PSEUDONYMIZED_API_TOKEN);
         assertEquals(200, fields.statusCode(), fields.body());

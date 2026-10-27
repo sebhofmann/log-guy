@@ -119,7 +119,7 @@ class FileControllerTest {
     }
 
     @Test
-    void pseudonymizedReaderSeesPseudonymizedArchive() throws Exception {
+    void pseudonymizedReaderSeesTheArchiveAsWritten() throws Exception {
         MockHttpSession pia = login("pia");
         mvc.perform(get("/api/v1/files").session(pia))
             .andExpect(status().isOk())
@@ -133,14 +133,17 @@ class FileControllerTest {
         mvc.perform(get("/api/v1/files/" + fingerprint + "/content").session(pia))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.lines.length()").value(3))
-            .andExpect(jsonPath("$.lines[0].text").value(containsString("$Nutzer")))
-            .andExpect(jsonPath("$.lines[0].text").value(containsString("$IP")))
+            .andExpect(jsonPath("$.lines[0].text").value(containsString("[Nutzer#")))
+            .andExpect(jsonPath("$.lines[0].text").value(containsString("192.168.17.0")))
             .andExpect(jsonPath("$.lines[0].text").value(not(containsString("mueller"))))
-            .andExpect(jsonPath("$.lines[1].text").value("[zurückgehalten]"))
+            .andExpect(jsonPath("$.lines[1].text").value(containsString("Filter pseudonym/withhold fehlgeschlagen")))
             .andExpect(jsonPath("$.lines[2].text").value(containsString("done")));
-        mvc.perform(get("/api/v1/files/" + fingerprint + "/search").param("q", "done").session(pia))
+        mvc.perform(get("/api/v1/files/" + fingerprint + "/search").param("q", "[Nutzer#").session(pia))
             .andExpect(status().isOk())
-            .andExpect(content().string(containsString("done")));
+            .andExpect(content().string(containsString("login from")));
+        mvc.perform(get("/api/v1/files/" + fingerprint + "/search").param("q", "mueller").session(pia))
+            .andExpect(status().isOk())
+            .andExpect(content().string(not(containsString("login from"))));
         mvc.perform(get("/api/v1/files/" + fingerprint + "/download").session(pia))
             .andExpect(status().isForbidden());
         mvc.perform(get("/api/v1/files/" + fingerprint + "/content").param("source", "HOT").session(pia))
@@ -152,9 +155,9 @@ class FileControllerTest {
         MockHttpSession paul = login("paul");
         mvc.perform(get("/api/v1/files/" + fingerprint + "/content").session(paul))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.lines[0].text").value(containsString("mueller")))
+            .andExpect(jsonPath("$.lines[0].text").value(containsString("[Nutzer#")))
             .andExpect(jsonPath("$.lines[0].text").value(containsString("192.168.17.0")))
-            .andExpect(jsonPath("$.lines[1].text").value(containsString("withhold-me")));
+            .andExpect(jsonPath("$.lines[1].text").value(not(containsString("withhold-me"))));
         mvc.perform(get("/api/v1/files/" + fingerprint + "/download").session(paul))
             .andExpect(status().isOk());
         mvc.perform(get("/api/v1/files/" + fingerprint + "/content").param("source", "HOT").session(paul))
@@ -169,6 +172,7 @@ class FileControllerTest {
 
         mvc.perform(get("/api/v1/files/" + fingerprint + "/content").param("source", "HOT").session(login("root")))
             .andExpect(status().isOk())
+            .andExpect(jsonPath("$.lines[0].text").value(containsString("mueller")))
             .andExpect(jsonPath("$.lines[0].text").value(containsString("192.168.17.20")));
     }
 }

@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.servlet.ModelAndView;
 
 import de.gbv.logguy.server.archive.ArchiveWriter;
+import de.gbv.logguy.server.archive.ArchiveWriter.PseudonymizeReport;
 import de.gbv.logguy.server.archive.ArchiveWriter.RefilterReport;
 import de.gbv.logguy.server.audit.Actor;
 import de.gbv.logguy.server.audit.Actor.Via;
@@ -172,6 +173,35 @@ public class AdminController {
         audit.log(actor(authentication), "archive.refilter", app == null ? "*" : app,
             Map.of("all", all, "refiltered", report.refiltered().size(), "missing", report.missing().size(),
                 "failed", report.failed().size(), "placeholders", report.placeholders()));
+        boolean ok = report.failed().isEmpty() && report.pausedBy().isEmpty();
+        return ResponseEntity.status(ok ? HttpStatus.OK : HttpStatus.UNPROCESSABLE_CONTENT).body(report);
+    }
+
+    /**
+     * Pseudonymizes archive files again with the active pseudonymization scripts, for administrators and for
+     * {@code log-guy archive pseudonymize} with the control token. Runs until all files are written.
+     *
+     * @param app only files of this application
+     * @param all also files already pseudonymized with the current scripts
+     * @param authentication the caller
+     * @return the files written again, 200 if all could be written, otherwise 422
+     * @throws InterruptedException if waiting is interrupted
+     */
+    @PostMapping(SecurityConfig.PSEUDONYMIZE_PATH)
+    @ResponseBody
+    public ResponseEntity<PseudonymizeReport> pseudonymize(@RequestParam(required = false) String app,
+        @RequestParam(defaultValue = "false") boolean all, Authentication authentication)
+        throws InterruptedException {
+        ArchiveWriter writer = archiveWriter.getIfAvailable();
+        if (writer == null) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(new PseudonymizeReport(List.of(), 0, 0,
+                List.of(), 0, List.of("Das Archiv ist abgeschaltet (log-guy.archive.enabled)")));
+        }
+        PseudonymizeReport report = writer.pseudonymize(app == null || app.isBlank() ? null : app, all);
+        audit.log(actor(authentication), "archive.pseudonymize", app == null ? "*" : app,
+            Map.of("all", all, "pseudonymized", report.pseudonymized().size(), "newKeys", report.newKeys(),
+                "unchanged", report.unchanged(), "failed", report.failed().size(), "placeholders",
+                report.placeholders()));
         boolean ok = report.failed().isEmpty() && report.pausedBy().isEmpty();
         return ResponseEntity.status(ok ? HttpStatus.OK : HttpStatus.UNPROCESSABLE_CONTENT).body(report);
     }

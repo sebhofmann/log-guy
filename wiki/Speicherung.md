@@ -44,7 +44,7 @@ Der Log-Browser in der GUI und die API `/api/v1/files` machen sichtbar, was log-
 | `DELETE /api/v1/files/{fingerprint}?block=true` | löschen, mit `block` (Vorgabe) sperren | `delete` |
 | `GET /api/v1/files/blocked`, `DELETE /api/v1/files/blocked/{fingerprint}` | gesperrte Dateien, Sperre aufheben | `delete` |
 
-- Gezeigt wird, was der Nutzer im Archiv sehen darf, also `archive` und mindestens `read_pseudonymized` für die Anwendung. Ohne Klarwerte ist jede Zeile pseudonymisiert und zurückgehaltene Zeilen erscheinen als `[zurückgehalten]`. Die Suche zählt dann nur Zeilen, auf deren pseudonymisierte Fassung die Anfrage passt, wie in der Archivsuche. Pseudonyme in der Anfrage werden hier nicht übersetzt. Herunterladen geht nur mit Klarwerten, weil die Datei sonst als Ganzes pseudonymisiert werden müsste.
+- Gezeigt wird, was der Nutzer im Archiv sehen darf, also `archive` und mindestens `read_pseudonymized` für die Anwendung. Das Archiv zeigt und durchsucht jeder so, wie es geschrieben ist, mit Tokens statt Klarwerten. `hot/` mit den Originalen sehen und durchsuchen nur Administratoren der Anwendung. Herunterladen geht nur mit Klarwerten.
 - Blättern liest über den Frame-Index nur die nötigen Frames. Eine Seite hat höchstens `page-lines` Zeilen und `page-size` Bytes, Zeilen länger als `max-line-length` werden gekürzt. Ein Offset mitten in einer Zeile zeigt die ganze Zeile.
 - Die Suche in der Datei arbeitet wie die Archivsuche mit RE2/J ohne ANSI-Farben, liefert aber höchstens `search-hits` Treffer oder liest `search-bytes`, dann hört sie auf und meldet, bis wohin sie gekommen ist.
 - „Neu indexieren“ plant für eine Datei den Teil im Index-Fenster aus `hot/`, sofern der Indexer läuft, und den älteren Teil aus dem Archiv mit Ablaufdatum, wie beim Laden eines Zeitraums. Was schon im Index steht, lädt er nicht noch einmal.
@@ -66,7 +66,7 @@ Einstellungen unter `log-guy.files`: `page-lines` (500), `page-size` (1 MB), `ma
 
 Gesichert werden `archive/`, `state/`, `audit/` und das Konfigurationsverzeichnis `/etc/log-guy/` mit den Skripten, nie `hot/`. Die Dateien in `hot/` liefern die Agenten nach einem Verlust erneut, soweit sie noch auf den Anwendungsservern liegen.
 
-Ein Backup-Werkzeug wie restic oder borg darf `archive/` nicht direkt im laufenden Betrieb lesen: An eine Datei werden ständig Frames angehängt, und beim Neuschreiben mit geänderten Filtern (`log-guy archive refilter`) ersetzt log-guy `.log.zst`, `.idx` und `.meta.json` nacheinander. Eine Kopie mitten darin passt nicht zusammen, und ist das Original aus `hot/` schon gelöscht, lässt sie sich nicht mehr reparieren. log-guy legt deshalb selbst eine stimmige Kopie in einem Backup-Verzeichnis an, das Backup-Werkzeug sichert dieses Verzeichnis weiter:
+Ein Backup-Werkzeug wie restic oder borg darf `archive/` nicht direkt im laufenden Betrieb lesen: An eine Datei werden ständig Frames angehängt, und beim Neuschreiben mit geänderten Filtern (`log-guy archive refilter` und `log-guy archive pseudonymize`) ersetzt log-guy `.log.zst`, `.idx` und `.meta.json` nacheinander. Eine Kopie mitten darin passt nicht zusammen, und ist das Original aus `hot/` schon gelöscht, lässt sie sich nicht mehr reparieren. log-guy legt deshalb selbst eine stimmige Kopie in einem Backup-Verzeichnis an, das Backup-Werkzeug sichert dieses Verzeichnis weiter:
 
 ```yaml
 log-guy:

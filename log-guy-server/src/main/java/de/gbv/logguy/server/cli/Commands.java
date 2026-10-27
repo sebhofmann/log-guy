@@ -156,6 +156,24 @@ public class Commands {
     }
 
     /**
+     * Lets the running server pseudonymize archive files again with the active pseudonymization scripts.
+     *
+     * @param context the command context
+     * @param app only files of this application
+     * @param all also files already pseudonymized with the current scripts
+     */
+    @Command(name = { "archive", "pseudonymize" },
+        description = "Pseudonymize archive files again with the active pseudonymization scripts")
+    public void archivePseudonymize(CommandContext context,
+        @Option(longName = "app", description = "only this application", defaultValue = "") String app,
+        @Option(longName = "all", description = "also files already pseudonymized with the current scripts",
+            defaultValue = "false") boolean all) {
+        String query = "?all=" + all + (app == null || app.isBlank() ? "" : "&app=" + URLEncoder.encode(app,
+            StandardCharsets.UTF_8));
+        control(context, SecurityConfig.PSEUDONYMIZE_PATH + query);
+    }
+
+    /**
      * Lets the running server index a time range of an application again: files of {@code hot/} with the current
      * parser, the part before the index window from the archive with an expiry date.
      *

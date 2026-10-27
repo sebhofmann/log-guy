@@ -21,7 +21,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.UnaryOperator;
 
 import org.apache.solr.common.SolrInputDocument;
 import org.junit.jupiter.api.AfterAll;
@@ -54,6 +53,7 @@ import de.gbv.logguy.server.hot.HotFile;
 import de.gbv.logguy.server.hot.HotStore;
 import de.gbv.logguy.server.index.Indexer.DocumentSink;
 import de.gbv.logguy.server.ingest.IngestService;
+import de.gbv.logguy.server.pseudonym.PseudonymService;
 import de.gbv.logguy.server.script.ParserRegistry;
 import de.gbv.logguy.server.script.ScriptRuntime;
 import de.gbv.logguy.server.script.ScriptStore;
@@ -63,8 +63,6 @@ import tools.jackson.databind.json.JsonMapper;
 class FileServiceTest {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
-
-    private static final UnaryOperator<String> PLAIN = UnaryOperator.identity();
 
     private static ScriptRuntime runtime;
 
@@ -119,7 +117,7 @@ class FileServiceTest {
                 DataSize.ofKilobytes(256), 1000, 100),
             null,
             null, null, null, null, null,
-            new ArchiveProperties(true, 2, Duration.ofMillis(50), 3, 7, "[x]", "[f {filter}]", null), null, null,
+            new ArchiveProperties(true, 2, Duration.ofMillis(50), 3, 7, "[x]", "[f {filter}]", null, null), null, null,
             null, null);
         hot = new HotStore(properties, JSON, Clock.systemUTC());
         archive = new ArchiveStore(properties, JSON);
@@ -137,7 +135,8 @@ class FileServiceTest {
         fingerprint = source.fingerprint();
         ScriptStore scripts = new ScriptStore(scriptDir, Clock.systemUTC(), JSON);
         try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive,
-            new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE), parsers, runtime)) {
+            new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE),
+            new PseudonymService(runtime, scripts, JSON, () -> AppGroups.NONE), parsers, runtime)) {
             Instant deadline = Instant.now().plusSeconds(30);
             while (!archive.find(fingerprint).map(a -> a.meta().closed()).orElse(false)) {
                 assertTrue(Instant.now().isBefore(deadline), "archive not written");
@@ -185,7 +184,7 @@ class FileServiceTest {
         Long at = 0L;
         int pages = 0;
         while (at != null) {
-            Page page = service.content(fingerprint, Source.HOT, at, null, PLAIN);
+            Page page = service.content(fingerprint, Source.HOT, at, null);
             assertTrue(page.lines().size() <= 50);
             forward.addAll(page.lines());
             at = page.next();
@@ -197,7 +196,7 @@ class FileServiceTest {
         List<Line> backward = new ArrayList<>();
         Long before = Long.MAX_VALUE;
         while (before != null) {
-            Page page = service.content(fingerprint, Source.HOT, null, before, PLAIN);
+            Page page = service.content(fingerprint, Source.HOT, null, before);
             backward.addAll(0, page.lines());
             before = page.prev();
         }
@@ -205,12 +204,12 @@ class FileServiceTest {
 
         // an offset inside a line shows that line first
         Line middle = forward.get(forward.size() / 2);
-        Page page = service.content(fingerprint, Source.HOT, middle.offset() + 5, null, PLAIN);
+        Page page = service.content(fingerprint, Source.HOT, middle.offset() + 5, null);
         assertEquals(middle, page.lines().getFirst());
         assertEquals(middle.offset(), page.prev());
 
         // the archive holds the filtered form with the same lines
-        Page archived = service.content(fingerprint, Source.ARCHIVE, 0L, null, PLAIN);
+        Page archived = service.content(fingerprint, Source.ARCHIVE, 0L, null);
         assertEquals(forward.getFirst().text(), archived.lines().getFirst().text());
     }
 
@@ -223,7 +222,7 @@ class FileServiceTest {
         long from = 0;
         boolean done = false;
         while (!done) {
-            SearchResult result = service.search(fingerprint, Source.HOT, "error", false, true, from, PLAIN);
+            SearchResult result = service.search(fingerprint, Source.HOT, "error", false, true, from);
             assertTrue(result.hits().size() <= 5);
             hits.addAll(result.hits());
             from = result.scannedTo();
@@ -240,18 +239,13 @@ class FileServiceTest {
             assertEquals(FileService.withoutColors(line), hit.text());
         }
 
-        SearchResult regex = service.search(fingerprint, Source.ARCHIVE, "ERROR +\\S+ MCR", true, false, 0, PLAIN);
+        SearchResult regex = service.search(fingerprint, Source.ARCHIVE, "ERROR +\\S+ MCR", true, false, 0);
         assertFalse(regex.hits().isEmpty());
 
-        // a line the pseudonymization withholds is no hit
-        SearchResult withheld = service.search(fingerprint, Source.HOT, "ERROR", false, false, 0, line -> null);
-        assertEquals(List.of(), withheld.hits());
-        assertTrue(withheld.done());
-
         assertThrows(IllegalArgumentException.class,
-            () -> service.search(fingerprint, Source.HOT, "(", true, false, 0, PLAIN));
+            () -> service.search(fingerprint, Source.HOT, "(", true, false, 0));
         assertThrows(IllegalArgumentException.class,
-            () -> service.search(fingerprint, Source.HOT, "", false, false, 0, PLAIN));
+            () -> service.search(fingerprint, Source.HOT, "", false, false, 0));
     }
 
     @Test

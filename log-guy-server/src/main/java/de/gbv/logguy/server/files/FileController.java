@@ -6,7 +6,6 @@ import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.UnaryOperator;
 
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.ContentDisposition;
@@ -24,8 +23,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpSession;
 
 import de.gbv.logguy.server.audit.Actor;
 import de.gbv.logguy.server.audit.Actor.Via;
@@ -36,8 +33,6 @@ import de.gbv.logguy.server.files.FileService.Listing;
 import de.gbv.logguy.server.files.FileService.Page;
 import de.gbv.logguy.server.files.FileService.SearchResult;
 import de.gbv.logguy.server.files.FileService.Source;
-import de.gbv.logguy.server.pseudonym.PseudonymService;
-import de.gbv.logguy.server.pseudonym.Pseudonyms;
 import de.gbv.logguy.server.reindex.ReindexException;
 import de.gbv.logguy.server.reindex.ReindexJob;
 import de.gbv.logguy.server.reindex.ReindexJob.Plan;
@@ -57,40 +52,29 @@ import de.gbv.logguy.server.security.LogGuyUser;
 @Profile("!cli")
 public class FileController {
 
-    private static final String SESSION_PSEUDONYMS = Pseudonyms.class.getName();
-
-    private static final String WITHHELD = "[zurückgehalten]";
-
     private final FileService files;
 
     private final ReindexService reindex;
-
-    private final PseudonymService pseudonyms;
 
     private final CurrentUser currentUser;
 
     private final AuditLog audit;
 
-    private final HttpServletRequest request;
 
     /**
      * Creates the controller.
      *
      * @param files the log browser
      * @param reindex indexes a file again
-     * @param pseudonyms pseudonymizes lines for pseudonymized readers
      * @param currentUser resolves the user
      * @param audit the audit log
-     * @param request the current request, for the pseudonyms of the session
      */
-    public FileController(FileService files, ReindexService reindex, PseudonymService pseudonyms,
-        CurrentUser currentUser, AuditLog audit, HttpServletRequest request) {
+    public FileController(FileService files, ReindexService reindex, CurrentUser currentUser,
+        AuditLog audit) {
         this.files = files;
         this.reindex = reindex;
-        this.pseudonyms = pseudonyms;
         this.currentUser = currentUser;
         this.audit = audit;
-        this.request = request;
     }
 
     /**
@@ -156,14 +140,8 @@ public class FileController {
     public Page content(@PathVariable String fingerprint, @RequestParam(defaultValue = "ARCHIVE") Source source,
         @RequestParam(required = false) Long at, @RequestParam(required = false) Long before) throws IOException {
         LogGuyUser user = currentUser.get();
-        String app = checkRead(user, fingerprint, source);
-        Page page = files.content(fingerprint, source, at, before, lines(user, app));
-        if (user.readsPlain(app)) {
-            return page;
-        }
-        return new Page(page.length(), page.lines().stream()
-            .map(line -> line.text() == null ? new FileService.Line(line.offset(), WITHHELD) : line).toList(),
-            page.prev(), page.next());
+        checkRead(user, fingerprint, source);
+        return files.content(fingerprint, source, at, before);
     }
 
     /**
@@ -184,9 +162,9 @@ public class FileController {
         @RequestParam(defaultValue = "false") boolean regex, @RequestParam(defaultValue = "false") boolean ignoreCase,
         @RequestParam(defaultValue = "0") long from) throws IOException {
         LogGuyUser user = currentUser.get();
-        String app = checkRead(user, fingerprint, source);
+        checkRead(user, fingerprint, source);
         try {
-            return files.search(fingerprint, source, q, regex, ignoreCase, from, lines(user, app));
+            return files.search(fingerprint, source, q, regex, ignoreCase, from);
         } catch (IllegalArgumentException e) {
             throw new SearchException(e.getMessage());
         }
@@ -314,7 +292,7 @@ public class FileController {
         return entry;
     }
 
-    // read_pseudonymized is enough for the archived form, the lines are then pseudonymized, see lines()
+    // read_pseudonymized is enough for the archived form, it is pseudonymized when it is written
     private static boolean visible(LogGuyUser user, String app) {
         return user.may(Right.ARCHIVE, app) && user.asPseudonymized().mayRead(app);
     }
@@ -334,14 +312,6 @@ public class FileController {
         return app;
     }
 
-    // plain lines for plain readers, otherwise pseudonymized without colors, null if held back
-    private UnaryOperator<String> lines(LogGuyUser user, String app) {
-        if (user.readsPlain(app)) {
-            return UnaryOperator.identity();
-        }
-        Pseudonyms session = session(user);
-        return line -> pseudonyms.text(session, app, FileService.withoutColors(line)).orElse(null);
-    }
 
     private static Actor actor(LogGuyUser user) {
         return new Actor(user.name(), user.token(), user.token() == null ? Via.GUI : Via.API);
@@ -349,21 +319,5 @@ public class FileController {
 
     private static String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value;
-    }
-
-    // a GUI session keeps its pseudonyms, a request with an API token gets new ones
-    private Pseudonyms session(LogGuyUser user) {
-        if (user.token() != null) {
-            return new Pseudonyms();
-        }
-        HttpSession session = request.getSession(true);
-        synchronized (session) {
-            if (!(session.getAttribute(SESSION_PSEUDONYMS) instanceof Pseudonyms pseudonyms)) {
-                Pseudonyms created = new Pseudonyms();
-                session.setAttribute(SESSION_PSEUDONYMS, created);
-                return created;
-            }
-            return pseudonyms;
-        }
     }
 }

@@ -209,21 +209,16 @@ public class PseudonymizedSearch {
     }
 
     /**
-     * Pseudonymizes the lines around an event.
+     * The lines around an event for a pseudonymized reader. They are already in the form of the archive, filtered and
+     * pseudonymized with the tokens of the file, and like lines of the archive they are not pseudonymized again.
      *
-     * @param session the pseudonyms
      * @param view the lines
-     * @param finish applied to every pseudonymized line, e.g. to cut it
-     * @return the pseudonymized lines
+     * @param finish applied to every line, e.g. to cut it
+     * @return the lines
      */
-    public ContextView context(Pseudonyms session, ContextView view, UnaryOperator<String> finish) {
-        return new ContextView(view.id(), view.app(), view.host(), lines(session, view.app(), view.before(), finish),
-            lines(session, view.app(), view.lines(), finish), view.start(), view.end());
-    }
-
-    private List<String> lines(Pseudonyms session, String app, List<String> lines, UnaryOperator<String> finish) {
-        return lines.stream().map(line -> pseudonyms.text(session, app, line).map(finish).orElse(HELD_BACK))
-            .toList();
+    public ContextView context(ContextView view, UnaryOperator<String> finish) {
+        return new ContextView(view.id(), view.app(), view.host(), view.before().stream().map(finish).toList(),
+            view.lines().stream().map(finish).toList(), view.start(), view.end());
     }
 
     private static String string(Object value) {

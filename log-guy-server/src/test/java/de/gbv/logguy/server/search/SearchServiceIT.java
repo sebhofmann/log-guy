@@ -31,6 +31,8 @@ import de.gbv.logguy.server.config.AppGroups;
 import de.gbv.logguy.server.config.AppRegistry;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.AppProperties;
+import de.gbv.logguy.server.config.LogGuyProperties.ArchiveProperties;
+import de.gbv.logguy.server.config.LogGuyProperties.ArchivePseudonymizeProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.GrantProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.HotProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.IndexerProperties;
@@ -120,7 +122,10 @@ class SearchServiceIT {
                 DataSize.ofMegabytes(64), Duration.ofSeconds(5), DataSize.ofMegabytes(1), 7, Duration.ofSeconds(10)),
             new SearchProperties(Duration.ofHours(24), 100, 1000, 300, 8, 10, 100, 20, 500,
                 DataSize.ofKilobytes(512)),
-            null, null, null, null, null, null, null, null);
+            null, null, null,
+            new ArchiveProperties(true, 2, Duration.ofMillis(50), 3, 7, "[line {filter} {offset}]",
+                "[field {filter}]", null, new ArchivePseudonymizeProperties(List.of())),
+            null, null, null, null);
         store = new HotStore(properties, JSON, Clock.systemUTC());
         HotFile file = store.getOrCreate(Fingerprint.of(SAMPLE), "app1", "digibib");
         file.append(0, SAMPLE, SAMPLE.length, null, Instant.now());
@@ -140,9 +145,9 @@ class SearchServiceIT {
         search = new SearchService(properties, new AppRegistry(properties), parsers, service, Clock.systemUTC(), JSON);
         ScriptStore scripts = new ScriptStore(dataDir.resolve("scripts"), Clock.systemUTC(), JSON);
         scripts.scan();
-        context = new ContextService(properties, store, null,
-            new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE));
         pseudonyms = new PseudonymService(runtime, scripts, JSON, () -> AppGroups.NONE);
+        context = new ContextService(properties, store, null,
+            new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE), pseudonyms);
         pseudonymized = new PseudonymizedSearch(search, pseudonyms);
     }
 
@@ -300,7 +305,7 @@ class SearchServiceIT {
             search.facets(scope, List.of("level"), 10), value -> value);
         assertFalse(facets.get("level").isEmpty());
 
-        ContextView view = pseudonymized.context(session, context.context(user, result.events().getFirst().id(), 0,
+        ContextView view = pseudonymized.context(context.context(user, result.events().getFirst().id(), 0,
             20), line -> line);
         view.lines().forEach(line -> assertFalse(IPV4.matcher(line).find(), line));
         assertThrows(AccessDeniedException.class, () -> context.context(PSEUDONYMIZED, view.id(), 0, 1));

@@ -269,12 +269,13 @@ public class ServerConfig {
     }
 
     /**
-     * Copies lines from {@code hot/} to {@code archive/} through the lifecycle filters.
+     * Copies lines from {@code hot/} to {@code archive/} through the lifecycle filters and the pseudonymization.
      *
      * @param properties configuration
      * @param hot the originals
      * @param archive the archive
      * @param filters the lifecycle filters
+     * @param pseudonyms the pseudonymization scripts
      * @param parsers the parsers, for the time range of the frames
      * @param runtime the script runtime
      * @return the running writer
@@ -282,9 +283,9 @@ public class ServerConfig {
     @Bean(destroyMethod = "close")
     @ConditionalOnBooleanProperty("log-guy.archive.enabled")
     public ArchiveWriter archiveWriter(LogGuyProperties properties, HotStore hot, ArchiveStore archive,
-        LifecycleFilters filters, ParserRegistry parsers, ScriptRuntime runtime) {
+        LifecycleFilters filters, PseudonymService pseudonyms, ParserRegistry parsers, ScriptRuntime runtime) {
         parsers.ensureLoaded();
-        return new ArchiveWriter(properties, hot, archive, filters, parsers, runtime);
+        return new ArchiveWriter(properties, hot, archive, filters, pseudonyms, parsers, runtime);
     }
 
     /**
@@ -301,7 +302,7 @@ public class ServerConfig {
     @Bean(destroyMethod = "close")
     public ArchiveSearch archiveSearch(LogGuyProperties properties, AppRegistry apps, ArchiveStore archive,
         PseudonymService pseudonyms, CurrentUser currentUser, Clock clock) {
-        return new ArchiveSearch(properties, apps, archive, pseudonyms, currentUser::again, clock);
+        return new ArchiveSearch(properties, apps, archive, currentUser::again, clock);
     }
 
     /**
@@ -421,12 +422,13 @@ public class ServerConfig {
      * @param store the hot storage
      * @param archive the archive, for events loaded from it
      * @param filters the lifecycle filters the lines pass
+     * @param pseudonyms the pseudonymization lines from {@code hot/} pass as on their way into the archive
      * @return the service
      */
     @Bean(destroyMethod = "close")
     public ContextService contextService(LogGuyProperties properties, HotStore store, ArchiveStore archive,
-        LifecycleFilters filters) {
-        return new ContextService(properties, store, archive, filters);
+        LifecycleFilters filters, PseudonymService pseudonyms) {
+        return new ContextService(properties, store, archive, filters, pseudonyms);
     }
 
     /**

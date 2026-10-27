@@ -24,6 +24,7 @@ import com.github.luben.zstd.Zstd;
 
 import de.gbv.logguy.common.StreamStatus;
 import de.gbv.logguy.server.config.LogGuyProperties.HotProperties;
+import de.gbv.logguy.server.pseudonym.ArchiveTokens;
 import de.gbv.logguy.server.storage.Appends;
 import de.gbv.logguy.server.storage.DamagedFileException;
 import de.gbv.logguy.server.storage.FileChannelOpener;
@@ -167,7 +168,7 @@ public final class HotFile {
         Files.deleteIfExists(file.zstPath);
         Files.deleteIfExists(file.idxPath);
         Files.deleteIfExists(file.tailPath);
-        file.meta = new FileMeta(fingerprint, host, app, created, List.of(), now, now, 0, false);
+        file.meta = new FileMeta(fingerprint, host, app, created, List.of(), now, now, 0, false, ArchiveTokens.newKey());
         file.writeMeta();
         syncDirectory(dir);
         return file;
@@ -210,6 +211,11 @@ public final class HotFile {
         HotFile file = new HotFile(dir, name, relativeDir, settings, json, opener);
         file.meta = json.readValue(metaPath.toFile(), FileMeta.class);
         file.recover(now);
+        if (file.meta.key() == null) {
+            // a file from before the archive was pseudonymized
+            file.meta = file.meta.withKey(ArchiveTokens.newKey());
+            file.writeMeta();
+        }
         return file;
     }
 

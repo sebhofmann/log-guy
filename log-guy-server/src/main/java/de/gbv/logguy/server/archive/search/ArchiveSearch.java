@@ -20,7 +20,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
-import java.util.function.UnaryOperator;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -38,9 +37,6 @@ import de.gbv.logguy.server.config.AppRegistry;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.ArchiveSearchProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.Right;
-import de.gbv.logguy.server.pseudonym.PseudonymService;
-import de.gbv.logguy.server.pseudonym.Pseudonyms;
-import de.gbv.logguy.server.search.PseudonymizedSearch;
 import de.gbv.logguy.server.search.SearchException;
 import de.gbv.logguy.server.security.LogGuyUser;
 
@@ -49,16 +45,12 @@ import de.gbv.logguy.server.security.LogGuyUser;
  * range selects the files by their meta data and the frames by their index. The frames are decompressed and searched
  * in parallel, a regular expression runs with RE2/J in linear time.
  * <p>
- * Pseudonymized jobs match the expression against the real lines with the pseudonyms of the query resolved, and keep
- * a hit only if the query also matches the pseudonymized line. A search for a real value that is pseudonymized thus
- * finds nothing and does not reveal whether the value occurs.
+ * The archive is pseudonymized when it is written, so every job matches the expression against the archived line as
+ * it is and returns it unchanged. A search for a real value that is pseudonymized finds nothing.
  */
 public class ArchiveSearch implements AutoCloseable {
 
     private static final Logger LOGGER = LogManager.getLogger();
-
-    private static final java.util.regex.Pattern REGEX_PSEUDONYM = java.util.regex.Pattern
-        .compile("\\\\?(" + Pseudonyms.PSEUDONYM.pattern() + ")");
 
     private final LogGuyProperties properties;
 
@@ -67,8 +59,6 @@ public class ArchiveSearch implements AutoCloseable {
     private final ArchiveSearchProperties settings;
 
     private final ArchiveStore archive;
-
-    private final PseudonymService pseudonyms;
 
     private final Function<LogGuyUser, Optional<LogGuyUser>> rights;
 
@@ -84,18 +74,16 @@ public class ArchiveSearch implements AutoCloseable {
      * @param properties configuration, for the applications and the limits
      * @param appRegistry the configured applications as they are now
      * @param archive the archive
-     * @param pseudonyms pseudonymizes the hits of pseudonymized jobs
      * @param rights resolves the user of a job again with the current rights, empty if the user or the token was
      *     removed
      * @param clock clock for the limits
      */
     public ArchiveSearch(LogGuyProperties properties, AppRegistry appRegistry, ArchiveStore archive,
-        PseudonymService pseudonyms, Function<LogGuyUser, Optional<LogGuyUser>> rights, Clock clock) {
+        Function<LogGuyUser, Optional<LogGuyUser>> rights, Clock clock) {
         this.properties = properties;
         this.appRegistry = appRegistry;
         this.settings = properties.archive().search();
         this.archive = archive;
-        this.pseudonyms = pseudonyms;
         this.rights = rights;
         this.clock = clock;
         AtomicInteger number = new AtomicInteger();
@@ -145,14 +133,13 @@ public class ArchiveSearch implements AutoCloseable {
     /**
      * Starts a job.
      *
-     * @param user the user, a pseudonymized user always gets pseudonymized hits
+     * @param user the user
      * @param owner who may read the job
-     * @param session pseudonyms for the hits and the query, used if the hits are pseudonymized
      * @param request what to search
      * @return the started job
      * @throws SearchException if the request is invalid or a limit is exceeded
      */
-    public ArchiveSearchJob start(LogGuyUser user, Owner owner, Pseudonyms session, ArchiveSearchRequest request) {
+    public ArchiveSearchJob start(LogGuyUser user, Owner owner, ArchiveSearchRequest request) {
         cleanUp();
         String query = request.query();
         if (query == null || query.isBlank()) {
@@ -189,17 +176,7 @@ public class ArchiveSearch implements AutoCloseable {
         if (context < 0 || context > settings.maxContextLines()) {
             throw new SearchException("Kontext ist höchstens " + settings.maxContextLines() + " Zeilen.");
         }
-        LineMatcher raw;
-        LineMatcher check = null;
-        if (!pseudonymized) {
-            raw = matcher(query, request);
-        } else if (request.regex()) {
-            raw = matcher(pseudonymsInRegex(query, p -> Pattern.quote(session.real(p).orElse(p))), request);
-            check = matcher(pseudonymsInRegex(query, Pattern::quote), request);
-        } else {
-            raw = matcher(session.resolve(query, s -> s), request);
-            check = matcher(query, request);
-        }
+        LineMatcher matcher = matcher(query, request);
         long running = jobs.values().stream()
             .filter(job -> job.owner().user().equals(owner.user()) && job.running()).count();
         if (running >= settings.maxJobs()) {
@@ -209,32 +186,13 @@ public class ArchiveSearch implements AutoCloseable {
         ArchiveSearchRequest normalized = new ArchiveSearchRequest(List.copyOf(apps), request.hosts(), from, to,
             query, request.regex(), request.ignoreCase(), context);
         ArchiveSearchJob job = new ArchiveSearchJob(HexFormat.of().toHexDigits(ThreadLocalRandom.current().nextLong()),
-            owner, user, normalized, List.copyOf(apps), pseudonymized, session, now, now.plus(settings.maxRuntime()),
+            owner, user, normalized, List.copyOf(apps), pseudonymized, now, now.plus(settings.maxRuntime()),
             settings.maxHits());
         jobs.put(job.id(), job);
-        plan(job, normalized, new Matching(raw, check));
+        plan(job, normalized, matcher);
         LOGGER.info("archive search {} by {}: {} in {} from {} to {}", job.id(), owner.user(), query, apps, from,
             to);
         return job;
-    }
-
-    /**
-     * Replaces the pseudonyms in a regular expression. {@code $Nutzer1} and {@code \$Nutzer1} both stand for the
-     * pseudonym, an end of line followed by a word could never match anyway.
-     *
-     * @param query the expression
-     * @param replacement the expression for a pseudonym
-     * @return the expression with the pseudonyms replaced
-     */
-    static String pseudonymsInRegex(String query, UnaryOperator<String> replacement) {
-        java.util.regex.Matcher matcher = REGEX_PSEUDONYM.matcher(query);
-        StringBuilder out = new StringBuilder();
-        while (matcher.find()) {
-            matcher.appendReplacement(out,
-                java.util.regex.Matcher.quoteReplacement(replacement.apply(matcher.group(1))));
-        }
-        matcher.appendTail(out);
-        return out.toString();
     }
 
     private static LineMatcher matcher(String query, ArchiveSearchRequest request) {
@@ -341,7 +299,7 @@ public class ArchiveSearch implements AutoCloseable {
         });
     }
 
-    private void plan(ArchiveSearchJob job, ArchiveSearchRequest request, Matching matching) {
+    private void plan(ArchiveSearchJob job, ArchiveSearchRequest request, LineMatcher matcher) {
         List<Planned> planned = new ArrayList<>();
         int frames = 0;
         long bytes = 0;
@@ -379,7 +337,7 @@ public class ArchiveSearch implements AutoCloseable {
             for (int index : file.frames()) {
                 workers.execute(() -> {
                     try {
-                        search(job, request, matching, file.source(), index);
+                        search(job, request, matcher, file.source(), index);
                     } catch (RuntimeException e) {
                         LOGGER.error("archive search {} failed in {}", job.id(), file.source().path(), e);
                         job.addFailure(file.source().path());
@@ -402,7 +360,7 @@ public class ArchiveSearch implements AutoCloseable {
         return (to == null || !to.isBefore(request.from())) && (from == null || from.isBefore(request.to()));
     }
 
-    private void search(ArchiveSearchJob job, ArchiveSearchRequest request, Matching matching, Source source,
+    private void search(ArchiveSearchJob job, ArchiveSearchRequest request, LineMatcher matcher, Source source,
         int index) {
         if (!job.running()) {
             return;
@@ -426,7 +384,7 @@ public class ArchiveSearch implements AutoCloseable {
         }
         List<ArchiveHit> hits = new ArrayList<>();
         FrameLines text = lines.get();
-        LineMatcher.InText next = matching.raw().in(text.text());
+        LineMatcher.InText next = matcher.in(text.text());
         int position = 0;
         int length = text.text().length();
         ArchiveMeta meta = source.file().meta();
@@ -442,14 +400,13 @@ public class ArchiveSearch implements AutoCloseable {
             if (!next.test(content)) {
                 continue;
             }
-            hit(job, matching, source, index, cache, text, line, request.context(), meta).ifPresent(hits::add);
+            hits.add(hit(source, index, cache, text, line, request.context(), meta));
         }
         job.addHits(hits, clock.instant());
         job.frameDone(frame.rlen());
     }
 
-    private Optional<ArchiveHit> hit(ArchiveSearchJob job, Matching matching, Source source, int index,
-        Map<Integer, Optional<FrameLines>> cache, FrameLines text, int line, int context, ArchiveMeta meta) {
+    private ArchiveHit hit(Source source, int index, Map<Integer, Optional<FrameLines>> cache, FrameLines text, int line, int context, ArchiveMeta meta) {
         String content = text.line(line);
         List<String> before = new ArrayList<>();
         for (int i = line - context; i < line; i++) {
@@ -467,22 +424,8 @@ public class ArchiveSearch implements AutoCloseable {
                 source.lineAfter(index, i - text.count(), cache).ifPresent(after::add);
             }
         }
-        if (job.pseudonymized()) {
-            Optional<String> pseudonymized = pseudonyms.text(job.session(), meta.app(), content);
-            if (pseudonymized.isEmpty() || !matching.check().test(pseudonymized.get())) {
-                return Optional.empty();
-            }
-            content = pseudonymized.get();
-            before = pseudonymize(job, meta.app(), before);
-            after = pseudonymize(job, meta.app(), after);
-        }
-        return Optional.of(new ArchiveHit(meta.app(), meta.host(), source.path(), text.offset(line),
-            before.stream().map(this::cut).toList(), cut(content), after.stream().map(this::cut).toList()));
-    }
-
-    private List<String> pseudonymize(ArchiveSearchJob job, String app, List<String> lines) {
-        return lines.stream()
-            .map(line -> pseudonyms.text(job.session(), app, line).orElse(PseudonymizedSearch.HELD_BACK)).toList();
+        return new ArchiveHit(meta.app(), meta.host(), source.path(), text.offset(line),
+            before.stream().map(this::cut).toList(), cut(content), after.stream().map(this::cut).toList());
     }
 
     private String cut(String line) {
@@ -501,9 +444,6 @@ public class ArchiveSearch implements AutoCloseable {
     public void close() {
         jobs.values().forEach(job -> job.cancel(clock.instant()));
         workers.shutdownNow();
-    }
-
-    private record Matching(LineMatcher raw, LineMatcher check) {
     }
 
     private record Planned(Source source, List<Integer> frames, Instant from) {

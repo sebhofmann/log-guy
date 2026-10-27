@@ -413,7 +413,50 @@ async function afterChange(message, text) {
         const offer = element('div', 'script-reindex');
         box.after(offer);
         await offerReindex(offer, current.apps);
+    } else if (current.kind === 'pseudonym' && admin) {
+        const offer = element('div', 'script-reindex');
+        box.after(offer);
+        offerPseudonymize(offer);
     }
+}
+
+// The archive keeps the form it was written in, a new or changed script only reaches it when it is written again
+function offerPseudonymize(box) {
+    const text = element('p', 'muted', 'Das Archiv bleibt, wie es geschrieben wurde. Es lässt sich mit den aktiven '
+        + 'Skripten neu pseudonymisieren, vorhandene Pseudonyme bleiben dabei stehen.');
+    const result = element('span', 'muted');
+    const start = button('Archiv neu pseudonymisieren', async () => {
+        start.disabled = true;
+        result.textContent = 'läuft …';
+        try {
+            result.textContent = describePseudonymize(await sendJson('POST', '/admin/archive/pseudonymize'));
+        } catch (e) {
+            result.textContent = e instanceof ApiError && e.body?.pseudonymized
+                ? describePseudonymize(e.body) : e.message;
+            start.disabled = false;
+        }
+    });
+    const actions = element('div', 'toolbar');
+    actions.append(start, result);
+    box.replaceChildren(text, actions);
+}
+
+function describePseudonymize(report) {
+    if (report.pausedBy?.length) {
+        return `Nicht gestartet: ${report.pausedBy.join(', ')}`;
+    }
+    const parts = [`${formatNumber(report.pseudonymized.length)} Dateien neu geschrieben`,
+        `${formatNumber(report.unchanged)} schon aktuell`];
+    if (report.newKeys) {
+        parts.push(`${formatNumber(report.newKeys)} ohne Original mit neuem Schlüssel`);
+    }
+    if (report.placeholders) {
+        parts.push(`${formatNumber(report.placeholders)} Platzhalter`);
+    }
+    if (report.failed.length) {
+        parts.push(`fehlgeschlagen: ${report.failed.join(', ')}`);
+    }
+    return parts.join(', ');
 }
 
 async function reloadFromDisk() {

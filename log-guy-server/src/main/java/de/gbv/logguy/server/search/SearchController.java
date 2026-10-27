@@ -160,7 +160,7 @@ public class SearchController {
         throws IOException {
         LogGuyUser user = currentUser.get();
         ContextView view = context.context(user.asPseudonymized(), id, before, after, original);
-        return user.readsPlain(view.app()) ? view : pseudonymized.context(session(user), view, line -> line);
+        return user.readsPlain(view.app()) ? view : pseudonymized.context(view, line -> line);
     }
 
     private Search scope(MultiValueMap<String, String> params) {

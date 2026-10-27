@@ -22,6 +22,8 @@ import org.graalvm.polyglot.Value;
 import org.graalvm.polyglot.proxy.ProxyArray;
 import org.graalvm.polyglot.proxy.ProxyExecutable;
 
+import de.gbv.logguy.server.pseudonym.ArchiveTokens;
+
 /**
  * GraalJS for all scripts: one shared engine, one sandboxed context per thread and script, a watchdog that cancels
  * calls running longer than {@code event-timeout} and module evaluations running longer than {@code load-timeout}.
@@ -115,8 +117,12 @@ public class ScriptRuntime implements AutoCloseable {
                 throw new IllegalArgumentException("ps(category, value) needs two arguments");
             }
             Value value = args[1];
-            return value.isNull() ? null : pseudonyms.apply(args[0].asString(), value.isString()
-                ? value.asString() : value.toString());
+            if (value.isNull()) {
+                return null;
+            }
+            String text = value.isString() ? value.asString() : value.toString();
+            // a token of the archive is already pseudonymized and appears as it is everywhere
+            return ArchiveTokens.isToken(text) ? text : pseudonyms.apply(args[0].asString(), text);
         });
         return context;
     }

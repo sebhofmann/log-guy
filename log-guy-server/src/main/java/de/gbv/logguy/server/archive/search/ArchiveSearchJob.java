@@ -6,7 +6,6 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
-import de.gbv.logguy.server.pseudonym.Pseudonyms;
 import de.gbv.logguy.server.security.LogGuyUser;
 
 /**
@@ -25,8 +24,6 @@ public final class ArchiveSearchJob {
     private final List<String> apps;
 
     private final boolean pseudonymized;
-
-    private final Pseudonyms session;
 
     private final Instant started;
 
@@ -57,14 +54,13 @@ public final class ArchiveSearchJob {
     private Instant finished;
 
     ArchiveSearchJob(String id, Owner owner, LogGuyUser user, ArchiveSearchRequest request, List<String> apps,
-        boolean pseudonymized, Pseudonyms session, Instant started, Instant deadline, int maxHits) {
+        boolean pseudonymized, Instant started, Instant deadline, int maxHits) {
         this.id = id;
         this.owner = owner;
         this.user = user;
         this.request = request;
         this.apps = List.copyOf(apps);
         this.pseudonymized = pseudonymized;
-        this.session = session;
         this.started = started;
         this.deadline = deadline;
         this.maxHits = maxHits;
@@ -99,10 +95,6 @@ public final class ArchiveSearchJob {
 
     boolean pseudonymized() {
         return pseudonymized;
-    }
-
-    Pseudonyms session() {
-        return session;
     }
 
     Instant deadline() {
@@ -218,7 +210,7 @@ public final class ArchiveSearchJob {
 
     /**
      * Who started a job. A job of the GUI or the API belongs to the user and the token, a job of the MCP endpoint to
-     * its session, because its hits use the pseudonyms of the session.
+     * its session.
      *
      * @param user name of the user
      * @param token name of the token, {@code null} for the GUI

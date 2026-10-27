@@ -29,6 +29,9 @@ import de.gbv.logguy.server.config.LogGuyProperties.ArchiveProperties;
 import de.gbv.logguy.server.hot.FileMeta;
 import de.gbv.logguy.server.hot.HotFile;
 import de.gbv.logguy.server.hot.HotStore;
+import de.gbv.logguy.server.pseudonym.ArchiveTokens;
+import de.gbv.logguy.server.pseudonym.PseudonymService;
+import de.gbv.logguy.server.pseudonym.PseudonymService.ArchiveLine;
 import de.gbv.logguy.server.script.ParsedEvent;
 import de.gbv.logguy.server.script.Parser;
 import de.gbv.logguy.server.script.ParserRegistry;
@@ -37,9 +40,10 @@ import de.gbv.logguy.server.script.ScriptException;
 import de.gbv.logguy.server.script.ScriptRuntime;
 
 /**
- * Copies complete lines from {@code hot/} to {@code archive/} and runs them through the lifecycle filters on the
- * way. A line dropped by a filter is missing in the archive. A line whose filter fails is replaced by the
- * placeholder, it never reaches the archive unfiltered. If a filter cannot be loaded at all, the writer pauses.
+ * Copies complete lines from {@code hot/} to {@code archive/} and runs them through the lifecycle filters and then
+ * the pseudonymization scripts on the way. A line dropped by a filter is missing in the archive. A line whose filter
+ * or pseudonymization fails is replaced by the placeholder, it never reaches the archive unfiltered. If a filter or
+ * a pseudonymization script cannot be loaded at all, the writer pauses.
  * <p>
  * The writer works on frames of {@code hot/}, so a line arrives in the archive at the latest {@code frame-max-age}
  * after it arrived in {@code hot/}. Each file is written by one thread at a time, the archived length in its meta
@@ -57,6 +61,8 @@ public class ArchiveWriter implements AutoCloseable {
 
     private final LifecycleFilters filters;
 
+    private final PseudonymService pseudonyms;
+
     private final ParserRegistry parsers;
 
     private final ScriptRuntime runtime;
@@ -72,6 +78,8 @@ public class ArchiveWriter implements AutoCloseable {
     private final List<AutoCloseable> threadResources = new CopyOnWriteArrayList<>();
 
     private final ThreadLocal<LifecycleFilters.Runner> runners;
+
+    private final ThreadLocal<PseudonymService.Runner> pseudonymRunners;
 
     private final ThreadLocal<Map<String, Parser>> threadParsers = ThreadLocal.withInitial(HashMap::new);
 
@@ -92,17 +100,24 @@ public class ArchiveWriter implements AutoCloseable {
      * @param hot the originals
      * @param archive the archive
      * @param filters the lifecycle filters
+     * @param pseudonyms the pseudonymization scripts
      * @param parsers the parsers, for the time range of each frame
      * @param runtime the script runtime
      */
     public ArchiveWriter(LogGuyProperties properties, HotStore hot, ArchiveStore archive, LifecycleFilters filters,
-        ParserRegistry parsers, ScriptRuntime runtime) {
+        PseudonymService pseudonyms, ParserRegistry parsers, ScriptRuntime runtime) {
         this.settings = properties.archive();
         this.hot = hot;
         this.archive = archive;
         this.filters = filters;
         this.runners = ThreadLocal.withInitial(() -> {
             LifecycleFilters.Runner runner = filters.runner();
+            threadResources.add(runner);
+            return runner;
+        });
+        this.pseudonyms = pseudonyms;
+        this.pseudonymRunners = ThreadLocal.withInitial(() -> {
+            PseudonymService.Runner runner = pseudonyms.runner();
             threadResources.add(runner);
             return runner;
         });
@@ -128,19 +143,20 @@ public class ArchiveWriter implements AutoCloseable {
     }
 
     /**
-     * Submits every file with new complete lines to the worker threads, unless a filter cannot be loaded.
+     * Submits every file with new complete lines to the worker threads, unless a filter or a pseudonymization script
+     * cannot be loaded.
      */
     void scan() {
-        List<String> errors = filters.errors();
+        List<String> errors = pausedBy();
         if (!errors.isEmpty()) {
             if (!errors.equals(pausedBy)) {
-                LOGGER.error("archive writer paused, lifecycle filters cannot be loaded: {}", errors);
+                LOGGER.error("archive writer paused, scripts cannot be loaded: {}", errors);
             }
             pausedBy = errors;
             return;
         }
         if (!pausedBy.isEmpty()) {
-            LOGGER.info("archive writer continues, lifecycle filters are loaded again");
+            LOGGER.info("archive writer continues, scripts are loaded again");
             pausedBy = List.of();
         }
         for (HotFile file : hot.files()) {
@@ -209,7 +225,12 @@ public class ArchiveWriter implements AutoCloseable {
         FileMeta source = file.meta();
         List<Filter> lineFilters = runners.get().forApp(source.app()).stream().filter(Filter::filtersLines)
             .toList();
-        List<String> labels = filters.labels(source.app());
+        List<String> labels = new ArrayList<>(filters.labels(source.app()));
+        ArchiveTokens tokens = null;
+        if (pseudonymRunners.get().appliesTo(source.app())) {
+            pseudonyms.archiveLabel(source.app(), settings.keep()).ifPresent(labels::add);
+            tokens = new ArchiveTokens(source.key() == null ? ArchiveTokens.newKey() : source.key(), settings.keep());
+        }
         Parser parser = parser(source.app());
         long src = target.meta().sourceLength();
         long end = file.framedLength();
@@ -234,14 +255,14 @@ public class ArchiveWriter implements AutoCloseable {
                 }
                 cut = bytes.length;
             }
-            writeFrame(file, target, bytes, cut, src, lineFilters, labels, parser);
+            writeFrame(file, target, bytes, cut, src, lineFilters, tokens, labels, parser);
             src += cut;
             pending.reset();
             pending.write(bytes, cut, bytes.length - cut);
         }
         if (pending.size() > 0 && complete) {
             byte[] bytes = pending.toByteArray();
-            writeFrame(file, target, bytes, bytes.length, src, lineFilters, labels, parser);
+            writeFrame(file, target, bytes, bytes.length, src, lineFilters, tokens, labels, parser);
             src += bytes.length;
         }
         if (complete && src == end) {
@@ -261,8 +282,8 @@ public class ArchiveWriter implements AutoCloseable {
      * @throws InterruptedException if waiting for the files is interrupted
      */
     public RefilterReport refilter(String app, boolean all) throws InterruptedException {
-        if (!filters.errors().isEmpty()) {
-            return new RefilterReport(List.of(), List.of(), List.of(), 0, filters.errors());
+        if (!pausedBy().isEmpty()) {
+            return new RefilterReport(List.of(), List.of(), List.of(), 0, pausedBy());
         }
         List<String> missing = new ArrayList<>();
         List<Future<ArchiveFile>> futures = new ArrayList<>();
@@ -325,8 +346,159 @@ public class ArchiveWriter implements AutoCloseable {
         long placeholders, List<String> pausedBy) {
     }
 
+    /**
+     * Pseudonymizes archive files again with the active pseudonymization scripts, e.g. after a script was added or
+     * changed. The scripts run over the filtered lines in the archive, no original is needed. Tokens already in the
+     * file stay as they are. The key of the original in {@code hot/} is used, so the tokens match those of the
+     * context; without an original the key is random and discarded afterwards. Each file is written beside the
+     * current one and then replaces it, the writer does not touch it meanwhile.
+     *
+     * @param app only files of this application, {@code null} for all
+     * @param all also files already pseudonymized with the current scripts
+     * @return what was written again
+     * @throws InterruptedException if waiting for the files is interrupted
+     */
+    public PseudonymizeReport pseudonymize(String app, boolean all) throws InterruptedException {
+        if (!pausedBy().isEmpty()) {
+            return new PseudonymizeReport(List.of(), 0, 0, List.of(), 0, pausedBy());
+        }
+        int unchanged = 0;
+        int newKeys = 0;
+        List<Future<ArchiveFile>> futures = new ArrayList<>();
+        List<String> names = new ArrayList<>();
+        for (ArchiveFile current : List.copyOf(archive.files())) {
+            ArchiveMeta meta = current.meta();
+            if (app != null && !app.equals(meta.app())) {
+                continue;
+            }
+            Optional<String> label = pseudonyms.archiveLabel(meta.app(), settings.keep());
+            if (label.isEmpty() || !all && meta.filters().contains(label.get())) {
+                unchanged++;
+                continue;
+            }
+            String key = hot.find(current.fingerprint()).map(file -> file.meta().key()).orElse(null);
+            if (key == null) {
+                key = ArchiveTokens.newKey();
+                newKeys++;
+            }
+            // taken here and not in the worker, a waiting worker could block the task holding the file
+            while (!busy.add(current.fingerprint())) {
+                Thread.sleep(settings.pollInterval().toMillis());
+            }
+            String fileKey = key;
+            names.add(current.relativePath());
+            futures.add(workers.submit(() -> pseudonymize(current.fingerprint(), label.get(), fileKey)));
+        }
+        List<String> done = new ArrayList<>();
+        List<String> failed = new ArrayList<>();
+        long placeholders = 0;
+        for (int i = 0; i < futures.size(); i++) {
+            try {
+                ArchiveFile result = futures.get(i).get();
+                done.add(result.relativePath());
+                placeholders += result.meta().filterErrors();
+            } catch (ExecutionException e) {
+                LOGGER.error("cannot pseudonymize {}", names.get(i), e.getCause());
+                failed.add(names.get(i) + ": " + e.getCause().getMessage());
+            }
+        }
+        LOGGER.info("pseudonymized {} files, {} with a new key, {} unchanged, {} placeholders, {} failed",
+            done.size(), newKeys, unchanged, placeholders, failed.size());
+        return new PseudonymizeReport(done, newKeys, unchanged, failed, placeholders, List.of());
+    }
+
+    private ArchiveFile pseudonymize(String fingerprint, String label, String key)
+        throws IOException, ScriptException {
+        try {
+            // found again here, the writer may have replaced or extended the file before it was held
+            ArchiveFile current = archive.find(fingerprint)
+                .orElseThrow(() -> new IOException(fingerprint + " is no longer archived"));
+            ArchiveMeta meta = current.meta();
+            ArchiveTokens tokens = new ArchiveTokens(key, settings.keep());
+            List<String> labels = new ArrayList<>(
+                meta.filters().stream().filter(filter -> !filter.startsWith(PseudonymService.ARCHIVE_LABEL)).toList());
+            labels.add(label);
+            ArchiveFile staged = archive.stage(new FileMeta(meta.fingerprint(), meta.host(), meta.app(),
+                meta.created(), meta.paths(), null, null, 0, false));
+            for (ArchiveFrame frame : current.frames()) {
+                byte[] data = current.readFrame(frame);
+                Frame pseudonymized = pseudonymizeFrame(meta, data, frame.src(), tokens);
+                staged.append(pseudonymized.data(), frame.src(), frame.srcEnd(), frame.lines(),
+                    frame.errors() + pseudonymized.errors(), frame.from(), frame.to(), frame.received(), labels,
+                    meta.paths(), settings.compressionLevel());
+            }
+            if (meta.closed()) {
+                staged.close(meta.paths());
+            }
+            ArchiveFile result = archive.replace(staged);
+            LOGGER.info("pseudonymized {} with {}", result.relativePath(), label);
+            return result;
+        } finally {
+            busy.remove(fingerprint);
+        }
+    }
+
+    // the line offsets of the original are unknown here, a placeholder gets the offset of the frame
+    private Frame pseudonymizeFrame(ArchiveMeta meta, byte[] data, long src, ArchiveTokens tokens)
+        throws ScriptException {
+        String content = new String(data, StandardCharsets.UTF_8);
+        StringBuilder out = new StringBuilder(content.length());
+        int errors = 0;
+        String firstError = null;
+        int start = 0;
+        while (start < content.length()) {
+            int newline = content.indexOf('\n', start);
+            int end = newline < 0 ? content.length() : newline;
+            String line = content.substring(start, end);
+            String cr = line.endsWith("\r") ? "\r" : "";
+            String text = cr.isEmpty() ? line : line.substring(0, line.length() - 1);
+            ArchiveLine result = pseudonymRunners.get().line(meta.app(), text, tokens);
+            if (result.error() != null) {
+                if (firstError == null) {
+                    firstError = result.script() + " in the frame at offset " + src + ": " + result.error();
+                }
+                text = placeholder(result.script(), src);
+                errors++;
+            } else {
+                text = result.text();
+            }
+            out.append(text).append(cr);
+            if (newline >= 0) {
+                out.append('\n');
+            }
+            start = end + 1;
+        }
+        if (firstError != null) {
+            LOGGER.warn("{} lines of {} replaced by the placeholder, the first by {}", errors, meta.fingerprint(),
+                firstError);
+        }
+        return new Frame(out.toString().getBytes(StandardCharsets.UTF_8), errors);
+    }
+
+    private record Frame(byte[] data, int errors) {
+    }
+
+    /**
+     * Result of {@link #pseudonymize(String, boolean)}.
+     *
+     * @param pseudonymized files written again
+     * @param newKeys files without an original in {@code hot/}, pseudonymized with a random key
+     * @param unchanged files already pseudonymized with the current scripts or without a script for their application
+     * @param failed files that could not be written again, with the reason
+     * @param placeholders placeholders in the files written again, from filters and pseudonymization
+     * @param pausedBy errors of scripts that cannot be loaded, then nothing was written
+     */
+    public record PseudonymizeReport(List<String> pseudonymized, int newKeys, int unchanged, List<String> failed,
+        long placeholders, List<String> pausedBy) {
+    }
+
+    private String placeholder(String filter, long offset) {
+        return settings.placeholder().replace("{filter}", filter).replace("{offset}", String.valueOf(offset));
+    }
+
     private void writeFrame(HotFile file, ArchiveFile target, byte[] bytes, int length, long src,
-        List<Filter> lineFilters, List<String> labels, Parser parser) throws IOException {
+        List<Filter> lineFilters, ArchiveTokens tokens, List<String> labels, Parser parser)
+        throws IOException, ScriptException {
         List<String> original = new ArrayList<>();
         List<Boolean> newline = new ArrayList<>();
         List<Long> offsets = new ArrayList<>();
@@ -352,15 +524,16 @@ public class ArchiveWriter implements AutoCloseable {
             String line = original.get(i);
             String cr = line.endsWith("\r") ? "\r" : "";
             String text = cr.isEmpty() ? line : line.substring(0, line.length() - 1);
+            boolean failed = false;
             for (Filter filter : lineFilters) {
                 LineResult result = filter.line(text);
                 if (result.error() != null) {
                     if (firstError == null) {
                         firstError = filter.label() + " at offset " + offsets.get(i) + ": " + result.error();
                     }
-                    text = settings.placeholder().replace("{filter}", filter.name()).replace("{offset}",
-                        String.valueOf(offsets.get(i)));
+                    text = placeholder(filter.name(), offsets.get(i));
                     errors++;
+                    failed = true;
                     break;
                 }
                 text = result.text();
@@ -371,6 +544,18 @@ public class ArchiveWriter implements AutoCloseable {
             if (text == null) {
                 dropped.incrementAndGet();
                 continue;
+            }
+            if (tokens != null && !failed) {
+                ArchiveLine result = pseudonymRunners.get().line(file.meta().app(), text, tokens);
+                if (result.error() != null) {
+                    if (firstError == null) {
+                        firstError = result.script() + " at offset " + offsets.get(i) + ": " + result.error();
+                    }
+                    text = placeholder(result.script(), offsets.get(i));
+                    errors++;
+                } else {
+                    text = result.text();
+                }
             }
             out.writeBytes((text + cr).getBytes(StandardCharsets.UTF_8));
             if (newline.get(i)) {
@@ -495,10 +680,12 @@ public class ArchiveWriter implements AutoCloseable {
     /**
      * Why the writer is paused.
      *
-     * @return errors of filters that cannot be loaded, empty while the writer runs
+     * @return errors of filters and pseudonymization scripts that cannot be loaded, empty while the writer runs
      */
     public List<String> pausedBy() {
-        return filters.errors();
+        List<String> errors = new ArrayList<>(filters.errors());
+        errors.addAll(pseudonyms.errors());
+        return List.copyOf(errors);
     }
 
     @Override

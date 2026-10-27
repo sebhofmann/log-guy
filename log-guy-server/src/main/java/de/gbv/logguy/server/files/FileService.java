@@ -17,7 +17,6 @@ import java.util.Optional;
 import java.util.SortedSet;
 import java.util.TreeSet;
 import java.util.function.Predicate;
-import java.util.function.UnaryOperator;
 import java.util.regex.Pattern;
 
 import org.apache.logging.log4j.LogManager;
@@ -169,7 +168,7 @@ public class FileService {
      * A line of a file.
      *
      * @param offset byte offset of the line
-     * @param text the line, cut after {@code max-line-length}, {@code null} if it is held back
+     * @param text the line, cut after {@code max-line-length}
      */
     public record Line(long offset, String text) {
     }
@@ -393,13 +392,11 @@ public class FileService {
      * @param source which form to read
      * @param at offset to read forward from, {@code null} for the start
      * @param before offset to read backward from, {@code null} to read forward
-     * @param text turns a line into what the caller may see, {@code null} to hold it back
      * @return the page
      * @throws IOException if reading fails
      * @throws NoSuchElementException if the file does not exist in this form
      */
-    public Page content(String fingerprint, Source source, Long at, Long before, UnaryOperator<String> text)
-        throws IOException {
+    public Page content(String fingerprint, Source source, Long at, Long before) throws IOException {
         Reader reader = reader(fingerprint, source);
         long length = reader.length();
         int pageSize = (int) Math.min(settings.pageSize().toBytes(), Integer.MAX_VALUE);
@@ -419,7 +416,7 @@ public class FileService {
             while (pos < data.length) {
                 int newline = indexOf(data, pos, data.length);
                 int lineEnd = newline < 0 ? data.length : newline;
-                all.add(line(start + pos, data, pos, lineEnd, text));
+                all.add(line(start + pos, data, pos, lineEnd));
                 pos = lineEnd + 1;
             }
             lines.addAll(all.subList(Math.max(0, all.size() - settings.pageLines()), all.size()));
@@ -437,7 +434,7 @@ public class FileService {
                     break;
                 }
                 int lineEnd = newline < 0 ? data.length : newline;
-                lines.add(line(start + pos, data, pos, lineEnd, text));
+                lines.add(line(start + pos, data, pos, lineEnd));
                 pos = lineEnd + 1;
             }
             long end = start + Math.min(pos, data.length);
@@ -461,15 +458,13 @@ public class FileService {
      * @param regex whether {@code query} is a regular expression
      * @param ignoreCase whether case is ignored
      * @param from offset to start at, moved back to the start of its line
-     * @param text turns a line into what the caller may see, {@code null} to hold it back; a hit counts only if
-     *     the query also matches what the caller sees
      * @return the hits
      * @throws IOException if reading fails
      * @throws IllegalArgumentException if the query is empty or not a valid expression
      * @throws NoSuchElementException if the file does not exist in this form
      */
     public SearchResult search(String fingerprint, Source source, String query, boolean regex, boolean ignoreCase,
-        long from, UnaryOperator<String> text) throws IOException {
+        long from) throws IOException {
         if (query == null || query.isEmpty()) {
             throw new IllegalArgumentException("Kein Suchbegriff angegeben.");
         }
@@ -497,10 +492,7 @@ public class FileService {
                 int lineEnd = newline < 0 ? data.length : newline;
                 String raw = plain(data, offset, lineEnd);
                 if (pattern.matcher(raw).find()) {
-                    String shown = text.apply(raw);
-                    if (shown != null && pattern.matcher(shown).find()) {
-                        hits.add(new Line(pos + offset, cut(shown)));
-                    }
+                    hits.add(new Line(pos + offset, cut(raw)));
                 }
                 offset = lineEnd + 1;
             }
@@ -717,9 +709,8 @@ public class FileService {
         return pos;
     }
 
-    private Line line(long offset, byte[] data, int from, int to, UnaryOperator<String> text) {
-        String shown = text.apply(new String(data, from, trimCr(data, from, to) - from, StandardCharsets.UTF_8));
-        return new Line(offset, shown == null ? null : cut(shown));
+    private Line line(long offset, byte[] data, int from, int to) {
+        return new Line(offset, cut(new String(data, from, trimCr(data, from, to) - from, StandardCharsets.UTF_8)));
     }
 
     private String cut(String line) {

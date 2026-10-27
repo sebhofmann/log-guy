@@ -233,9 +233,29 @@ public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppPropert
      * @param fieldPlaceholder indexed instead of the message of an event whose {@code fields(event)} failed,
      *     {@code {filter}} is replaced
      * @param search limits of the archive search
+     * @param pseudonymize the pseudonymization of lines on their way into the archive
      */
     public record ArchiveProperties(boolean enabled, int threads, Duration pollInterval, int compressionLevel,
-        int hotDays, String placeholder, String fieldPlaceholder, ArchiveSearchProperties search) {
+        int hotDays, String placeholder, String fieldPlaceholder, ArchiveSearchProperties search,
+        ArchivePseudonymizeProperties pseudonymize) {
+
+        /**
+         * Categories that stay in the archive as they are.
+         *
+         * @return the categories, empty if nothing is configured
+         */
+        public Set<String> keep() {
+            return pseudonymize == null || pseudonymize.keep() == null ? Set.of() : Set.copyOf(pseudonymize.keep());
+        }
+    }
+
+    /**
+     * Pseudonymization in the archive.
+     *
+     * @param keep categories of {@code ps(category, value)} whose values stay in the archive as they are, e.g.
+     *     {@code IP} because the lifecycle filter {@code ip-kuerzen} already shortens them
+     */
+    public record ArchivePseudonymizeProperties(List<String> keep) {
     }
 
     /**

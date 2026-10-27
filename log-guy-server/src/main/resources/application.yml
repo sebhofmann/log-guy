@@ -81,6 +81,9 @@ log-guy:
     # written instead of a line whose lifecycle filter failed, the original stays in hot/ for archive refilter
     placeholder: "[log-guy: Zeile zurückgehalten, Filter {filter} fehlgeschlagen, Offset {offset}]"
     field-placeholder: "[log-guy: Event zurückgehalten, Filter {filter} fehlgeschlagen]"
+    pseudonymize:
+      # categories of ps(category, value) that stay in the archive as they are, ip-kuerzen already shortens IPs
+      keep: [IP]
     search:
       threads: 4
       max-jobs: 2

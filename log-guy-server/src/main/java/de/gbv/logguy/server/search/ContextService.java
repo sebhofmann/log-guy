@@ -28,13 +28,16 @@ import de.gbv.logguy.server.hot.FileMeta;
 import de.gbv.logguy.server.hot.HotFile;
 import de.gbv.logguy.server.hot.HotStore;
 import de.gbv.logguy.server.index.EventDocuments;
+import de.gbv.logguy.server.pseudonym.ArchiveTokens;
+import de.gbv.logguy.server.pseudonym.PseudonymService;
+import de.gbv.logguy.server.pseudonym.PseudonymService.ArchiveLine;
 import de.gbv.logguy.server.script.ScriptException;
 import de.gbv.logguy.server.security.LogGuyUser;
 
 /**
  * Reads the lines around an event by the byte offset in the event id. Everybody sees them as the archive has them:
- * lines from {@code hot/} pass the {@code line(text)} filters of the application like on the way into the archive,
- * events loaded from the archive are read from the filtered file in {@code archive/}. In both cases every line also
+ * lines from {@code hot/} pass the {@code line(text)} filters and the pseudonymization with the key of the file like
+ * on the way into the archive, so the tokens match those in the archive. Events loaded from the archive are read from the filtered file in {@code archive/}. In both cases every line also
  * passes the {@code fields(event)} filters with the line as {@code message}, so a value that a filter removes from
  * the message in the index does not show up in the context either. Only an administrator of the application can ask
  * for the unfiltered original from {@code hot/}, like {@code source=HOT} in the log browser.
@@ -43,8 +46,8 @@ public class ContextService implements AutoCloseable {
 
     private static final Pattern ANSI = Pattern.compile("\u001B\\[[0-9;]*[A-Za-z]");
 
-    private static final String UNAVAILABLE = "Ein Lifecycle-Filter der Anwendung lässt sich nicht laden. "
-        + "Der Kontext ist erst nach der Reparatur wieder abrufbar.";
+    private static final String UNAVAILABLE = "Ein Lifecycle-Filter oder ein Pseudonymisierungs-Skript der "
+        + "Anwendung lässt sich nicht laden. Der Kontext ist erst nach der Reparatur wieder abrufbar.";
 
     private final SearchProperties settings;
 
@@ -56,8 +59,12 @@ public class ContextService implements AutoCloseable {
 
     private final LifecycleFilters filters;
 
+    private final PseudonymService pseudonyms;
+
     // a runner is not thread safe, every request borrows one and gives it back
     private final Deque<Runner> runners = new ConcurrentLinkedDeque<>();
+
+    private final Deque<PseudonymService.Runner> pseudonymRunners = new ConcurrentLinkedDeque<>();
 
     /**
      * Creates the service.
@@ -66,14 +73,16 @@ public class ContextService implements AutoCloseable {
      * @param store the hot storage
      * @param archive the archive, {@code null} if it is disabled
      * @param filters the lifecycle filters
+     * @param pseudonyms the pseudonymization, for lines from {@code hot/}
      */
     public ContextService(LogGuyProperties properties, HotStore store, ArchiveStore archive,
-        LifecycleFilters filters) {
+        LifecycleFilters filters, PseudonymService pseudonyms) {
         this.settings = properties.search();
         this.archiveSettings = properties.archive();
         this.store = store;
         this.archive = archive;
         this.filters = filters;
+        this.pseudonyms = pseudonyms;
     }
 
     /**
@@ -137,8 +146,10 @@ public class ContextService implements AutoCloseable {
             throw new NoSuchElementException("Das Event liegt hinter dem Ende der Datei.");
         }
         Runner runner = original ? null : borrow();
+        PseudonymService.Runner pseudonymRunner = original || archived ? null : borrowPseudonyms();
         try {
-            LineFilter filter = original ? (lineOffset, text) -> text : filter(runner, file, archived);
+            LineFilter filter = original ? (lineOffset, text) -> text
+                : filter(runner, pseudonymRunner, file, archived);
 
             long start = Math.max(0, offset - window);
             List<Line> head = lines(read(file, start, offset), start);
@@ -175,6 +186,9 @@ public class ContextService implements AutoCloseable {
             if (runner != null) {
                 runners.offerFirst(runner);
             }
+            if (pseudonymRunner != null) {
+                pseudonymRunners.offerFirst(pseudonymRunner);
+            }
         }
     }
 
@@ -188,6 +202,11 @@ public class ContextService implements AutoCloseable {
             runner.close();
             runner = runners.poll();
         }
+        PseudonymService.Runner pseudonymRunner = pseudonymRunners.poll();
+        while (pseudonymRunner != null) {
+            pseudonymRunner.close();
+            pseudonymRunner = pseudonymRunners.poll();
+        }
     }
 
     private Runner borrow() {
@@ -195,17 +214,29 @@ public class ContextService implements AutoCloseable {
         return runner == null ? filters.runner() : runner;
     }
 
+    private PseudonymService.Runner borrowPseudonyms() {
+        PseudonymService.Runner runner = pseudonymRunners.poll();
+        return runner == null ? pseudonyms.runner() : runner;
+    }
+
     /**
-     * The filters as the archive writer and the indexer run them. A line filter that fails gives the placeholder of
-     * the archive, a fields filter that fails the placeholder of the index, never the unfiltered line.
+     * The filters and the pseudonymization as the archive writer and the indexer run them. A line filter or
+     * pseudonymization that fails gives the placeholder of the archive, a fields filter that fails the placeholder of
+     * the index, never the unfiltered line.
      */
-    private LineFilter filter(Runner runner, Source file, boolean archived) {
-        if (!filters.errors().isEmpty()) {
+    private LineFilter filter(Runner runner, PseudonymService.Runner pseudonymRunner, Source file,
+        boolean archived) {
+        if (!filters.errors().isEmpty() || !pseudonyms.errors().isEmpty()) {
             throw new ContextUnavailableException(UNAVAILABLE);
         }
         List<Filter> active;
+        ArchiveTokens tokens;
         try {
             active = runner.forApp(file.app());
+            // lines from the archive are pseudonymized already
+            tokens = archived || !pseudonymRunner.appliesTo(file.app()) ? null
+                : new ArchiveTokens(file.key() == null ? ArchiveTokens.newKey() : file.key(),
+                    archiveSettings.keep());
         } catch (ScriptException e) {
             throw new ContextUnavailableException(UNAVAILABLE);
         }
@@ -224,6 +255,19 @@ public class ContextService implements AutoCloseable {
                 if (text == null) {
                     return null;
                 }
+            }
+            if (tokens != null) {
+                ArchiveLine result;
+                try {
+                    result = pseudonymRunner.line(file.app(), text, tokens);
+                } catch (ScriptException e) {
+                    throw new ContextUnavailableException(UNAVAILABLE);
+                }
+                if (result.error() != null) {
+                    return archiveSettings.placeholder().replace("{filter}", result.script()).replace("{offset}",
+                        String.valueOf(offset));
+                }
+                text = result.text();
             }
             if (fieldFilters.isEmpty()) {
                 return text;
@@ -248,7 +292,7 @@ public class ContextService implements AutoCloseable {
         HotFile file = store.find(fingerprint)
             .orElseThrow(() -> new NoSuchElementException("Die Datei des Events liegt nicht mehr in hot/."));
         FileMeta meta = file.meta();
-        return new Source(meta.app(), meta.host(), file.length(), file::read);
+        return new Source(meta.app(), meta.host(), file.length(), file::read, meta.key());
     }
 
     private Source archiveSource(String fingerprint) {
@@ -256,7 +300,7 @@ public class ContextService implements AutoCloseable {
         if (file == null) {
             throw new NoSuchElementException("Die Datei des Events liegt nicht im Archiv.");
         }
-        return new Source(file.meta().app(), file.meta().host(), file.meta().length(), file::read);
+        return new Source(file.meta().app(), file.meta().host(), file.meta().length(), file::read, null);
     }
 
     private static byte[] read(Source file, long from, long to) throws IOException {
@@ -316,7 +360,7 @@ public class ContextService implements AutoCloseable {
         byte[] read(long position, int max) throws IOException;
     }
 
-    private record Source(String app, String host, long length, Reader reader) {
+    private record Source(String app, String host, long length, Reader reader, String key) {
 
         byte[] read(long position, int max) throws IOException {
             return reader.read(position, max);

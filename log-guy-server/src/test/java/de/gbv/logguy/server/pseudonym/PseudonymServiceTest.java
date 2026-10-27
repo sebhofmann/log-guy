@@ -159,6 +159,15 @@ class PseudonymServiceTest {
     }
 
     @Test
+    void archiveTokensStayAsTheyAre() {
+        Pseudonyms session = new Pseudonyms();
+        Map<String, Object> event = service.apply(session,
+            event("digibib", "user detected: [Nutzer#3f9a1c2e]", "login", "[Nutzer#3f9a1c2e]")).orElseThrow();
+        assertEquals("[Nutzer#3f9a1c2e]", event.get("login"));
+        assertEquals("user detected: [Nutzer#3f9a1c2e]", event.get("message"));
+    }
+
+    @Test
     void failingScriptHoldsEventsBack() {
         assertEquals(List.of(), service.load(Map.of(new ScriptId(ScriptKind.PSEUDONYM, "fail"), """
             export const meta = { apps: ["*"], fields: [] };

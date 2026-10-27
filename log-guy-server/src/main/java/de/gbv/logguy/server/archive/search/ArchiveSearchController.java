@@ -24,16 +24,13 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import jakarta.servlet.http.HttpSession;
 
 import de.gbv.logguy.server.archive.search.ArchiveSearchJob.Owner;
 import de.gbv.logguy.server.archive.search.ArchiveSearchJob.Status;
 import de.gbv.logguy.server.audit.Actor;
 import de.gbv.logguy.server.audit.Actor.Via;
 import de.gbv.logguy.server.audit.AuditLog;
-import de.gbv.logguy.server.pseudonym.Pseudonyms;
 import de.gbv.logguy.server.security.CurrentUser;
 import de.gbv.logguy.server.security.LogGuyUser;
 import de.gbv.logguy.server.web.FlushingBody;
@@ -51,8 +48,6 @@ public class ArchiveSearchController {
     /** Hits as one JSON object per line. */
     public static final String NDJSON = "application/x-ndjson";
 
-    private static final String SESSION_PSEUDONYMS = Pseudonyms.class.getName();
-
     private static final int CHUNK = 500;
 
     private static final long WAIT_MILLIS = 1000;
@@ -65,8 +60,6 @@ public class ArchiveSearchController {
 
     private final JsonMapper json;
 
-    private final HttpServletRequest request;
-
     /**
      * Creates the controller.
      *
@@ -74,15 +67,12 @@ public class ArchiveSearchController {
      * @param currentUser resolves the user
      * @param audit the audit log
      * @param json serializes the hits
-     * @param request the current request, for the pseudonyms of the session
      */
-    public ArchiveSearchController(ArchiveSearch search, CurrentUser currentUser, AuditLog audit, JsonMapper json,
-        HttpServletRequest request) {
+    public ArchiveSearchController(ArchiveSearch search, CurrentUser currentUser, AuditLog audit, JsonMapper json) {
         this.search = search;
         this.currentUser = currentUser;
         this.audit = audit;
         this.json = json;
-        this.request = request;
     }
 
     /**
@@ -110,7 +100,7 @@ public class ArchiveSearchController {
     @PostMapping
     public ResponseEntity<Status> start(@RequestBody StartBody body) {
         LogGuyUser user = currentUser.get();
-        ArchiveSearchJob job = search.start(user, owner(user), session(user), body.request());
+        ArchiveSearchJob job = search.start(user, owner(user), body.request());
         Status status = job.status();
         Map<String, Object> details = new LinkedHashMap<>();
         details.put("query", status.query());
@@ -226,21 +216,5 @@ public class ArchiveSearchController {
 
     private static Owner owner(LogGuyUser user) {
         return new Owner(user.name(), user.token(), "web");
-    }
-
-    // a GUI session keeps its pseudonyms, a request with an API token gets new ones
-    private Pseudonyms session(LogGuyUser user) {
-        if (user.token() != null) {
-            return new Pseudonyms();
-        }
-        HttpSession session = request.getSession(true);
-        synchronized (session) {
-            if (!(session.getAttribute(SESSION_PSEUDONYMS) instanceof Pseudonyms pseudonyms)) {
-                Pseudonyms created = new Pseudonyms();
-                session.setAttribute(SESSION_PSEUDONYMS, created);
-                return created;
-            }
-            return pseudonyms;
-        }
     }
 }

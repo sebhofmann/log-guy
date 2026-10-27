@@ -3,6 +3,7 @@ package de.gbv.logguy.server.pseudonym;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +39,9 @@ import tools.jackson.databind.json.JsonMapper;
  * long, the event is held back.
  */
 public class PseudonymService implements ScriptListener, AutoCloseable {
+
+    /** Start of the label of the pseudonymization in {@code filters} of an archive file. */
+    public static final String ARCHIVE_LABEL = "pseudonym@";
 
     private static final Logger LOGGER = LogManager.getLogger();
 
@@ -109,7 +113,8 @@ public class PseudonymService implements ScriptListener, AutoCloseable {
             }
         });
         if (!errors.isEmpty()) {
-            LOGGER.error("Pseudonymization scripts failed, everything leaving the MCP endpoint is held back: {}",
+            LOGGER.error("Pseudonymization scripts failed, everything leaving the MCP endpoint is held back and the"
+                + " archive writer is paused: {}",
                 errors);
         }
         Modules old = modules.getAndSet(new Modules(List.copyOf(loaded), List.copyOf(errors)));
@@ -180,6 +185,33 @@ public class PseudonymService implements ScriptListener, AutoCloseable {
         event.put("app", app == null ? "" : app);
         event.put("message", text);
         return apply(session, event).map(result -> result.get("message") instanceof String message ? message : "");
+    }
+
+    /**
+     * Name and version of the pseudonymization in the archive for an application, as it appears in {@code filters}
+     * of an archive file. The version covers the scripts for the application and the kept categories.
+     *
+     * @param app the application
+     * @param keep categories that stay in the archive as they are
+     * @return e.g. {@code pseudonym@3f2a9c01b2d4}, empty if no script applies to the application
+     */
+    public Optional<String> archiveLabel(String app, Set<String> keep) {
+        AppGroups now = groups.get();
+        List<String> versions = modules.get().modules().stream().filter(module -> module.appliesTo(app, now))
+            .map(module -> module.id() + "@" + module.version()).toList();
+        if (versions.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(ARCHIVE_LABEL + ScriptStore.hash(versions + " keep " + new TreeSet<>(keep)));
+    }
+
+    /**
+     * Creates a runner for the archive for the calling thread.
+     *
+     * @return the runner, to be closed by the thread
+     */
+    public Runner runner() {
+        return new Runner();
     }
 
     /**
@@ -291,6 +323,96 @@ public class PseudonymService implements ScriptListener, AutoCloseable {
         List<Suspicious> suspicious, List<Map<String, Object>> sample) {
     }
 
+    /**
+     * What the pseudonymization made of a line on its way into the archive.
+     *
+     * @param text the pseudonymized line, {@code null} if a script failed
+     * @param script the script that failed, {@code null} if none did
+     * @param error why the script failed, {@code null} if it did not
+     */
+    public record ArchiveLine(String text, String script, String error) {
+    }
+
+    /**
+     * The scripts of one thread of the archive writer, with their own contexts, so the threads do not wait for
+     * each other. Not thread safe. Follows changes of the active scripts on the next call.
+     */
+    public final class Runner implements AutoCloseable {
+
+        private Modules generation;
+
+        private AppGroups loadedGroups;
+
+        private final List<Module> loaded = new ArrayList<>();
+
+        private final Map<String, List<Module>> byApp = new HashMap<>();
+
+        private Runner() {
+        }
+
+        /**
+         * Pseudonymizes a line on its way into the archive. The scripts run over {@code {app, message}}, {@code ps}
+         * returns tokens of the file.
+         *
+         * @param app the application
+         * @param text the line without line break
+         * @param tokens the tokens of the file
+         * @return the line, or which script failed
+         * @throws ScriptException if a script cannot be loaded
+         */
+        public ArchiveLine line(String app, String text, ArchiveTokens tokens) throws ScriptException {
+            String result = text;
+            for (Module module : forApp(app)) {
+                ArchiveLine next = module.line(runtime, tokens, app, result);
+                if (next.text() == null) {
+                    return next;
+                }
+                result = next.text();
+            }
+            return new ArchiveLine(result, null, null);
+        }
+
+        /**
+         * Whether any script applies to an application.
+         *
+         * @param app the application
+         * @return true if lines of the application are pseudonymized
+         * @throws ScriptException if a script cannot be loaded
+         */
+        public boolean appliesTo(String app) throws ScriptException {
+            return !forApp(app).isEmpty();
+        }
+
+        private List<Module> forApp(String app) throws ScriptException {
+            Modules now = modules.get();
+            if (!now.errors().isEmpty()) {
+                throw new ScriptException("pseudonymization scripts cannot be loaded: " + now.errors(), null);
+            }
+            if (now != generation) {
+                close();
+                for (Module module : now.modules()) {
+                    loaded.add(Module.load(runtime, module.id(), module.code()));
+                }
+                generation = now;
+            }
+            AppGroups nowGroups = groups.get();
+            if (nowGroups != loadedGroups) {
+                byApp.clear();
+                loadedGroups = nowGroups;
+            }
+            return byApp.computeIfAbsent(app, a -> loaded.stream().filter(m -> m.appliesTo(a, nowGroups)).toList());
+        }
+
+        @Override
+        public void close() {
+            loaded.forEach(Module::close);
+            loaded.clear();
+            byApp.clear();
+            generation = null;
+            loadedGroups = null;
+        }
+    }
+
     private record Modules(List<Module> modules, List<String> errors) {
 
         void close() {
@@ -301,8 +423,8 @@ public class PseudonymService implements ScriptListener, AutoCloseable {
     /**
      * A loaded script. GraalJS contexts are single threaded, so calls are serialized by a lock.
      */
-    private record Module(ScriptId id, List<String> apps, Set<String> fields, Context context, Value apply,
-        ReentrantLock lock) {
+    private record Module(ScriptId id, String code, String version, List<String> apps, Set<String> fields,
+        Context context, Value apply, ReentrantLock lock) {
 
         static Module load(ScriptRuntime runtime, ScriptId id, String code) throws ScriptException {
             ModuleInfo info = ModuleInfo.check(runtime, ScriptKind.PSEUDONYM, id.name(), code);
@@ -317,8 +439,8 @@ public class PseudonymService implements ScriptListener, AutoCloseable {
                         fields.add(list.getArrayElement(i).asString());
                     }
                 }
-                return new Module(id, info.apps(), Set.copyOf(fields), context, exports.getMember("apply"),
-                    new ReentrantLock());
+                return new Module(id, code, ScriptStore.hash(code), info.apps(), Set.copyOf(fields), context,
+                    exports.getMember("apply"), new ReentrantLock());
             } catch (ScriptException e) {
                 context.close();
                 throw e;
@@ -358,6 +480,35 @@ public class PseudonymService implements ScriptListener, AutoCloseable {
                 LOGGER.warn("Pseudonymization {} held back an event of {}: {}", id, event.get("app"),
                     timeout ? "timeout" : e.getMessage());
                 return Optional.empty();
+            }
+        }
+
+        ArchiveLine line(ScriptRuntime runtime, ArchiveTokens tokens, String app, String text) {
+            lock.lock();
+            try {
+                return ScriptRuntime.withPseudonyms(tokens::token, () -> {
+                    Value bindings = context.getBindings("js");
+                    ScriptRuntime.Call call = runtime.start(context);
+                    try {
+                        Value input = bindings.getMember("Object").newInstance();
+                        input.putMember("app", app);
+                        input.putMember("message", text);
+                        Value output = apply.execute(input);
+                        Value result = output == null || output.isNull() ? input : output;
+                        Value message = result.getMember("message");
+                        runtime.end(call);
+                        if (message == null || message.isNull()) {
+                            return new ArchiveLine(null, id.toString(), "message missing");
+                        }
+                        return new ArchiveLine(message.isString() ? message.asString() : message.toString(), null,
+                            null);
+                    } catch (RuntimeException e) {
+                        boolean timeout = runtime.end(call);
+                        return new ArchiveLine(null, id.toString(), timeout ? "timeout" : e.getMessage());
+                    }
+                });
+            } finally {
+                lock.unlock();
             }
         }
 

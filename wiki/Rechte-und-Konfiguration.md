@@ -103,7 +103,7 @@ Name und Passwort, danach ein Session-Cookie mit `HttpOnly`, `Secure` und `SameS
 | Logs im Original | Archiv |
 | Einsammel-Stand pro Logdatei | `.meta.json` im Archiv |
 | Indexer-Fortschritt | `state/index/<fingerprint>` |
-| Steuer-Token für `log-guy reload`, `log-guy archive refilter`, `log-guy reindex` und `log-guy backup` | `state/control.token`, bei jedem Start neu |
+| Steuer-Token für `log-guy reload`, `log-guy archive refilter`, `log-guy archive pseudonymize`, `log-guy reindex` und `log-guy backup` | `state/control.token`, bei jedem Start neu |
 | Meldungen | `state/alerts.ndjson` |
 | gelöschte und gesperrte Dateien | `state/deleted.json` |
 | Audit-Log | `audit/*.ndjson`, Skript-Änderungen, Reloads, MCP-Aufrufe, Löschen, Sperren aufheben, Herunterladen und Neuindexieren |

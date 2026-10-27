@@ -302,7 +302,7 @@ public class McpTools {
         if (last != null) {
             from = (to == null ? Instant.now() : to).minus(duration(last));
         }
-        ArchiveSearchJob job = archiveSearch.start(call.user(), owner(call), call.session(),
+        ArchiveSearchJob job = archiveSearch.start(call.user(), owner(call),
             new ArchiveSearchRequest(strings(args, "apps"), strings(args, "hosts"), from, to, required(args, "query"),
                 bool(args, "regex"), bool(args, "ignoreCase"), integer(args, "context").orElse(null)));
         return job.status();
@@ -504,7 +504,7 @@ public class McpTools {
             // a broken lifecycle filter is reported to the client like a search error, never as unfiltered lines
             throw new SearchException(e.getMessage());
         }
-        return pseudonymizedSearch.context(call.session(), view, this::cutText);
+        return pseudonymizedSearch.context(view, this::cutText);
     }
 
     private String cutText(String text) {

@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
@@ -21,14 +20,11 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import de.gbv.logguy.server.config.AppGroups;
 import de.gbv.logguy.server.config.AppRegistry;
 import de.gbv.logguy.server.archive.ArchiveFile;
 import de.gbv.logguy.server.archive.ArchiveStore;
@@ -42,10 +38,6 @@ import de.gbv.logguy.server.config.LogGuyProperties.ArchiveSearchProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.GrantProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.Right;
 import de.gbv.logguy.server.hot.FileMeta;
-import de.gbv.logguy.server.pseudonym.PseudonymService;
-import de.gbv.logguy.server.pseudonym.Pseudonyms;
-import de.gbv.logguy.server.script.ScriptRuntime;
-import de.gbv.logguy.server.script.ScriptStore;
 import de.gbv.logguy.server.search.SearchException;
 import de.gbv.logguy.server.security.LogGuyUser;
 import tools.jackson.databind.json.JsonMapper;
@@ -60,39 +52,21 @@ class ArchiveSearchTest {
 
     private static final Instant DAY2 = Instant.parse("2026-10-02T00:00:00Z");
 
-    private static ScriptRuntime runtime;
-
     @TempDir
     Path dataDir;
 
     private ArchiveStore archive;
-
-    private PseudonymService pseudonyms;
 
     private ArchiveSearch search;
 
     /** What a reload makes of the user of a job. */
     private Function<LogGuyUser, Optional<LogGuyUser>> reload = Optional::of;
 
-    @BeforeAll
-    static void startRuntime() {
-        runtime = new ScriptRuntime(Duration.ofMillis(200), Duration.ofSeconds(5));
-    }
-
-    @AfterAll
-    static void stopRuntime() {
-        runtime.close();
-    }
-
     @BeforeEach
     void setUp() throws Exception {
         LogGuyProperties properties = properties(5);
         archive = new ArchiveStore(properties, JSON);
-        Files.createDirectories(dataDir.resolve("scripts"));
-        ScriptStore scripts = new ScriptStore(dataDir.resolve("scripts"), Clock.systemUTC(), JSON);
-        scripts.scan();
-        pseudonyms = new PseudonymService(runtime, scripts, JSON, () -> AppGroups.NONE);
-        search = new ArchiveSearch(properties, new AppRegistry(properties), archive, pseudonyms,
+        search = new ArchiveSearch(properties, new AppRegistry(properties), archive,
             user -> reload.apply(user), Clock.fixed(NOW, ZoneOffset.UTC));
 
         ArchiveFile file = archive.getOrCreate(meta("fp1", "host1", "digibib"));
@@ -103,7 +77,7 @@ class ArchiveSearchTest {
             """);
         append(file, DAY2, """
             2026-10-02T08:00:00,000 ERROR guest MCRSolr: solr is down again
-            2026-10-02T08:00:01,000 INFO  mueller MCRServlet: login from 203.0.113.12
+            2026-10-02T08:00:01,000 INFO  [Nutzer#3f9a1c2e] MCRServlet: login from 203.0.113.0
             2026-10-02T08:00:02,000 INFO  guest MCRServlet: last line
             """);
         file.close(List.of("/logs/mycore.log"));
@@ -114,7 +88,6 @@ class ArchiveSearchTest {
     @AfterEach
     void tearDown() {
         search.close();
-        pseudonyms.close();
     }
 
     private LogGuyProperties properties(int maxHits) {
@@ -124,7 +97,7 @@ class ArchiveSearchTest {
             List.of(), List.of(), null, null, null, null, null, null, null, null, null,
             new ArchiveProperties(true, 1, Duration.ofSeconds(1), 3, 7, "[x]", "[f {filter}]",
                 new ArchiveSearchProperties(2, 2, Duration.ofDays(1), Duration.ofDays(92), maxHits,
-                    Duration.ofMinutes(10), 0, 5, 200, Duration.ofHours(1))),
+                    Duration.ofMinutes(10), 0, 5, 200, Duration.ofHours(1)), null),
             null, null, null, null);
     }
 
@@ -169,7 +142,7 @@ class ArchiveSearchTest {
     void findsLinesWithContextAcrossFrames() throws Exception {
         LogGuyUser user = user("*", Right.READ, Right.ARCHIVE);
         assertEquals(Set.of("digibib", "secret"), search.apps(user));
-        ArchiveSearchJob job = finished(search.start(user, owner(), new Pseudonyms(), request("solr is down", false,
+        ArchiveSearchJob job = finished(search.start(user, owner(), request("solr is down", false,
             1)));
         Status status = job.status();
         assertEquals(State.DONE, status.state());
@@ -192,7 +165,7 @@ class ArchiveSearchTest {
         assertEquals(59, first.offset());
         ArchiveHit second = hits.get(1);
         assertEquals(List.of("2026-10-01T08:00:02,000 INFO  guest MCRServlet: third line"), second.before());
-        assertEquals(List.of("2026-10-02T08:00:01,000 INFO  mueller MCRServlet: login from 203.0.113.12"),
+        assertEquals(List.of("2026-10-02T08:00:01,000 INFO  [Nutzer#3f9a1c2e] MCRServlet: login from 203.0.113.0"),
             second.after());
     }
 
@@ -201,39 +174,38 @@ class ArchiveSearchTest {
         LogGuyUser user = user("digibib", Right.READ, Right.ARCHIVE);
         assertEquals(List.of("2026-10-01T08:00:00,000 INFO  guest MCRServlet: first line",
             "2026-10-02T08:00:02,000 INFO  guest MCRServlet: last line"),
-            lines(finished(search.start(user, owner(), new Pseudonyms(), request("^\\S+ INFO .*(first|last)",
+            lines(finished(search.start(user, owner(), request("^\\S+ INFO .*(first|last)",
                 true, null)))));
         // a match across the line end does not count
-        assertEquals(List.of(), lines(finished(search.start(user, owner(), new Pseudonyms(),
+        assertEquals(List.of(), lines(finished(search.start(user, owner(),
             request("first line\\s+2026", true, null)))));
-        assertEquals(2, finished(search.start(user, owner(), new Pseudonyms(), new ArchiveSearchRequest(List.of(),
+        assertEquals(2, finished(search.start(user, owner(), new ArchiveSearchRequest(List.of(),
             List.of(), DAY1, NOW, "SOLR IS", false, true, null))).status().hits());
         SearchException invalid = assertThrows(SearchException.class,
-            () -> search.start(user, owner(), new Pseudonyms(), request("(a", true, null)));
+            () -> search.start(user, owner(), request("(a", true, null)));
         assertTrue(invalid.getMessage().startsWith("Ungültiger regulärer Ausdruck"), invalid.getMessage());
-        assertThrows(SearchException.class, () -> search.start(user, owner(), new Pseudonyms(),
+        assertThrows(SearchException.class, () -> search.start(user, owner(),
             request("(a)\\1", true, null)));
     }
 
     @Test
     void timeRangeSkipsFrames() throws Exception {
         LogGuyUser user = user("digibib", Right.READ, Right.ARCHIVE);
-        ArchiveSearchJob job = finished(search.start(user, owner(), new Pseudonyms(), new ArchiveSearchRequest(
+        ArchiveSearchJob job = finished(search.start(user, owner(), new ArchiveSearchRequest(
             List.of(), List.of(), DAY2, NOW, "solr", false, false, null)));
         assertEquals(1, job.status().frames());
         assertEquals(List.of("2026-10-02T08:00:00,000 ERROR guest MCRSolr: solr is down again"), lines(job));
 
-        ArchiveSearchJob none = finished(search.start(user, owner(), new Pseudonyms(), new ArchiveSearchRequest(
+        ArchiveSearchJob none = finished(search.start(user, owner(), new ArchiveSearchRequest(
             List.of(), List.of("host2"), DAY1, NOW, "solr", false, false, null)));
         assertEquals(0, none.status().files());
         assertEquals(State.DONE, none.status().state());
 
-        SearchException tooLong = assertThrows(SearchException.class, () -> search.start(user, owner(),
-            new Pseudonyms(), new ArchiveSearchRequest(List.of(), List.of(), NOW.minus(Duration.ofDays(93)), NOW,
+        SearchException tooLong = assertThrows(SearchException.class, () -> search.start(user, owner(), new ArchiveSearchRequest(List.of(), List.of(), NOW.minus(Duration.ofDays(93)), NOW,
                 "solr", false, false, null)));
         assertTrue(tooLong.getMessage().contains("92 Tage"), tooLong.getMessage());
         // without from the default range of one day applies
-        ArchiveSearchJob recent = finished(search.start(user, owner(), new Pseudonyms(), new ArchiveSearchRequest(
+        ArchiveSearchJob recent = finished(search.start(user, owner(), new ArchiveSearchRequest(
             List.of(), List.of(), null, null, "solr", false, false, null)));
         assertEquals(NOW.minus(Duration.ofDays(1)), recent.status().from());
         assertEquals(0, recent.status().hits());
@@ -243,23 +215,22 @@ class ArchiveSearchTest {
     void rightsLimitTheApplications() {
         assertEquals(Set.of(), search.apps(user("*", Right.READ)));
         assertThrows(SearchException.class,
-            () -> search.start(user("*", Right.READ), owner(), new Pseudonyms(), request("solr", false, null)));
+            () -> search.start(user("*", Right.READ), owner(), request("solr", false, null)));
         LogGuyUser digibib = user("digibib", Right.READ, Right.ARCHIVE);
         assertEquals(Set.of("digibib"), search.apps(digibib));
-        SearchException forbidden = assertThrows(SearchException.class, () -> search.start(digibib, owner(),
-            new Pseudonyms(), new ArchiveSearchRequest(List.of("secret"), List.of(), DAY1, NOW, "solr", false,
+        SearchException forbidden = assertThrows(SearchException.class, () -> search.start(digibib, owner(), new ArchiveSearchRequest(List.of("secret"), List.of(), DAY1, NOW, "solr", false,
                 false, null)));
         assertTrue(forbidden.getMessage().contains("secret"), forbidden.getMessage());
         assertThrows(SearchException.class,
-            () -> search.start(digibib, owner(), new Pseudonyms(), request(" ", false, null)));
+            () -> search.start(digibib, owner(), request(" ", false, null)));
         assertThrows(SearchException.class,
-            () -> search.start(digibib, owner(), new Pseudonyms(), request("solr", false, 6)));
+            () -> search.start(digibib, owner(), request("solr", false, 6)));
     }
 
     @Test
     void reloadThatTakesRightsAwayDropsTheJob() throws Exception {
         LogGuyUser user = user("digibib", Right.READ, Right.ARCHIVE);
-        ArchiveSearchJob plain = finished(search.start(user, owner(), new Pseudonyms(),
+        ArchiveSearchJob plain = finished(search.start(user, owner(),
             request("solr", false, null)));
         assertTrue(plain.status().hits() > 0);
         reload = before -> Optional.of(user("digibib", Right.READ, Right.ARCHIVE, Right.DELETE));
@@ -272,7 +243,7 @@ class ArchiveSearchTest {
         assertEquals(List.of(), search.jobs(owner()));
 
         LogGuyUser pseudonymized = user("digibib", Right.READ_PSEUDONYMIZED, Right.ARCHIVE);
-        ArchiveSearchJob kept = finished(search.start(pseudonymized, owner(), new Pseudonyms(),
+        ArchiveSearchJob kept = finished(search.start(pseudonymized, owner(),
             request("solr", false, null)));
         assertEquals(List.of(kept), search.jobs(owner()), "pseudonymized hits stay readable");
 
@@ -283,8 +254,7 @@ class ArchiveSearchTest {
     @Test
     void runningJobStopsWhenTheRightsAreGone() throws Exception {
         reload = before -> Optional.of(user("rolf", Right.READ, Right.ARCHIVE));
-        ArchiveSearchJob job = finished(search.start(user("digibib", Right.READ, Right.ARCHIVE), owner(),
-            new Pseudonyms(), request("solr", false, null)));
+        ArchiveSearchJob job = finished(search.start(user("digibib", Right.READ, Right.ARCHIVE), owner(), request("solr", false, null)));
         assertEquals(State.CANCELLED, job.status().state());
         assertEquals(0, job.status().hits());
         assertTrue(job.status().message().contains("Rechte"), job.status().message());
@@ -293,7 +263,7 @@ class ArchiveSearchTest {
     @Test
     void jobsBelongToTheirOwner() throws Exception {
         LogGuyUser user = user("digibib", Right.READ, Right.ARCHIVE);
-        ArchiveSearchJob job = finished(search.start(user, owner(), new Pseudonyms(), request("solr", false, null)));
+        ArchiveSearchJob job = finished(search.start(user, owner(), request("solr", false, null)));
         assertEquals(job, search.job(owner(), job.id()));
         assertEquals(List.of(job), search.jobs(owner()));
         Owner other = new Owner("bert", null, "web");
@@ -308,34 +278,31 @@ class ArchiveSearchTest {
     @Test
     void stopsAtTheHitLimit() throws Exception {
         search.close();
-        search = new ArchiveSearch(properties(2), new AppRegistry(properties(2)), archive, pseudonyms,
+        search = new ArchiveSearch(properties(2), new AppRegistry(properties(2)), archive,
             user -> reload.apply(user), Clock.fixed(NOW, ZoneOffset.UTC));
-        ArchiveSearchJob job = finished(search.start(user("digibib", Right.READ, Right.ARCHIVE), owner(),
-            new Pseudonyms(), request("2026", false, null)));
+        ArchiveSearchJob job = finished(search.start(user("digibib", Right.READ, Right.ARCHIVE), owner(), request("2026", false, null)));
         assertEquals(State.LIMIT, job.status().state());
         assertEquals(2, job.status().hits());
         assertTrue(job.status().message().contains("Trefferlimit"), job.status().message());
     }
 
     @Test
-    void pseudonymizedJobsDoNotRevealRealValues() throws Exception {
+    void pseudonymizedJobsSearchTheArchivedLine() throws Exception {
         LogGuyUser user = user("digibib", Right.READ_PSEUDONYMIZED, Right.ARCHIVE);
         assertEquals(Set.of("digibib"), search.apps(user));
-        Pseudonyms session = new Pseudonyms();
-        ArchiveSearchJob login = finished(search.start(user, owner(), session, request("login from", false, 1)));
+        ArchiveSearchJob login = finished(search.start(user, owner(), request("login from", false, 1)));
         assertTrue(login.status().pseudonymized());
         ArchiveHit hit = login.hits(0, 1).getFirst();
-        assertEquals("2026-10-02T08:00:01,000 INFO  $Nutzer1 MCRServlet: login from $IP1", hit.line());
+        // the line as it is archived, not pseudonymized again
+        assertEquals("2026-10-02T08:00:01,000 INFO  [Nutzer#3f9a1c2e] MCRServlet: login from 203.0.113.0",
+            hit.line());
         assertEquals(List.of("2026-10-02T08:00:00,000 ERROR guest MCRSolr: solr is down again"), hit.before());
+        assertEquals(List.of(hit.line()), lines(finished(search.start(user, owner(),
+            request("[Nutzer#3f9a1c2e]", false, null)))));
 
-        // the real value finds nothing, the pseudonym finds the line
-        assertEquals(0, finished(search.start(user, owner(), session, request("mueller", false, null))).status()
-            .hits());
-        assertEquals(0, finished(search.start(user, owner(), session, request("185\\.211", true, null))).status()
-            .hits());
-        assertEquals(List.of(hit.line()), lines(finished(search.start(user, owner(), session,
-            request("$Nutzer1", false, null)))));
-        assertEquals(List.of(hit.line()), lines(finished(search.start(user, owner(), session,
-            request("\\$Nutzer1 MCR\\w+: login", true, null)))));
+        // #15: an alternation cannot combine a check of the real line with one of the pseudonymized line
+        assertEquals(List.of(hit.line()), lines(finished(search.start(user, owner(),
+            request("mueller|\\[Nutzer#", true, null)))));
+        assertEquals(0, finished(search.start(user, owner(), request("mueller", false, null))).status().hits());
     }
 }
