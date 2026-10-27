@@ -10,7 +10,7 @@ Unter `/mcp` bietet log-guy einen MCP-Server, über den ein LLM die Logs durchsu
 | `search_logs` | schnelle Solr-Suche mit `apps`, `query`, `filters`, Zeitraum (`from`/`to` oder `last` wie `30m`, `6h`, `2d`), `limit`, `order` und `cursor` zum Weiterblättern |
 | `get_histogram` | Anzahl Events pro Intervall, optional aufgeteilt nach einem Feld (`split`), z.B. um einen Fehlerbeginn zu finden |
 | `get_top_values` | häufigste Werte von Feldern wie Logger, Exception oder Host im Zeitraum |
-| `get_context` | Originalzeilen vor und nach einem Treffer |
+| `get_context` | Zeilen vor und nach einem Treffer, gefiltert wie im Archiv (siehe [Lifecycle-Filter](Lifecycle-Filter.md)) |
 | `archive_search_start`, `archive_search_result` | Archivsuche als Job starten (`apps`, `hosts`, `query`, `regex`, `ignoreCase`, `context`, Zeitraum wie bei `search_logs`) und Fortschritt und Treffer abholen (`id`, `offset`, `limit`, `wait` bis 30 Sekunden, `cancel`). Der Job gehört der Session, Treffer sind wie alles andere pseudonymisiert. |
 | `get_status` | dieselben Zahlen wie die Status-Seite: System, Agents, Anwendungen, Solr. Ohne Recht admin nur die eigenen Anwendungen. |
 | `get_server_log` | Einträge aus dem eigenen Log von log-guy nach Level, Komponente und Zeitpunkt, z.B. warum ein Skript nicht aktiviert wurde. Pseudonymisiert wie alles andere, nur mit Recht admin. |

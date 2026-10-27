@@ -419,11 +419,13 @@ public class ServerConfig {
      * @param properties configuration
      * @param store the hot storage
      * @param archive the archive, for events loaded from it
+     * @param filters the lifecycle filters the lines pass
      * @return the service
      */
-    @Bean
-    public ContextService contextService(LogGuyProperties properties, HotStore store, ArchiveStore archive) {
-        return new ContextService(properties, store, archive);
+    @Bean(destroyMethod = "close")
+    public ContextService contextService(LogGuyProperties properties, HotStore store, ArchiveStore archive,
+        LifecycleFilters filters) {
+        return new ContextService(properties, store, archive, filters);
     }
 
     /**

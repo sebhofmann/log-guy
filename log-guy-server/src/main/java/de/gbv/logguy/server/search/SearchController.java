@@ -145,19 +145,21 @@ public class SearchController {
     }
 
     /**
-     * The original lines around an event.
+     * The lines around an event, filtered as in the archive.
      *
      * @param id the event id
      * @param before lines before the event
      * @param after lines from the event on
+     * @param original the unfiltered original from {@code hot/}, only for {@code admin} of the application
      * @return the lines
      * @throws IOException if reading fails
      */
     @GetMapping("/events/{id}/context")
     public ContextView context(@PathVariable String id, @RequestParam(required = false) Integer before,
-        @RequestParam(required = false) Integer after) throws IOException {
+        @RequestParam(required = false) Integer after, @RequestParam(defaultValue = "false") boolean original)
+        throws IOException {
         LogGuyUser user = currentUser.get();
-        ContextView view = context.context(user.asPseudonymized(), id, before, after);
+        ContextView view = context.context(user.asPseudonymized(), id, before, after, original);
         return user.readsPlain(view.app()) ? view : pseudonymized.context(session(user), view, line -> line);
     }
 

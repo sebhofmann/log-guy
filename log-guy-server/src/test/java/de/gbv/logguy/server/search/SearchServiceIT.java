@@ -26,6 +26,7 @@ import org.springframework.util.unit.DataSize;
 
 import de.gbv.logguy.common.Fingerprint;
 import de.gbv.logguy.common.TestLogs;
+import de.gbv.logguy.server.archive.LifecycleFilters;
 import de.gbv.logguy.server.config.AppGroups;
 import de.gbv.logguy.server.config.AppRegistry;
 import de.gbv.logguy.server.config.LogGuyProperties;
@@ -137,9 +138,10 @@ class SearchServiceIT {
         }
         service.client().commit();
         search = new SearchService(properties, new AppRegistry(properties), parsers, service, Clock.systemUTC(), JSON);
-        context = new ContextService(properties, store, null);
         ScriptStore scripts = new ScriptStore(dataDir.resolve("scripts"), Clock.systemUTC(), JSON);
         scripts.scan();
+        context = new ContextService(properties, store, null,
+            new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE));
         pseudonyms = new PseudonymService(runtime, scripts, JSON, () -> AppGroups.NONE);
         pseudonymized = new PseudonymizedSearch(search, pseudonyms);
     }

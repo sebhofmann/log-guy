@@ -41,6 +41,17 @@ public class ApiExceptionHandler {
     }
 
     /**
+     * A context that cannot be filtered right now.
+     *
+     * @param e the exception
+     * @return 503
+     */
+    @ExceptionHandler(ContextUnavailableException.class)
+    public ResponseEntity<Map<String, String>> unavailable(ContextUnavailableException e) {
+        return error(HttpStatus.SERVICE_UNAVAILABLE, e.getMessage());
+    }
+
+    /**
      * Missing rights.
      *
      * @param e the exception

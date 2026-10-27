@@ -55,6 +55,7 @@ import de.gbv.logguy.server.script.ScriptTester.TestEvent;
 import de.gbv.logguy.server.script.ScriptTester.TestSource;
 import de.gbv.logguy.server.search.ContextService;
 import de.gbv.logguy.server.search.ContextService.ContextView;
+import de.gbv.logguy.server.search.ContextUnavailableException;
 import de.gbv.logguy.server.search.PseudonymizedSearch;
 import de.gbv.logguy.server.search.SearchException;
 import de.gbv.logguy.server.search.SearchRequest;
@@ -216,7 +217,7 @@ public class McpTools {
                 ,"fields": {"type": "array", "items": {"type": "string"}},
                 "limit": {"type": "integer", "minimum": 1}
                 """, true, this::topValues));
-        tools.add(tool("get_context", "Originalzeilen vor und nach einem Event aus hot/", """
+        tools.add(tool("get_context", "Zeilen vor und nach einem Event, gefiltert wie im Archiv", """
             "id": {"type": "string", "description": "id aus search_logs"},
             "before": {"type": "integer", "minimum": 0},
             "after": {"type": "integer", "minimum": 1}
@@ -495,8 +496,14 @@ public class McpTools {
     }
 
     private Object context(Call call, Map<String, Object> args) throws IOException {
-        ContextView view = context.context(call.user(), required(args, "id"), integer(args, "before").orElse(null),
-            integer(args, "after").orElse(null));
+        ContextView view;
+        try {
+            view = context.context(call.user(), required(args, "id"), integer(args, "before").orElse(null),
+                integer(args, "after").orElse(null));
+        } catch (ContextUnavailableException e) {
+            // a broken lifecycle filter is reported to the client like a search error, never as unfiltered lines
+            throw new SearchException(e.getMessage());
+        }
         return pseudonymizedSearch.context(call.session(), view, this::cutText);
     }
 
