@@ -8,6 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 import java.util.Set;
 
 import org.springframework.context.annotation.Profile;
@@ -105,7 +106,8 @@ public class AlertController {
     /**
      * Follows the alerts. The first event {@code state} carries the open alerts, every later one the changed
      * alerts, each with the number of open alerts. Comments keep the connection open, it ends after
-     * {@code stream-duration} and the client connects again.
+     * {@code stream-duration} and the client connects again. It also ends as soon as a reload has changed the rights
+     * of the user or the token, so no alert is sent with the old rights.
      *
      * @param response the servlet response, flushed after each event
      * @return the stream
@@ -132,6 +134,10 @@ public class AlertController {
                 Duration wait = settings.streamPing().compareTo(Duration.ofNanos(left)) < 0 ? settings.streamPing()
                     : Duration.ofNanos(left);
                 List<Alert> changed = alerts.awaitChanges(seq, wait);
+                if (!currentUser.again(user).equals(Optional.of(user))) {
+                    // a reload changed the rights, the client connects again and gets the alerts it may see now
+                    break;
+                }
                 if (changed.isEmpty()) {
                     out.write(": ping\n\n".getBytes(StandardCharsets.UTF_8));
                     out.flush();

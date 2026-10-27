@@ -57,6 +57,7 @@ import de.gbv.logguy.server.script.ScriptTester;
 import de.gbv.logguy.server.script.ScriptStore;
 import de.gbv.logguy.server.search.ContextService;
 import de.gbv.logguy.server.search.SearchService;
+import de.gbv.logguy.server.security.CurrentUser;
 import de.gbv.logguy.server.security.TokenRegistry;
 import de.gbv.logguy.server.security.UserRegistry;
 import de.gbv.logguy.server.serverlog.ServerLog;
@@ -293,14 +294,14 @@ public class ServerConfig {
      * @param apps the configured applications
      * @param archive the archive
      * @param pseudonyms pseudonymizes the hits of pseudonymized jobs
+     * @param currentUser checks the rights of running jobs again after a reload
      * @param clock clock for the limits
      * @return the search
      */
     @Bean(destroyMethod = "close")
     public ArchiveSearch archiveSearch(LogGuyProperties properties, AppRegistry apps, ArchiveStore archive,
-        PseudonymService pseudonyms,
-        Clock clock) {
-        return new ArchiveSearch(properties, apps, archive, pseudonyms, clock);
+        PseudonymService pseudonyms, CurrentUser currentUser, Clock clock) {
+        return new ArchiveSearch(properties, apps, archive, pseudonyms, currentUser::again, clock);
     }
 
     /**

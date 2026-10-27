@@ -7,6 +7,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import de.gbv.logguy.server.pseudonym.Pseudonyms;
+import de.gbv.logguy.server.security.LogGuyUser;
 
 /**
  * A running or finished archive search. Hits arrive in the order the frames are searched, not sorted by time.
@@ -16,6 +17,8 @@ public final class ArchiveSearchJob {
     private final String id;
 
     private final Owner owner;
+
+    private final LogGuyUser user;
 
     private final ArchiveSearchRequest request;
 
@@ -53,10 +56,11 @@ public final class ArchiveSearchJob {
 
     private Instant finished;
 
-    ArchiveSearchJob(String id, Owner owner, ArchiveSearchRequest request, List<String> apps, boolean pseudonymized,
-        Pseudonyms session, Instant started, Instant deadline, int maxHits) {
+    ArchiveSearchJob(String id, Owner owner, LogGuyUser user, ArchiveSearchRequest request, List<String> apps,
+        boolean pseudonymized, Pseudonyms session, Instant started, Instant deadline, int maxHits) {
         this.id = id;
         this.owner = owner;
+        this.user = user;
         this.request = request;
         this.apps = List.copyOf(apps);
         this.pseudonymized = pseudonymized;
@@ -82,6 +86,15 @@ public final class ArchiveSearchJob {
      */
     public Owner owner() {
         return owner;
+    }
+
+    /** The user with the rights at the start of the job. */
+    LogGuyUser user() {
+        return user;
+    }
+
+    List<String> apps() {
+        return apps;
     }
 
     boolean pseudonymized() {

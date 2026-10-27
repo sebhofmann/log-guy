@@ -19,6 +19,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 import java.util.function.UnaryOperator;
 
 import org.apache.logging.log4j.LogManager;
@@ -69,6 +70,8 @@ public class ArchiveSearch implements AutoCloseable {
 
     private final PseudonymService pseudonyms;
 
+    private final Function<LogGuyUser, Optional<LogGuyUser>> rights;
+
     private final Clock clock;
 
     private final ExecutorService workers;
@@ -82,16 +85,18 @@ public class ArchiveSearch implements AutoCloseable {
      * @param appRegistry the configured applications as they are now
      * @param archive the archive
      * @param pseudonyms pseudonymizes the hits of pseudonymized jobs
+     * @param rights resolves the user of a job again with the current rights, empty if the user or the token was
+     *     removed
      * @param clock clock for the limits
      */
     public ArchiveSearch(LogGuyProperties properties, AppRegistry appRegistry, ArchiveStore archive,
-        PseudonymService pseudonyms,
-        Clock clock) {
+        PseudonymService pseudonyms, Function<LogGuyUser, Optional<LogGuyUser>> rights, Clock clock) {
         this.properties = properties;
         this.appRegistry = appRegistry;
         this.settings = properties.archive().search();
         this.archive = archive;
         this.pseudonyms = pseudonyms;
+        this.rights = rights;
         this.clock = clock;
         AtomicInteger number = new AtomicInteger();
         this.workers = Executors.newFixedThreadPool(settings.threads(), runnable -> {
@@ -204,7 +209,7 @@ public class ArchiveSearch implements AutoCloseable {
         ArchiveSearchRequest normalized = new ArchiveSearchRequest(List.copyOf(apps), request.hosts(), from, to,
             query, request.regex(), request.ignoreCase(), context);
         ArchiveSearchJob job = new ArchiveSearchJob(HexFormat.of().toHexDigits(ThreadLocalRandom.current().nextLong()),
-            owner, normalized, List.copyOf(apps), pseudonymized, session, now, now.plus(settings.maxRuntime()),
+            owner, user, normalized, List.copyOf(apps), pseudonymized, session, now, now.plus(settings.maxRuntime()),
             settings.maxHits());
         jobs.put(job.id(), job);
         plan(job, normalized, new Matching(raw, check));
@@ -260,6 +265,10 @@ public class ArchiveSearch implements AutoCloseable {
         if (job == null || !job.owner().equals(owner)) {
             throw new NoSuchElementException("Die Archivsuche „" + id + "“ gibt es nicht (mehr).");
         }
+        if (!kept(job)) {
+            throw new NoSuchElementException("Die Archivsuche „" + id
+                + "“ wurde verworfen, weil sich die Rechte geändert haben.");
+        }
         return job;
     }
 
@@ -271,7 +280,7 @@ public class ArchiveSearch implements AutoCloseable {
      */
     public List<ArchiveSearchJob> jobs(Owner owner) {
         cleanUp();
-        return jobs.values().stream().filter(job -> job.owner().equals(owner))
+        return jobs.values().stream().filter(job -> job.owner().equals(owner) && kept(job))
             .sorted(Comparator.comparing((ArchiveSearchJob job) -> job.status().started()).reversed()).toList();
     }
 
@@ -289,6 +298,39 @@ public class ArchiveSearch implements AutoCloseable {
             LOGGER.info("archive search {} cancelled", id);
         }
         return job;
+    }
+
+    /**
+     * Whether the current rights of the user still cover a job: the archive search and reading in all of its
+     * applications, and reading them unpseudonymized if its hits are not pseudonymized. Hits were made with the
+     * rights of the start, so a job that is not covered any more is stopped and dropped with its hits.
+     */
+    private boolean kept(ArchiveSearchJob job) {
+        if (permitted(job)) {
+            return true;
+        }
+        revoke(job);
+        jobs.remove(job.id());
+        return false;
+    }
+
+    private boolean permitted(ArchiveSearchJob job) {
+        LogGuyUser user = rights.apply(job.user()).orElse(null);
+        if (user == null) {
+            return false;
+        }
+        if (user.equals(job.user())) {
+            return true;
+        }
+        LogGuyUser view = user.asPseudonymized();
+        return job.apps().stream().allMatch(app -> user.may(Right.ARCHIVE, app) && view.mayRead(app)
+            && (job.pseudonymized() || user.readsPlain(app)));
+    }
+
+    private void revoke(ArchiveSearchJob job) {
+        if (job.finish(State.CANCELLED, "abgebrochen, weil sich die Rechte geändert haben", clock.instant())) {
+            LOGGER.info("archive search {} of {} stopped, the rights changed", job.id(), job.owner().user());
+        }
     }
 
     private void cleanUp() {
@@ -363,6 +405,10 @@ public class ArchiveSearch implements AutoCloseable {
     private void search(ArchiveSearchJob job, ArchiveSearchRequest request, Matching matching, Source source,
         int index) {
         if (!job.running()) {
+            return;
+        }
+        if (!permitted(job)) {
+            revoke(job);
             return;
         }
         if (clock.instant().isAfter(job.deadline())) {

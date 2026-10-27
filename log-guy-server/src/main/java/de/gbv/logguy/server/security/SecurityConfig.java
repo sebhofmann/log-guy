@@ -95,11 +95,12 @@ public class SecurityConfig {
      * Resolves the user of a request.
      *
      * @param users the configured users
+     * @param tokens the configured tokens
      * @return the resolver
      */
     @Bean
-    public CurrentUser currentUser(UserRegistry users) {
-        return new CurrentUser(users);
+    public CurrentUser currentUser(UserRegistry users, TokenRegistry tokens) {
+        return new CurrentUser(users, tokens);
     }
 
     /**

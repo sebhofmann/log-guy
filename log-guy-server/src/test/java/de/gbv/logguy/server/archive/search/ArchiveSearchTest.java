@@ -17,7 +17,9 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -69,6 +71,9 @@ class ArchiveSearchTest {
 
     private ArchiveSearch search;
 
+    /** What a reload makes of the user of a job. */
+    private Function<LogGuyUser, Optional<LogGuyUser>> reload = Optional::of;
+
     @BeforeAll
     static void startRuntime() {
         runtime = new ScriptRuntime(Duration.ofMillis(200), Duration.ofSeconds(5));
@@ -88,7 +93,7 @@ class ArchiveSearchTest {
         scripts.scan();
         pseudonyms = new PseudonymService(runtime, scripts, JSON, () -> AppGroups.NONE);
         search = new ArchiveSearch(properties, new AppRegistry(properties), archive, pseudonyms,
-            Clock.fixed(NOW, ZoneOffset.UTC));
+            user -> reload.apply(user), Clock.fixed(NOW, ZoneOffset.UTC));
 
         ArchiveFile file = archive.getOrCreate(meta("fp1", "host1", "digibib"));
         append(file, DAY1, """
@@ -252,6 +257,40 @@ class ArchiveSearchTest {
     }
 
     @Test
+    void reloadThatTakesRightsAwayDropsTheJob() throws Exception {
+        LogGuyUser user = user("digibib", Right.READ, Right.ARCHIVE);
+        ArchiveSearchJob plain = finished(search.start(user, owner(), new Pseudonyms(),
+            request("solr", false, null)));
+        assertTrue(plain.status().hits() > 0);
+        reload = before -> Optional.of(user("digibib", Right.READ, Right.ARCHIVE, Right.DELETE));
+        assertEquals(plain, search.job(owner(), plain.id()), "more rights keep the job");
+
+        reload = before -> Optional.of(user("digibib", Right.READ_PSEUDONYMIZED, Right.ARCHIVE));
+        NoSuchElementException dropped = assertThrows(NoSuchElementException.class,
+            () -> search.job(owner(), plain.id()));
+        assertTrue(dropped.getMessage().contains("Rechte"), dropped.getMessage());
+        assertEquals(List.of(), search.jobs(owner()));
+
+        LogGuyUser pseudonymized = user("digibib", Right.READ_PSEUDONYMIZED, Right.ARCHIVE);
+        ArchiveSearchJob kept = finished(search.start(pseudonymized, owner(), new Pseudonyms(),
+            request("solr", false, null)));
+        assertEquals(List.of(kept), search.jobs(owner()), "pseudonymized hits stay readable");
+
+        reload = before -> Optional.empty();
+        assertEquals(List.of(), search.jobs(owner()), "the user was removed");
+    }
+
+    @Test
+    void runningJobStopsWhenTheRightsAreGone() throws Exception {
+        reload = before -> Optional.of(user("rolf", Right.READ, Right.ARCHIVE));
+        ArchiveSearchJob job = finished(search.start(user("digibib", Right.READ, Right.ARCHIVE), owner(),
+            new Pseudonyms(), request("solr", false, null)));
+        assertEquals(State.CANCELLED, job.status().state());
+        assertEquals(0, job.status().hits());
+        assertTrue(job.status().message().contains("Rechte"), job.status().message());
+    }
+
+    @Test
     void jobsBelongToTheirOwner() throws Exception {
         LogGuyUser user = user("digibib", Right.READ, Right.ARCHIVE);
         ArchiveSearchJob job = finished(search.start(user, owner(), new Pseudonyms(), request("solr", false, null)));
@@ -270,7 +309,7 @@ class ArchiveSearchTest {
     void stopsAtTheHitLimit() throws Exception {
         search.close();
         search = new ArchiveSearch(properties(2), new AppRegistry(properties(2)), archive, pseudonyms,
-            Clock.fixed(NOW, ZoneOffset.UTC));
+            user -> reload.apply(user), Clock.fixed(NOW, ZoneOffset.UTC));
         ArchiveSearchJob job = finished(search.start(user("digibib", Right.READ, Right.ARCHIVE), owner(),
             new Pseudonyms(), request("2026", false, null)));
         assertEquals(State.LIMIT, job.status().state());

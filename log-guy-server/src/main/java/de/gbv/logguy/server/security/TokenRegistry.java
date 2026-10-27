@@ -62,6 +62,16 @@ public class TokenRegistry {
     }
 
     /**
+     * Looks up a token by its name, e.g. to check that a token used for a long running request is still configured.
+     *
+     * @param name the name of the token
+     * @return the configured token, if any
+     */
+    public Optional<TokenProperties> findByName(String name) {
+        return byHash.get().values().stream().filter(token -> token.name().equals(name)).findFirst();
+    }
+
+    /**
      * Hashes a token the way it is configured.
      *
      * @param token the token
