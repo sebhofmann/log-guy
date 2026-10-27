@@ -525,7 +525,7 @@ public class ReindexService implements AutoCloseable {
                     return;
                 }
             }
-            ParsedEvent parsed = EventDocuments.withPlausibleTime(parser.parse(event.text()));
+            ParsedEvent parsed = EventDocuments.withPlausibleTime(parser.parse(event.text(), lastTs));
             Instant ts = parsed.ts() != null ? parsed.ts() : lastTs;
             if (ts == null) {
                 return;

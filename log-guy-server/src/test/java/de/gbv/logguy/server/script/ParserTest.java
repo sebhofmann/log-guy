@@ -68,6 +68,49 @@ class ParserTest {
     }
 
     @Test
+    void repeatedHourAtTheEndOfDaylightSavingTimeFollowsTheFile() throws Exception {
+        List<String> lines;
+        try (java.io.InputStream in = ParserTest.class.getResourceAsStream("/logs/mycore-dst-end.log")) {
+            lines = new String(in.readAllBytes(), StandardCharsets.UTF_8).lines().toList();
+        }
+        List<Instant> times = new ArrayList<>();
+        try (Parser parser = new Parser(runtime, mycore)) {
+            Instant previous = null;
+            for (String line : lines) {
+                Instant ts = parser.parse(line, previous).ts();
+                times.add(ts);
+                previous = ts;
+            }
+            // without the previous event the earlier offset is taken
+            assertEquals(Instant.parse("2025-10-26T00:00:00Z"),
+                parser.parse("2025-10-26T02:00:00,000 INFO   MCRCronjobManager: x").ts());
+        }
+        for (int i = 1; i < times.size(); i++) {
+            assertFalse(times.get(i).isBefore(times.get(i - 1)), "ascending at line " + (i + 1));
+        }
+        assertEquals(Instant.parse("2025-10-26T00:59:47.839Z"), times.getFirst());
+        assertEquals(Instant.parse("2025-10-26T01:00:00Z"), times.get(14));
+        assertEquals(Instant.parse("2025-10-26T01:00:02.127Z"), times.getLast());
+    }
+
+    @Test
+    void smallStepsBackInTheRepeatedHourKeepTheEarlierOffset() {
+        TimeParser times = new TimeParser();
+        String format = "%Y-%m-%dT%H:%M:%S,%3f";
+        Instant previous = Instant.parse("2025-10-26T00:30:00.500Z");
+        assertEquals(Instant.parse("2025-10-26T00:30:00.400Z").toEpochMilli(),
+            times.parse("2025-10-26T02:30:00,400", format, "Europe/Berlin", previous));
+        assertEquals(Instant.parse("2025-10-26T01:00:00Z").toEpochMilli(),
+            times.parse("2025-10-26T02:00:00,000", format, "Europe/Berlin", Instant.parse("2025-10-26T00:59:58Z")));
+        assertEquals(Instant.parse("2025-10-26T01:59:59Z").toEpochMilli(),
+            times.parse("2025-10-26 02:59:59", "%Y-%m-%d %H:%M:%S", "Europe/Berlin",
+                Instant.parse("2025-10-26T01:59:58Z")));
+        // outside the repeated hour the previous event changes nothing
+        assertEquals(Instant.parse("2025-10-26T02:00:00Z").toEpochMilli(),
+            times.parse("2025-10-26T03:00:00,000", format, "Europe/Berlin", Instant.parse("2025-10-27T00:00:00Z")));
+    }
+
+    @Test
     void findsExceptionsInStackTraces() throws Exception {
         String event = """
             \u001b[1;31m2026-09-30T00:00:00,834 ERROR  MCRErrorServlet: /accesskey/set.xed: Error 500 occured.

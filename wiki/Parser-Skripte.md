@@ -37,6 +37,7 @@ log-guy stellt eingebaute Funktionen bereit. Reines JavaScript kann keine Zeitzo
 - Rückgabe: Millisekunden seit 1970 als Zahl, `null`, wenn der Text nicht passt. `parse` gibt sie als `ts` zurück.
 - Format mit `strftime`-Angaben: `%Y %m %d %H %M %S`, `%3f %6f %9f` für Sekundenbruchteile, `%b` für englische Monatskürzel, `%z` für einen Offset wie `+0200` und `%%`. Steht ein Offset im Text, gilt `zone` nicht.
 - `%Y-%m-%dT%H:%M:%S,%3f` und `%Y-%m-%d %H:%M:%S,%3f` werden ohne `DateTimeFormatter` direkt aus den Ziffern gelesen.
+- Ortszeit ohne Zone ist in der Stunde, die bei der Umstellung auf Winterzeit doppelt vorkommt, mehrdeutig. log-guy löst sie mit der Zeit des vorigen Events derselben Datei auf, die Zeilen einer Datei sind aufsteigend. Läge die Zeit mit dem früheren Offset vor dem vorigen Event und ist die mit dem späteren Offset näher daran, gilt der spätere. Die zweite Runde von 02:00 bis 02:59 landet so auf 01:00 bis 01:59 UTC. Kleine Rücksprünge zwischen Threads behalten den früheren Offset. Beginnt eine Datei erst in der zweiten Runde, fehlt das vorige Event, ihre Events dieser Stunde liegen dann eine Stunde zu früh. Geprüft mit `prod-logs/2025-10/mycore-app-10-26-2025-1.log.gz`: Die 8.723 Events der zweiten Runde liegen auf 01:00 bis 01:59 UTC, die Zeitstempel bleiben aufsteigend.
 
 `stripAnsi` und `findExceptions` in Java sind nicht nötig: Der handgeschriebene Parser erledigt beides in JavaScript, und mit JIT schafft er 141 MB/s.
 

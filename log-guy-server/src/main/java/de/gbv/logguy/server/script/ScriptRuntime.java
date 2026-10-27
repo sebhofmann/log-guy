@@ -2,6 +2,7 @@ package de.gbv.logguy.server.script;
 
 import java.io.OutputStream;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -45,6 +46,8 @@ public class ScriptRuntime implements AutoCloseable {
     private final Duration loadTimeout;
 
     private static final ThreadLocal<BinaryOperator<String>> PSEUDONYMS = new ThreadLocal<>();
+
+    private static final ThreadLocal<Instant> PREVIOUS_TIME = new ThreadLocal<>();
 
     private final TimeParser timeParser = new TimeParser();
 
@@ -92,7 +95,8 @@ public class ScriptRuntime implements AutoCloseable {
             if (args.length < 3 || !args[0].isString()) {
                 return null;
             }
-            return timeParser.parse(args[0].asString(), args[1].asString(), args[2].asString());
+            return timeParser.parse(args[0].asString(), args[1].asString(), args[2].asString(),
+                PREVIOUS_TIME.get());
         });
         Value bindings = context.getBindings(JS);
         bindings.putMember("maskIp", (ProxyExecutable) args -> TextFunctions.maskIp(text(args)));
@@ -115,6 +119,20 @@ public class ScriptRuntime implements AutoCloseable {
                 ? value.asString() : value.toString());
         });
         return context;
+    }
+
+    /**
+     * Sets the time of the previous event of the same file on this thread, {@code parseTime} resolves the repeated
+     * hour at the end of daylight saving time with it.
+     *
+     * @param previous the time, {@code null} to remove it
+     */
+    static void previousTime(Instant previous) {
+        if (previous == null) {
+            PREVIOUS_TIME.remove();
+        } else {
+            PREVIOUS_TIME.set(previous);
+        }
     }
 
     /**

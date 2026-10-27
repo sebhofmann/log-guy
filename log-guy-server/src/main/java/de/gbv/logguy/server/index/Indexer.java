@@ -451,7 +451,7 @@ public class Indexer implements AutoCloseable {
 
     private SolrInputDocument document(HotFile file, FileMeta meta, Parser parser, EventReader.RawEvent event,
         Cursor cursor, boolean provisional) throws ScriptException {
-        ParsedEvent parsed = EventDocuments.withPlausibleTime(parser.parse(event.text()));
+        ParsedEvent parsed = EventDocuments.withPlausibleTime(parser.parse(event.text(), cursor.lastTs));
         if (filters != null) {
             parsed = filterRunners.get().fields(meta.app(), meta.host(), parsed, parser.script(), fieldPlaceholder);
         }

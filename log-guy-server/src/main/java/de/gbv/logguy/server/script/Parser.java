@@ -88,29 +88,45 @@ public final class Parser implements AutoCloseable {
      * @return the result, with {@link ParsedEvent#error()} set if the script failed
      */
     public ParsedEvent parse(String text) {
-        return parse(text, null);
+        return parse(text, null, null);
+    }
+
+    /**
+     * Parses an event of a file.
+     *
+     * @param text the lines of the event, joined with {@code \n}
+     * @param previous time of the previous event of the same file, resolves local time in the hour that repeats when
+     *     daylight saving time ends, may be {@code null}
+     * @return the result, with {@link ParsedEvent#error()} set if the script failed
+     */
+    public ParsedEvent parse(String text, Instant previous) {
+        return parse(text, previous, null);
     }
 
     /**
      * Parses an event and collects the names the script returned without declaring them.
      *
      * @param text the lines of the event, joined with {@code \n}
+     * @param previous time of the previous event of the same file, may be {@code null}
      * @param undeclared receives returned names that are neither declared nor {@code ts} or {@code message}, may be
      *     {@code null}
      * @return the result, with {@link ParsedEvent#error()} set if the script failed
      */
-    public ParsedEvent parse(String text, Set<String> undeclared) {
+    public ParsedEvent parse(String text, Instant previous, Set<String> undeclared) {
         ScriptRuntime.Call call = runtime.start(context);
         Value result;
+        ScriptRuntime.previousTime(previous);
         try {
             result = parse.execute(text);
         } catch (PolyglotException e) {
             boolean timeout = runtime.end(call);
             if (e.isInterrupted() && !timeout) {
                 // the watchdog was late and hit the next call, try once more
-                return parse(text, undeclared);
+                return parse(text, previous, undeclared);
             }
             return failed(text, timeout ? "timeout" : e.getMessage());
+        } finally {
+            ScriptRuntime.previousTime(null);
         }
         runtime.end(call);
         try {

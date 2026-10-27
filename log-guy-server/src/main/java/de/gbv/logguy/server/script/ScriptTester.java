@@ -354,8 +354,10 @@ public class ScriptTester {
             byte[] data = String.join("\n", lines.lines()).concat("\n").getBytes(StandardCharsets.UTF_8);
             List<RawEvent> raw = new ArrayList<>(reader.feed(data, parser::isStart));
             raw.addAll(reader.tail(parser::isStart));
+            Instant previous = null;
             for (RawEvent rawEvent : raw) {
-                ParsedEvent parsed = parser.parse(rawEvent.text());
+                ParsedEvent parsed = parser.parse(rawEvent.text(), previous);
+                previous = parsed.ts() != null ? parsed.ts() : previous;
                 Map<String, Object> event = new LinkedHashMap<>();
                 event.put("app", app);
                 if (parsed.ts() != null) {
@@ -386,10 +388,12 @@ public class ScriptTester {
             List<RawEvent> raw = new ArrayList<>(reader.feed(data, parser::isStart));
             raw.addAll(reader.tail(parser::isStart));
             int[] lineStarts = lineStarts(data);
+            Instant previous = null;
             for (RawEvent event : raw) {
                 long start = System.nanoTime();
-                ParsedEvent parsed = parser.parse(event.text(), undeclared);
+                ParsedEvent parsed = parser.parse(event.text(), previous, undeclared);
                 nanos += System.nanoTime() - start;
+                previous = parsed.ts() != null ? parsed.ts() : previous;
                 if (lines.from() != null && parsed.ts() != null
                     && (parsed.ts().isBefore(lines.from()) || !parsed.ts().isBefore(lines.to()))) {
                     continue;

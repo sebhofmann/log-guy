@@ -1,6 +1,7 @@
 package de.gbv.logguy.server.script;
 
 import java.time.DateTimeException;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -21,6 +22,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * {@code %b} for English month abbreviations, {@code %z} for an offset like {@code +0200} and {@code %%}. Text with
  * an offset ignores {@code zone}. The common ISO form {@code %Y-%m-%dT%H:%M:%S,%3f} and {@code %Y-%m-%d %H:%M:%S,%3f}
  * are parsed without {@link DateTimeFormatter}.
+ * <p>
+ * Local time without offset is ambiguous in the hour that repeats when daylight saving time ends. It is resolved with
+ * the time of the previous event of the same file: lines of a file are in ascending order, so a time that would lie
+ * well before the previous event belongs to the second round and gets the later offset.
  */
 public final class TimeParser {
 
@@ -43,10 +48,23 @@ public final class TimeParser {
      * @return milliseconds since the epoch, or null if the text does not match
      */
     public Long parse(String text, String format, String zone) {
+        return parse(text, format, zone, null);
+    }
+
+    /**
+     * Parses a time stamp and resolves a local time in the repeated hour with the time of the previous event.
+     *
+     * @param text the text
+     * @param format the format, see class comment
+     * @param zone time zone for text without offset, e.g. {@code Europe/Berlin}
+     * @param previous time of the previous event of the same file, may be {@code null}
+     * @return milliseconds since the epoch, or null if the text does not match
+     */
+    public Long parse(String text, String format, String zone, Instant previous) {
         try {
             ZoneId zoneId = zones.computeIfAbsent(zone, ZoneId::of);
             if (ISO_COMMA.equals(format) || ISO_SPACE_COMMA.equals(format)) {
-                return parseIso(text, zoneId);
+                return parseIso(text, zoneId, previous);
             }
             TemporalAccessor parsed = formatters.computeIfAbsent(format, TimeParser::formatter).parse(text);
             LocalDateTime local = LocalDateTime.from(parsed);
@@ -54,13 +72,13 @@ public final class TimeParser {
                 return local.toInstant(java.time.ZoneOffset.ofTotalSeconds(parsed.get(ChronoField.OFFSET_SECONDS)))
                     .toEpochMilli();
             }
-            return ZonedDateTime.of(local, zoneId).toInstant().toEpochMilli();
+            return resolve(local, zoneId, previous);
         } catch (DateTimeException | IllegalArgumentException e) {
             return null;
         }
     }
 
-    private static Long parseIso(String text, ZoneId zone) {
+    private static Long parseIso(String text, ZoneId zone, Instant previous) {
         if (text.length() < ISO_LENGTH || text.charAt(4) != '-' || text.charAt(7) != '-' || text.charAt(13) != ':'
             || text.charAt(16) != ':' || text.charAt(19) != ',') {
             return null;
@@ -76,7 +94,26 @@ public final class TimeParser {
             return null;
         }
         LocalDateTime local = LocalDateTime.of(year, month, day, hour, minute, second, milli * 1_000_000);
-        return ZonedDateTime.of(local, zone).toInstant().toEpochMilli();
+        return resolve(local, zone, previous);
+    }
+
+    /**
+     * Converts a local time. In the repeated hour the earlier offset is taken, unless the later one is closer to the
+     * previous event and the earlier one lies before it. Small steps back between threads keep the earlier offset.
+     */
+    private static long resolve(LocalDateTime local, ZoneId zone, Instant previous) {
+        ZonedDateTime earlier = ZonedDateTime.of(local, zone);
+        long early = earlier.toInstant().toEpochMilli();
+        if (previous == null) {
+            return early;
+        }
+        ZonedDateTime later = earlier.withLaterOffsetAtOverlap();
+        if (later.getOffset().equals(earlier.getOffset())) {
+            return early;
+        }
+        long late = later.toInstant().toEpochMilli();
+        long before = previous.toEpochMilli();
+        return early < before && Math.abs(late - before) < Math.abs(early - before) ? late : early;
     }
 
     private static int digits(String text, int from, int count) {
