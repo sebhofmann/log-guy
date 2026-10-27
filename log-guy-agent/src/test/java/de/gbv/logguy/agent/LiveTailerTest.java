@@ -175,4 +175,24 @@ class LiveTailerTest {
             assertArrayEquals(Arrays.copyOfRange(sample, 20_000, 25_000), server.content(current));
         }
     }
+
+    @Test
+    void copytruncateIsSeenWhenTheFileGrewBeyondTheOldPosition() throws Exception {
+        Path live = dir.resolve("access.log");
+        try (LiveTailer tailer = tailer(live)) {
+            append(live, 0, 10_000);
+            tailer.poll();
+            String old = Fingerprint.of(sample);
+            assertArrayEquals(Arrays.copyOf(sample, 10_000), server.content(old));
+
+            // log-guy is not reachable while logrotate truncates and the file grows again
+            Files.copy(live, dir.resolve("access.log.1"));
+            Files.write(live, new byte[0], StandardOpenOption.TRUNCATE_EXISTING);
+            append(live, 20_000, 32_000);
+            tailer.poll();
+            assertArrayEquals(Arrays.copyOf(sample, 10_000), server.content(old), "no foreign bytes in the old stream");
+            byte[] fresh = Arrays.copyOfRange(sample, 20_000, 32_000);
+            assertArrayEquals(fresh, server.content(Fingerprint.of(fresh)));
+        }
+    }
 }

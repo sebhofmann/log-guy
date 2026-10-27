@@ -11,6 +11,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 
@@ -26,8 +27,10 @@ import de.gbv.logguy.common.StreamStatus;
  * The open file handle keeps pointing to the same inode. When the path points to another inode, the file was rotated
  * and the new file is opened. The old file stays open: a process may still write to it until it reopens its log, e.g.
  * Apache httpd until the reload after {@code logrotate}. Its stream is closed once it has not grown for
- * {@code rotation-grace}. A file that became shorter was truncated in place ({@code copytruncate}), a new stream starts
- * at offset 0. The copy belongs to the old stream and comes with the rotated files.
+ * {@code rotation-grace}. A file that became shorter or whose first bytes changed was truncated in place
+ * ({@code copytruncate}), a new stream starts at offset 0. The first bytes are compared with every poll, because the
+ * truncated file may have grown beyond the old position until the next poll, e.g. while the server was not reachable.
+ * The copy belongs to the old stream and comes with the rotated files.
  */
 public class LiveTailer implements AutoCloseable {
 
@@ -120,9 +123,11 @@ public class LiveTailer implements AutoCloseable {
             }
         }
         long size = current.channel.size();
-        if (size < current.position) {
-            LOGGER.info("{} was truncated from {} to {} bytes, starting a new stream", path, current.position, size);
+        if (size < current.position || !samePrefix(current, size)) {
+            LOGGER.info("{} was truncated, {} bytes sent before, {} bytes now, starting a new stream", path,
+                current.position, size);
             current.fingerprint = null;
+            current.prefix = null;
             current.position = 0;
             current.finished = false;
         }
@@ -213,11 +218,28 @@ public class LiveTailer implements AutoCloseable {
             // read until the prefix is complete
         }
         file.fingerprint = Fingerprint.of(prefix.array(), prefix.position());
+        file.prefix = Arrays.copyOf(prefix.array(), prefix.position());
         StreamStatus status = client.status(file.fingerprint).orElse(new StreamStatus(file.fingerprint, 0, false));
         file.position = status.length();
         file.finished = status.closed();
         LOGGER.info("following {} as stream {} from offset {}", path, file.fingerprint, file.position);
         return true;
+    }
+
+    /**
+     * Compares the first bytes of the file with those of its stream.
+     *
+     * @return false if the file starts differently now
+     */
+    private static boolean samePrefix(Followed file, long size) throws IOException {
+        if (file.prefix == null) {
+            return true;
+        }
+        ByteBuffer now = ByteBuffer.allocate((int) Math.min(size, file.prefix.length));
+        while (now.hasRemaining() && file.channel.read(now, now.position()) > 0) {
+            // read until the prefix is complete
+        }
+        return Arrays.equals(file.prefix, 0, now.position(), now.array(), 0, now.position());
     }
 
     private void sendUntil(Followed file, long size) throws IOException, InterruptedException {
@@ -271,6 +293,8 @@ public class LiveTailer implements AutoCloseable {
         private final Object inode;
 
         private String fingerprint;
+
+        private byte[] prefix;
 
         private long position;
 
