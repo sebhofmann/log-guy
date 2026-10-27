@@ -32,6 +32,7 @@ import de.gbv.logguy.server.config.LogGuyProperties.ReindexProperties;
 import de.gbv.logguy.server.hot.FileMeta;
 import de.gbv.logguy.server.hot.HotFile;
 import de.gbv.logguy.server.hot.HotStore;
+import de.gbv.logguy.server.index.DocumentBatches;
 import de.gbv.logguy.server.index.EventDocuments;
 import de.gbv.logguy.server.index.EventReader;
 import de.gbv.logguy.server.index.EventReader.RawEvent;
@@ -524,7 +525,7 @@ public class ReindexService implements AutoCloseable {
                     return;
                 }
             }
-            ParsedEvent parsed = parser.parse(event.text());
+            ParsedEvent parsed = EventDocuments.withPlausibleTime(parser.parse(event.text()));
             Instant ts = parsed.ts() != null ? parsed.ts() : lastTs;
             if (ts == null) {
                 return;
@@ -550,7 +551,7 @@ public class ReindexService implements AutoCloseable {
 
         private void flush() throws Exception {
             if (!batch.isEmpty()) {
-                sink.add(batch);
+                DocumentBatches.add(sink, batch);
                 job.progress(0, batch.size());
                 batch.clear();
             }

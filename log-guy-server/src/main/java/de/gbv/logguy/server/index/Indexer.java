@@ -417,7 +417,8 @@ public class Indexer implements AutoCloseable {
 
     private void send(List<SolrInputDocument> batch, Cursor cursor, long offset, boolean done) throws Exception {
         if (!batch.isEmpty()) {
-            sink.add(batch);
+            // an invalid document is indexed with fields left out, it must not hold the file at this offset
+            DocumentBatches.add(sink, batch);
             events.addAndGet(batch.size());
         }
         batch.clear();
@@ -450,16 +451,12 @@ public class Indexer implements AutoCloseable {
 
     private SolrInputDocument document(HotFile file, FileMeta meta, Parser parser, EventReader.RawEvent event,
         Cursor cursor, boolean provisional) throws ScriptException {
-        ParsedEvent parsed = parser.parse(event.text());
+        ParsedEvent parsed = EventDocuments.withPlausibleTime(parser.parse(event.text()));
         if (filters != null) {
             parsed = filterRunners.get().fields(meta.app(), meta.host(), parsed, parser.script(), fieldPlaceholder);
         }
         Instant ts = parsed.ts() != null ? parsed.ts() : cursor.lastTs;
         cursor.lastTs = ts;
-        if (parsed.error() != null) {
-            parseErrors.incrementAndGet();
-            parseErrorsByApp.computeIfAbsent(meta.app(), app -> new AtomicLong()).incrementAndGet();
-        }
         String id = EventDocuments.hotId(meta.fingerprint(), event.offset());
         if (checker != null && event.offset() >= cursor.checked) {
             Set<String> before = cursor.provisionalMatches.getOrDefault(event.offset(), Set.of());
@@ -475,8 +472,13 @@ public class Indexer implements AutoCloseable {
                 cursor.checked = event.offset() + 1;
             }
         }
-        return EventDocuments.create(id, meta.app(), meta.host(), file.relativePath(), event.offset(), ts, parsed,
-            parser.script());
+        SolrInputDocument doc = EventDocuments.create(id, meta.app(), meta.host(), file.relativePath(),
+            event.offset(), ts, parsed, parser.script());
+        if (doc.containsKey("parse_error")) {
+            parseErrors.incrementAndGet();
+            parseErrorsByApp.computeIfAbsent(meta.app(), app -> new AtomicLong()).incrementAndGet();
+        }
+        return doc;
     }
 
     private IndexState loadState(String fingerprint, HotFile file) {
@@ -521,7 +523,9 @@ public class Indexer implements AutoCloseable {
          * Adds or replaces documents.
          *
          * @param documents the documents
-         * @throws Exception if they cannot be stored, the indexer tries again later
+         * @throws DocumentsRejectedException if a document is invalid, the indexer then finds it with
+         *     {@link DocumentBatches} and stores it with fields left out
+         * @throws Exception if they cannot be stored for other reasons, the indexer tries again later
          */
         void add(List<SolrInputDocument> documents) throws Exception;
 

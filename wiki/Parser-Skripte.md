@@ -175,6 +175,8 @@ Die Logformate der Anwendungen, die bisher bekannt sind, decken die Vorlagen ab:
 - Die Contexts laufen mit `SandboxPolicy.CONSTRAINED`: kein Datei-, Netz- oder Java-Zugriff, keine Threads, Ausgaben werden verworfen.
 - Ein Speicherlimit pro Context (`sandbox.MaxHeapMemory`) gibt es nur in Oracle GraalVM, nicht in der Community-Fassung. Läuft ein Skript über, meldet GraalJS das als `isResourceExhausted`, der Heap ist dann aber für alle knapp. Schutz bieten das Zeitlimit und die Grenze für die Eventgröße.
 - Liefert `parse` keinen Zeitstempel, nimmt log-guy den des vorigen Events, am Dateianfang die Empfangszeit aus der `.meta.json`.
+- Ein unplausibler Zeitstempel außerhalb der Jahre 0000 bis 9999, etwa eine falsch gelesene Zahl, zählt wie ein Parse-Fehler: log-guy nimmt wie oben den vorigen Zeitstempel oder die Empfangszeit, behält die Felder und schreibt `implausible ts: …` in `parse_error`.
+- Werte von `string` und `strings` werden auf 32766 Bytes gekürzt, die Grenze eines Terms in Lucene, siehe [Solr-Verwaltung](Solr-Verwaltung.md#schema). Lange Texte wie URLs mit vielen Parametern gehören deshalb besser in `text`.
 - Wirft das Skript einen Fehler oder läuft es zu lange, wird das Event nur mit `message` und dem Feld `parse_error` indexiert und auf der Status-Seite gezählt. Ein Fehler in `isStart` zählt als Beginn eines Events, damit ein kaputtes Skript nicht die ganze Datei zu einem Event macht.
 - Regex-Dialekt: In allen Skripten gelten JavaScript-Ausdrücke. Nur die Archivsuche nutzt RE2/J, das in linearer Zeit arbeitet. Die üblichen Muster funktionieren in beiden gleich, Lookaround und Rückverweise gibt es nur in JavaScript. Langsames Backtracking im Skript fängt das Zeitlimit ab.
 

@@ -91,7 +91,7 @@ Feste Felder:
 | `ts` | Datum | Zeitpunkt, Zeitleiste, Aufbewahrung |
 | `message` | Text, gespeichert | Volltext und Anzeige |
 | `parser_version` | string | kurzer Hash des Parser-Skripts |
-| `parse_error` | string | Fehler des Parser-Skripts, sonst leer |
+| `parse_error` | string | Fehler des Parser-Skripts, gekürzte oder weggelassene Felder, sonst leer |
 | `expires` | Datum | Ablaufdatum nachgeladener älterer Zeiträume |
 
 Dynamische Felder für alles aus den Parser-Skripten:
@@ -103,6 +103,8 @@ Dynamische Felder für alles aus den Parser-Skripten:
 | `*_dt` | Datum |
 | `*_b` | bool |
 | `*_t` | Text, Volltext |
+
+Ein Wert eines string-Feldes ist in Lucene ein einziger Term, und ein Term darf höchstens 32766 Bytes UTF-8 lang sein. Ein längerer Wert lässt Solr den ganzen Request mit Status 400 ablehnen („immense term“). Deshalb kürzt `EventDocuments` vor dem Indexieren alle Werte von `app`, `host`, `file`, `parser_version`, `parse_error`, `*_s` und `*_ss` auf höchstens 32766 Bytes, ohne ein Zeichen zu zerteilen, und vermerkt die gekürzten Felder in `parse_error`, z.B. `cut to 32766 bytes: path_s, referer_s`. `message` und `*_t` werden zerlegt und bleiben ungekürzt, sie enthalten die ganze Zeile. Datumswerte außerhalb der Jahre 0000 bis 9999 fallen weg und stehen ebenfalls in `parse_error`. Lehnt Solr trotzdem ein Dokument ab, greift die Halbierung des Batches aus [Speicherung](Speicherung.md#indexer).
 
 Alle außer `message` und `*_t` haben DocValues für Facetten und Sortierung. Gespeichert sind nur `id`, `message` und `*_t`, die übrigen Werte liefert Solr in Ergebnissen aus den DocValues. Das Schema ist fest (`ClassicIndexSchemaFactory`), Solr legt keine Felder selbst an. `message` wird mit dem Standard-Tokenizer zerlegt und klein geschrieben.
 

@@ -28,6 +28,7 @@ import org.apache.solr.client.solrj.request.GenericSolrRequest;
 import org.apache.solr.client.solrj.response.CollectionAdminResponse;
 import org.apache.solr.client.solrj.util.ClientUtils;
 import org.apache.solr.common.SolrDocumentList;
+import org.apache.solr.common.SolrException;
 import org.apache.solr.common.SolrInputDocument;
 import org.apache.solr.common.cloud.DocCollection;
 import org.apache.solr.common.cloud.Replica;
@@ -39,6 +40,7 @@ import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 
 import de.gbv.logguy.server.config.LogGuyProperties.SolrProperties;
+import de.gbv.logguy.server.index.DocumentsRejectedException;
 import de.gbv.logguy.server.index.Indexer.DocumentSink;
 
 /**
@@ -90,12 +92,32 @@ public class SolrService implements DocumentSink, AutoCloseable {
      * Adds documents to the alias. Visible after the next soft commit of the collection.
      *
      * @param documents the documents
+     * @throws DocumentsRejectedException if Solr answers with status 400, i.e. a document is invalid
      * @throws IOException on network errors
      * @throws SolrServerException on errors reported by Solr
      */
     @Override
-    public void add(List<SolrInputDocument> documents) throws IOException, SolrServerException {
-        client.add(properties.alias(), documents);
+    public void add(List<SolrInputDocument> documents)
+        throws DocumentsRejectedException, IOException, SolrServerException {
+        try {
+            client.add(properties.alias(), documents);
+        } catch (SolrException | SolrServerException e) {
+            SolrException bad = badRequest(e);
+            if (bad != null) {
+                throw new DocumentsRejectedException(bad.getMessage(), e);
+            }
+            throw e;
+        }
+    }
+
+    // the status 400 of Solr, possibly wrapped by the client
+    private static SolrException badRequest(Throwable error) {
+        for (Throwable t = error; t != null; t = t.getCause()) {
+            if (t instanceof SolrException solr && solr.code() == SolrException.ErrorCode.BAD_REQUEST.code) {
+                return solr;
+            }
+        }
+        return null;
     }
 
     /**
