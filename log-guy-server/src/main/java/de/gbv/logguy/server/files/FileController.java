@@ -47,9 +47,10 @@ import de.gbv.logguy.server.security.CurrentUser;
 import de.gbv.logguy.server.security.LogGuyUser;
 
 /**
- * The API of the log browser. Listing files and reading the archived form needs the right {@code archive} and read
- * access to the application, pseudonymized readers see pseudonymized lines. The original in {@code hot/} is
- * unfiltered and only for {@code admin}, a download needs plain read access. Deleting needs {@code delete}.
+ * The API of the log browser. Listing files and reading the archived form needs the right {@code archive} and
+ * {@code read} or {@code read_pseudonymized} for the application, pseudonymized readers see pseudonymized lines.
+ * The original in {@code hot/} is unfiltered and only for {@code admin}, a download needs plain read access.
+ * Deleting needs {@code delete}.
  */
 @RestController
 @RequestMapping("/api/v1/files")
@@ -313,8 +314,9 @@ public class FileController {
         return entry;
     }
 
+    // read_pseudonymized is enough for the archived form, the lines are then pseudonymized, see lines()
     private static boolean visible(LogGuyUser user, String app) {
-        return user.may(Right.ARCHIVE, app) && user.mayRead(app);
+        return user.may(Right.ARCHIVE, app) && user.asPseudonymized().mayRead(app);
     }
 
     private static void checkVisible(LogGuyUser user, String app) {
