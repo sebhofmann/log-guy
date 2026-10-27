@@ -26,7 +26,10 @@ class TextFunctionsTest {
     @Test
     void masksIps() {
         assertEquals("203.0.113.0", TextFunctions.maskIp("203.0.113.12"));
-        assertEquals("2001:db8:85a3::", TextFunctions.maskIp("2001:0db8:85a3:0000:0000:8a2e:0370:7334"));
+        assertEquals("2001:db8::", TextFunctions.maskIp("2001:0db8:85a3:0000:0000:8a2e:0370:7334"));
+        assertEquals("2001:638::", TextFunctions.maskIp("2001:638:1:2::17"));
+        assertEquals("::ffff:10.0.0.0", TextFunctions.maskIp("::ffff:10.0.0.1"));
+        assertEquals("64:ff9b::192.0.2.0", TextFunctions.maskIp("64:ff9b::192.0.2.33"));
         assertEquals("kein", TextFunctions.maskIp("kein"));
     }
 

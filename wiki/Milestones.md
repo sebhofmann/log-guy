@@ -67,7 +67,7 @@ Die Pseudonymisierung gehört in diesen Milestone, weil alles, was den MCP-Endpu
 - [x] Ältere Zeiträume nachindexieren mit Ablaufdatum
 - [x] Neuindexierung im Index-Fenster nach einer Skriptänderung, `log-guy reindex`, Angebot im Skript-Editor nach dem Aktivieren
 - [ ] Pseudonymisierung im Archiv mit Schlüssel pro Datei und `log-guy archive pseudonymize` nach geänderten Regeln, siehe [Lifecycle-Filter](Lifecycle-Filter.md#pseudonymisierung-im-archiv)
-- [ ] `maskIp` kürzt IPv6 auf `/32` statt `/48`
+- [x] `maskIp` kürzt IPv6 auf `/32` statt `/48`
 
 ### M5 Meldungen
 

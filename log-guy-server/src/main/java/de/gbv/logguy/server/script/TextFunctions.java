@@ -71,7 +71,8 @@ public final class TextFunctions {
     }
 
     /**
-     * Shortens every IP address: IPv4 to the first three octets with a zero, IPv6 to the first 48 bits.
+     * Shortens every IP address: IPv4 to the first three octets with a zero, IPv6 to the first 32 bits, the block of a
+     * provider. An IPv4 address embedded in IPv6 is shortened like IPv4.
      *
      * @param text the text, may be {@code null}
      * @return the new text
@@ -218,11 +219,10 @@ public final class TextFunctions {
     }
 
     private static String mask(String ip) {
-        if (ip.indexOf(':') < 0) {
+        if (ip.indexOf('.') >= 0) {
             return ip.substring(0, ip.lastIndexOf('.')) + ".0";
         }
         int[] words = expand(ip);
-        return Integer.toHexString(words[0]) + ":" + Integer.toHexString(words[1]) + ":"
-            + Integer.toHexString(words[2]) + "::";
+        return Integer.toHexString(words[0]) + ":" + Integer.toHexString(words[1]) + "::";
     }
 }

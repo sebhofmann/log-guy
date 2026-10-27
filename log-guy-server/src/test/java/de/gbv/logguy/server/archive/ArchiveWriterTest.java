@@ -172,7 +172,7 @@ class ArchiveWriterTest {
             ArchiveFile target = archive.find(file.fingerprint()).orElseThrow();
             String content = new String(readAll(target), StandardCharsets.UTF_8);
             assertEquals(expected(sample), content);
-            assertTrue(content.contains("request from 192.0.2.0 and 2001:db8:1::"), content);
+            assertTrue(content.contains("request from 192.0.2.0 and 2001:db8::"), content);
             assertFalse(content.contains("192.0.2.123"));
 
             ArchiveMeta meta = target.meta();
@@ -310,7 +310,7 @@ class ArchiveWriterTest {
             }
             ArchiveFile after = archive.find(file.fingerprint()).orElseThrow();
             String content = new String(readAll(after), StandardCharsets.UTF_8);
-            assertTrue(content.contains("request from 192.0.2.0 and 2001:db8:1:: [geprüft]\n"), content);
+            assertTrue(content.contains("request from 192.0.2.0 and 2001:db8:: [geprüft]\n"), content);
             assertFalse(content.contains("zurückgehalten"));
             assertEquals(0, after.meta().filterErrors());
             assertTrue(after.meta().closed());
