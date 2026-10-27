@@ -91,6 +91,28 @@ class ConfigCheckerTest {
     }
 
     @Test
+    void tokenMistakesThatBreakOperation() {
+        String hash = "$argon2id$v=19$m=16384,t=2,p=1$c2FsdA$aGFzaA";
+        List<UserProperties> users = List.of(new UserProperties("anna", hash,
+            List.of(new GrantProperties(List.of("digi*"), Set.of(Right.READ)))));
+        String ingest = TokenRegistry.hash(TokenRegistry.generate(TokenKind.INGEST));
+        String api = TokenRegistry.hash(TokenRegistry.generate(TokenKind.API));
+        List<String> errors = ConfigChecker.check(properties(List.of(
+            new TokenProperties("no-host", TokenKind.INGEST, null, List.of("digibib"), null, ingest, false),
+            new TokenProperties("typo", TokenKind.INGEST, "app2", List.of("digibip"), null, api, false),
+            new TokenProperties("twice", TokenKind.API, null, null, "anna", api, false),
+            new TokenProperties("anna-api", TokenKind.API, null, List.of("digibib", "leo*"), "anna",
+                TokenRegistry.hash(TokenRegistry.generate(TokenKind.API)), false),
+            new TokenProperties("anna-mcp", TokenKind.MCP, null, List.of("digi*"), "anna",
+                TokenRegistry.hash(TokenRegistry.generate(TokenKind.MCP)), false)),
+            users));
+        assertEquals(List.of("token no-host: ingest token needs a valid host",
+            "token typo: application digibip is not configured under log-guy.apps",
+            "token twice: hash used twice",
+            "token anna-api: pattern leo* matches no application"), errors);
+    }
+
+    @Test
     void retentionCron() {
         for (String cron : List.of("0 30 2 * * *", "-")) {
             assertEquals(List.of(), ConfigChecker.check(retention(cron)), cron);

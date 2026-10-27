@@ -37,6 +37,8 @@ class StreamControllerTest {
     static void properties(DynamicPropertyRegistry registry) {
         registry.add("log-guy.data-dir", dataDir::toString);
         registry.add("log-guy.indexer.enabled", () -> "false");
+        registry.add("log-guy.apps.digibib.parser", () -> "mycore-log4j");
+        registry.add("log-guy.apps.digibib-apache.index-days", () -> "7");
         registry.add("log-guy.tokens[0].name", () -> "agent-app1");
         registry.add("log-guy.tokens[0].kind", () -> "ingest");
         registry.add("log-guy.tokens[0].host", () -> "app1");

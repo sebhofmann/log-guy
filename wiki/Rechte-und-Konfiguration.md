@@ -75,7 +75,7 @@ log-guy:
 
 - `log-guy token create --kind ingest --name agent-app1 --host app1 --apps digibib,digibib-apache` erzeugt ein Token, zeigt es einmal an und gibt den Eintrag für `application.yml` mit dem Hash aus. Eintragen muss ihn der Mensch selbst, denn ein Programm, das die YAML-Datei umschreibt, würde Kommentare und Reihenfolge zerstören.
 - Tokens beginnen mit `lg_<art>_`, z.B. `lg_ingest_...`, danach 32 Zufallsbytes in Base64. Konfiguriert ist nur `sha256:<hex>` des ganzen Tokens.
-- `log-guy check` prüft die Tokens: Name eindeutig, Hash im richtigen Format, Ingest-Tokens mit Host und Anwendungen, die unter `log-guy.apps` stehen.
+- `log-guy check` prüft die Tokens: Name eindeutig, Hash im richtigen Format und eindeutig, Ingest-Tokens mit Host und Anwendungen, die unter `log-guy.apps` stehen. Jedes Muster in `apps` eines `api`- oder `mcp`-Tokens trifft mindestens eine Anwendung.
 - Passwörter werden mit Argon2id gehasht, mit den Parametern von Spring Security. `log-guy password hash --name anna` liest das Passwort ohne Echo vom Terminal oder als erste Zeile von stdin und gibt den Eintrag für `log-guy.users` aus.
 - `log-guy check` prüft auch die Nutzer: Name eindeutig, Hash im Argon2id-Format, jedes Muster und jede Gruppe einer Freigabe trifft mindestens eine Anwendung, Gruppennamen sind gültig, `api`- und `mcp`-Tokens gehören zu einem konfigurierten Nutzer.
 - `admin` auf eine Anwendung schließt alle anderen Rechte für sie ein. Administrator von log-guy selbst, also Status, Server-Log und Log-Level, ist, wer `admin` mit `apps: ["*"]` hat.
@@ -84,6 +84,8 @@ log-guy:
 - `read_pseudonymized` gilt auch in GUI und API. Suche, Zeitleiste, Facetten und Kontext laufen dann durch dieselbe Pseudonymisierung wie beim MCP, mit den Pseudonymen der GUI-Session. Ein API-Token bekommt bei jeder Anfrage neue Pseudonyme. Wer für eine Anwendung `read` und für eine andere nur `read_pseudonymized` hat, sieht eine Suche über beide ganz pseudonymisiert und nur eine Suche über Anwendungen mit `read` im Klartext. Das ist einfacher und sicherer als eine Mischung pro Event, weil Facetten und Zeitleiste zu keiner einzelnen Anwendung gehören. `/api/v1/fields` nennt diese Anwendungen unter `pseudonymized`, die GUI markiert sie und die Suche mit „pseudonymisiert“.
 - Skript-Tests gegen Daten einer Anwendung brauchen in GUI und API `read`, denn sie zeigen die Zeilen im Klartext.
 - Änderungen an Anwendungen, Nutzern und Tokens übernimmt log-guy ohne Neustart nach `log-guy reload`. Alle anderen Änderungen prüft der Reload ebenfalls, sie wirken aber erst nach einem Neustart, siehe [Skripte](Skript-Verwaltung.md).
+- Dieselbe Prüfung läuft beim Start des Servers. Findet sie Fehler, bricht der Start mit allen Fehlern im Log ab, wie bei fehlerhaften Parsern. Ein Tippfehler fällt so sofort auf und nicht erst als 500 oder 401 im Betrieb.
+- Der Reload prüft zusätzlich, ob die neue Konfiguration plausibel ist. Er lehnt sie ab, wenn sie keine Anwendungen, keine Nutzer oder keine Tokens mehr enthält, die laufende aber welche hat, und wenn kein Administrator (`admin` für `apps: ["*"]`) übrig bliebe, die laufende aber einen hat. Das schützt vor einer kurz geleerten oder halb geschriebenen `application.yml`. Wie jeder fehlgeschlagene Reload antwortet er mit 422 und übernimmt nichts. Wer wirklich alle Nutzer oder Tokens entfernen will, startet den Server mit der neuen Konfiguration neu.
 
 ### GUI-Anmeldung
 

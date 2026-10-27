@@ -22,6 +22,7 @@ import org.springframework.core.env.StandardEnvironment;
 import de.gbv.logguy.server.audit.Actor;
 import de.gbv.logguy.server.audit.AuditLog;
 import de.gbv.logguy.server.config.LogGuyProperties.AppProperties;
+import de.gbv.logguy.server.config.LogGuyProperties.Right;
 import de.gbv.logguy.server.script.ScriptService;
 import de.gbv.logguy.server.script.ScriptService.ReloadResult;
 import de.gbv.logguy.server.script.ScriptStore.ScriptId;
@@ -30,8 +31,9 @@ import de.gbv.logguy.server.security.UserRegistry;
 
 /**
  * Reads {@code application.yml} and the scripts again while the server runs, like {@code nginx -s reload}. Everything
- * is checked first, nothing changes if there is an error. Applications, users and tokens take effect at once, all
- * other settings only after a restart.
+ * is checked first, nothing changes if there is an error. A configuration without applications, users, tokens or
+ * administrator is rejected while the running one has them, see {@link #plausibility}. Applications, users and
+ * tokens take effect at once, all other settings only after a restart.
  */
 public class ConfigReloader {
 
@@ -58,6 +60,9 @@ public class ConfigReloader {
 
     private final AuditLog audit;
 
+    /** The configuration of applications, users and tokens that is in effect now. */
+    private volatile LogGuyProperties current;
+
     /**
      * Creates the reloader.
      *
@@ -79,6 +84,7 @@ public class ConfigReloader {
         this.users = users;
         this.scripts = scripts;
         this.audit = audit;
+        this.current = started;
     }
 
     /**
@@ -105,7 +111,8 @@ public class ConfigReloader {
             log(actor, "*", report);
             return report;
         }
-        List<String> errors = ConfigChecker.check(properties);
+        List<String> errors = new ArrayList<>(ConfigChecker.check(properties));
+        errors.addAll(plausibility(current, properties));
         if (!errors.isEmpty()) {
             Report report = Report.failed(List.of(), errors);
             log(actor, "*", report);
@@ -120,10 +127,46 @@ public class ConfigReloader {
         }
         tokens.update(properties.tokens());
         users.update(properties.users());
+        current = properties;
         Report report = new Report(true, result.changed(), changedApps, restartNeeded(started, properties),
             List.of());
         log(actor, "*", report);
         return report;
+    }
+
+    /**
+     * Guards against a configuration that is valid but obviously incomplete, e.g. an emptied or half written
+     * {@code application.yml}. Applications, users and tokens may not vanish completely, and the last administrator
+     * may not be removed, as long as the running configuration has them. Such a configuration only takes effect
+     * with a restart of the server.
+     *
+     * @param before the configuration in effect now
+     * @param after the new configuration
+     * @return the reasons to reject the new configuration, in German for the operator
+     */
+    static List<String> plausibility(LogGuyProperties before, LogGuyProperties after) {
+        List<String> errors = new ArrayList<>();
+        if (!before.apps().isEmpty() && after.apps().isEmpty()) {
+            errors.add("Konfiguration: keine Anwendungen mehr unter log-guy.apps, laufend sind es "
+                + before.apps().size() + ". Nichts übernommen.");
+        }
+        if (!before.users().isEmpty() && after.users().isEmpty()) {
+            errors.add("Konfiguration: keine Nutzer mehr unter log-guy.users, laufend sind es "
+                + before.users().size() + ". Nichts übernommen.");
+        }
+        if (!before.tokens().isEmpty() && after.tokens().isEmpty()) {
+            errors.add("Konfiguration: keine Tokens mehr unter log-guy.tokens, laufend sind es "
+                + before.tokens().size() + ". Nichts übernommen.");
+        }
+        if (hasAdmin(before) && !hasAdmin(after)) {
+            errors.add("Konfiguration: kein Administrator mehr (Recht admin für apps [\"*\"]). Nichts übernommen.");
+        }
+        return errors;
+    }
+
+    private static boolean hasAdmin(LogGuyProperties properties) {
+        return properties.users().stream().flatMap(user -> user.grants().stream())
+            .anyMatch(grant -> grant.rights().contains(Right.ADMIN) && grant.apps().contains("*"));
     }
 
     /**

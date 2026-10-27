@@ -47,6 +47,7 @@ public final class ConfigChecker {
                 }
             }
         });
+        AppGroups groups = AppGroups.of(properties.apps());
         Set<String> names = new HashSet<>();
         Set<String> hashes = new HashSet<>();
         for (TokenProperties token : properties.tokens()) {
@@ -82,6 +83,13 @@ public final class ConfigChecker {
             } else if (token.kind() != null
                 && properties.users().stream().noneMatch(user -> token.user().equals(user.name()))) {
                 errors.add(label + ": user " + token.user() + " is not configured under log-guy.users");
+            }
+            if (token.kind() != null && token.kind() != TokenKind.INGEST && token.apps() != null) {
+                for (String pattern : token.apps()) {
+                    if (properties.apps().keySet().stream().noneMatch(app -> groups.matches(pattern, app))) {
+                        errors.add(label + ": pattern " + pattern + " matches no application");
+                    }
+                }
             }
         }
         checkUsers(properties, errors);

@@ -38,8 +38,9 @@ import de.gbv.logguy.server.archive.search.ArchiveSearch;
 import de.gbv.logguy.server.archive.ArchiveWriter;
 import de.gbv.logguy.server.archive.LifecycleFilters;
 import de.gbv.logguy.server.audit.AuditLog;
-import de.gbv.logguy.server.config.ConfigReloader;
 import de.gbv.logguy.server.config.AppRegistry;
+import de.gbv.logguy.server.config.ConfigChecker;
+import de.gbv.logguy.server.config.ConfigReloader;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.hot.HotStore;
 import de.gbv.logguy.server.index.Indexer;
@@ -70,6 +71,20 @@ import tools.jackson.databind.json.JsonMapper;
 @Profile("!" + LogGuyApplication.CLI_PROFILE)
 @EnableScheduling
 public class ServerConfig {
+
+    /**
+     * Checks the configuration before any part of the server starts, an error aborts the start. This catches typos
+     * and missing settings at once and not only in operation, like {@code log-guy check} and a reload do.
+     *
+     * @param properties configuration
+     * @throws IllegalStateException if the configuration has errors
+     */
+    public ServerConfig(LogGuyProperties properties) {
+        List<String> errors = ConfigChecker.check(properties);
+        if (!errors.isEmpty()) {
+            throw new IllegalStateException("configuration has errors: " + String.join("; ", errors));
+        }
+    }
 
     /**
      * The hot storage.
