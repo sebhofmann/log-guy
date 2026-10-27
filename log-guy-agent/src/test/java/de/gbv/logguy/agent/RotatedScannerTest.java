@@ -130,6 +130,51 @@ class RotatedScannerTest {
     }
 
     @Test
+    void brokenGzipDoesNotStopTheScan() throws Exception {
+        byte[] first = Arrays.copyOfRange(sample, 0, 50_000);
+        byte[] second = Arrays.copyOfRange(sample, 50_000, 100_000);
+        byte[] third = Arrays.copyOfRange(sample, 100_000, 150_000);
+        byte[] fourth = Arrays.copyOfRange(sample, 150_000, 200_000);
+        gzip(dir.resolve("mycore-app-10-01-2026-1.log.gz"), first);
+        Path truncated = dir.resolve("mycore-app-10-02-2026-1.log.gz");
+        gzip(truncated, second);
+        byte[] compressed = Files.readAllBytes(truncated);
+        Files.write(truncated, Arrays.copyOf(compressed, compressed.length / 2));
+        Path noGzip = dir.resolve("mycore-app-10-03-2026-1.log.gz");
+        Files.write(noGzip, third);
+        gzip(dir.resolve("mycore-app-10-04-2026-1.log.gz"), fourth);
+
+        RotatedScanner scanner = scanner(dir + "/mycore-app-*.log.gz");
+        scanner.scan();
+        assertArrayEquals(first, server.content(Fingerprint.of(first)));
+        assertArrayEquals(fourth, server.content(Fingerprint.of(fourth)));
+        assertTrue(server.closed.get(Fingerprint.of(fourth)));
+        assertFalse(server.closed.getOrDefault(Fingerprint.of(second), false));
+        assertEquals(java.util.Set.of(truncated, noGzip), scanner.failed());
+
+        int before = server.requests;
+        clock.advance(Duration.ofHours(2));
+        scanner.scan();
+        assertEquals(before, server.requests, "a broken file is only tried again once it changes");
+
+        // logrotate finishes the file
+        gzip(truncated, second);
+        scanner.scan();
+        assertArrayEquals(second, server.content(Fingerprint.of(second)));
+        assertTrue(server.closed.get(Fingerprint.of(second)));
+        assertEquals(java.util.Set.of(noGzip), scanner.failed());
+    }
+
+    @Test
+    void unreachableServerStopsTheScan() throws Exception {
+        gzip(dir.resolve("mycore-app-10-01-2026-1.log.gz"), sample);
+        RotatedScanner scanner = scanner(dir + "/mycore-app-*.log.gz");
+        server.close();
+        scanner.scan();
+        assertTrue(scanner.failed().isEmpty(), "the file is not to blame");
+    }
+
+    @Test
     void refusedFileIsTriedAgainWithGrowingWaits() throws Exception {
         Path file = dir.resolve("mycore-app-10-01-2026-1.log.gz");
         gzip(file, sample);

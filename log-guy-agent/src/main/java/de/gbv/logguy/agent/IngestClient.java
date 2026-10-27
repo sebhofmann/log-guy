@@ -44,7 +44,7 @@ public class IngestClient {
      *
      * @return name, host and applications of the token
      * @throws RejectedException if the server rejects the token
-     * @throws IOException on network errors and server errors
+     * @throws ServerException on network errors and server errors
      * @throws InterruptedException if interrupted
      */
     public TokenInfo token() throws IOException, InterruptedException {
@@ -52,13 +52,13 @@ public class IngestClient {
             .timeout(config.requestTimeout())
             .header("Authorization", "Bearer " + config.token())
             .GET().build();
-        HttpResponse<byte[]> response = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
+        HttpResponse<byte[]> response = exchange(request);
         if (response.statusCode() == 200) {
             return json.readValue(response.body(), TokenInfo.class);
         }
         String body = new String(response.body(), StandardCharsets.UTF_8);
         if (response.statusCode() >= 500) {
-            throw new IOException("server answered " + response.statusCode() + ": " + body);
+            throw new ServerException("server answered " + response.statusCode() + ": " + body);
         }
         throw new RejectedException("server answered " + response.statusCode() + ": " + body);
     }
@@ -68,12 +68,12 @@ public class IngestClient {
      *
      * @param fingerprint the fingerprint
      * @return the status, empty if the server does not know the file
-     * @throws IOException on network errors and server errors, worth a retry
+     * @throws ServerException on network errors and server errors, worth a retry
      * @throws InterruptedException if interrupted
      */
     public Optional<StreamStatus> status(String fingerprint) throws IOException, InterruptedException {
         HttpRequest request = request(fingerprint, "").GET().build();
-        HttpResponse<byte[]> response = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
+        HttpResponse<byte[]> response = exchange(request);
         if (response.statusCode() == 404) {
             return Optional.empty();
         }
@@ -91,7 +91,7 @@ public class IngestClient {
      * @param path path of the file on this host
      * @return the new status
      * @throws ConflictException if the server expects another offset
-     * @throws IOException on network errors and server errors, worth a retry
+     * @throws ServerException on network errors and server errors, worth a retry
      * @throws InterruptedException if interrupted
      */
     public StreamStatus send(String fingerprint, long offset, byte[] data, int length, String app, Path path)
@@ -102,7 +102,7 @@ public class IngestClient {
             .header("Content-Type", "application/octet-stream")
             .POST(HttpRequest.BodyPublishers.ofByteArray(data, 0, length))
             .build();
-        return handle(http.send(request, HttpResponse.BodyHandlers.ofByteArray()));
+        return handle(exchange(request));
     }
 
     /**
@@ -114,7 +114,7 @@ public class IngestClient {
      * @param path path of the file on this host
      * @return the new status
      * @throws ConflictException if the server has another length
-     * @throws IOException on network errors and server errors, worth a retry
+     * @throws ServerException on network errors and server errors, worth a retry
      * @throws InterruptedException if interrupted
      */
     public StreamStatus close(String fingerprint, long length, String app, Path path)
@@ -124,7 +124,7 @@ public class IngestClient {
             .header(IngestProtocol.HEADER_FILE, encode(path))
             .POST(HttpRequest.BodyPublishers.noBody())
             .build();
-        return handle(http.send(request, HttpResponse.BodyHandlers.ofByteArray()));
+        return handle(exchange(request));
     }
 
     private HttpRequest.Builder request(String fingerprint, String suffix) {
@@ -133,6 +133,14 @@ public class IngestClient {
             .timeout(config.requestTimeout())
             .header("Authorization", "Bearer " + config.token())
             .header(IngestProtocol.HEADER_HOST, config.host());
+    }
+
+    private HttpResponse<byte[]> exchange(HttpRequest request) throws ServerException, InterruptedException {
+        try {
+            return http.send(request, HttpResponse.BodyHandlers.ofByteArray());
+        } catch (IOException e) {
+            throw new ServerException(e.toString(), e);
+        }
     }
 
     private StreamStatus handle(HttpResponse<byte[]> response) throws IOException {
@@ -145,7 +153,7 @@ public class IngestClient {
         }
         String body = new String(response.body(), StandardCharsets.UTF_8);
         if (code == 429 || code >= 500) {
-            throw new IOException("server answered " + code + ": " + body);
+            throw new ServerException("server answered " + code + ": " + body);
         }
         throw new RejectedException("server answered " + code + ": " + body);
     }
@@ -188,6 +196,23 @@ public class IngestClient {
 
         RejectedException(String message) {
             super(message);
+        }
+    }
+
+    /**
+     * The server cannot be reached or answers with an error of its own. Unlike an error while reading a file, it
+     * affects every file, a retry helps once the server is back.
+     */
+    public static class ServerException extends IOException {
+
+        private static final long serialVersionUID = 1L;
+
+        ServerException(String message) {
+            super(message);
+        }
+
+        ServerException(String message, Throwable cause) {
+            super(message, cause);
         }
     }
 }

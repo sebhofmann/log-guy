@@ -1,6 +1,7 @@
 package de.gbv.logguy.agent;
 
 import java.io.BufferedInputStream;
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -74,7 +75,8 @@ public class FileSender {
      * @param close whether the file is complete and its stream is closed at the end. A file that a process may still
      *     write to stays open.
      * @return the final status, empty for an empty file
-     * @throws IOException on errors, worth a retry
+     * @throws IOException if the file cannot be read
+     * @throws IngestClient.ServerException if the server cannot be reached or fails, worth a retry
      * @throws IngestClient.RejectedException if the server refuses the file, worth a retry once the token or the
      *     server configuration has changed
      * @throws InterruptedException if interrupted
@@ -95,7 +97,7 @@ public class FileSender {
         long sent = 0;
         while (true) {
             try (InputStream in = open(path)) {
-                in.skipNBytes(position);
+                skip(in, position, path);
                 while (true) {
                     int length = in.readNBytes(buffer, 0, chunkSize);
                     if (length == 0) {
@@ -113,10 +115,11 @@ public class FileSender {
                     }
                     long expected = position + length;
                     if (status.length() < expected) {
-                        throw new IOException("server stored " + status.length() + " bytes, expected " + expected);
+                        throw new IngestClient.ServerException(
+                            "server stored " + status.length() + " bytes, expected " + expected);
                     }
                     // another sender may have delivered more of the same file in the meantime
-                    in.skipNBytes(status.length() - expected);
+                    skip(in, status.length() - expected, path);
                     sent += length;
                     position = status.length();
                 }
@@ -126,9 +129,22 @@ public class FileSender {
                     return Optional.of(e.getStatus());
                 }
                 position = e.getStatus().length();
-            } catch (java.io.EOFException e) {
-                throw new IOException(path + " is shorter than the " + position + " bytes the server has", e);
             }
+        }
+    }
+
+    /**
+     * Skips bytes the server already has. A file that ends before is not the file the server knows, a broken
+     * {@code .gz} reports its own error.
+     */
+    private static void skip(InputStream in, long count, Path path) throws IOException {
+        try {
+            in.skipNBytes(count);
+        } catch (EOFException e) {
+            if (e.getMessage() != null) {
+                throw e;
+            }
+            throw new IOException(path + " is shorter than the bytes the server has", e);
         }
     }
 

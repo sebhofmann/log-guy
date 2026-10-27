@@ -27,9 +27,11 @@ import de.gbv.logguy.common.StreamStatus;
  * {@code access.log.1}, may still be written by a process that has not reopened its log yet. It is sent up to its
  * current end and only closed once it has not been modified for {@code rotation-grace}.
  * <p>
- * A file that cannot be read is tried again with every scan. A file the server refuses, e.g. because the token may
- * not write the application, is tried again after {@code rotated-scan-interval}, doubled with every refusal up to
- * {@code rotated-retry-max}. A file that changes is tried again right away.
+ * A file the agent may not read is tried again with every scan. A file that is broken, e.g. a truncated {@code .gz},
+ * is only tried again once it changes. A file the server refuses, e.g. because the token may not write the
+ * application, is tried again after {@code rotated-scan-interval}, doubled with every refusal up to
+ * {@code rotated-retry-max}. A file that changes is tried again right away. None of them stops the scan, only an
+ * unreachable or failing server does.
  */
 public class RotatedScanner {
 
@@ -98,7 +100,8 @@ public class RotatedScanner {
                 continue;
             }
             Failure failure = failed.get(file);
-            if (failure != null && failure.key().equals(key) && now.isBefore(failure.next())) {
+            if (failure != null && failure.key().equals(key)
+                && (failure.kind() == Kind.BROKEN || now.isBefore(failure.next()))) {
                 continue;
             }
             boolean close = file.getFileName().toString().endsWith(".gz")
@@ -112,23 +115,27 @@ public class RotatedScanner {
                     complete.put(file, key);
                 }
             } catch (IngestClient.RejectedException e) {
-                Duration delay = failure == null || !failure.refused() ? retryDelay
-                    : failure.delay().multipliedBy(2);
+                boolean again = failure != null && failure.kind() == Kind.REFUSED;
+                Duration delay = again ? failure.delay().multipliedBy(2) : retryDelay;
                 delay = delay.compareTo(retryMax) > 0 ? retryMax : delay;
-                failed.put(file, new Failure(key, now.plus(delay), delay, true));
-                if (failure == null || !failure.refused()) {
+                failed.put(file, new Failure(key, now.plus(delay), delay, Kind.REFUSED));
+                if (!again) {
                     LOGGER.error("{} refused, trying again in {} and then with growing waits up to {}: {}", file, delay,
-                        retryMax,
-                        e.getMessage());
+                        retryMax, e.getMessage());
                 }
+            } catch (IngestClient.ServerException e) {
+                LOGGER.warn("cannot send {}: {}", file, e.getMessage());
+                return;
             } catch (AccessDeniedException e) {
-                failed.put(file, new Failure(key, now, Duration.ZERO, false));
-                if (failure == null || failure.refused()) {
+                failed.put(file, new Failure(key, now, Duration.ZERO, Kind.UNREADABLE));
+                if (failure == null || failure.kind() != Kind.UNREADABLE) {
                     LOGGER.error("cannot read {}, check the rights of the agent, trying again with every scan", file);
                 }
             } catch (IOException e) {
-                LOGGER.warn("cannot send {}: {}", file, e.getMessage());
-                return;
+                failed.put(file, new Failure(key, now, Duration.ZERO, Kind.BROKEN));
+                if (failure == null || failure.kind() != Kind.BROKEN) {
+                    LOGGER.error("cannot read {}, trying again once it changes: {}", file, e.toString());
+                }
             }
         }
         complete.keySet().removeIf(path -> !Files.exists(path));
@@ -136,8 +143,8 @@ public class RotatedScanner {
     }
 
     /**
-     * The rotated files that could not be delivered because they are unreadable or the server refused them. They are
-     * tried again.
+     * The rotated files that could not be delivered because they are unreadable, broken or the server refused them.
+     * They are tried again.
      *
      * @return the files waiting for another attempt
      */
@@ -170,8 +177,20 @@ public class RotatedScanner {
      * @param key size and modification time at the attempt
      * @param next earliest time of the next attempt
      * @param delay wait before the next attempt
-     * @param refused true if the server refused the file, false if it could not be read
+     * @param kind why the file could not be delivered
      */
-    private record Failure(String key, Instant next, Duration delay, boolean refused) {
+    private record Failure(String key, Instant next, Duration delay, Kind kind) {
+    }
+
+    /**
+     * Why a file could not be delivered.
+     */
+    private enum Kind {
+        /** The server refused the file. */
+        REFUSED,
+        /** The agent may not read the file. */
+        UNREADABLE,
+        /** The file cannot be read to its end, e.g. a truncated {@code .gz}. */
+        BROKEN
     }
 }
