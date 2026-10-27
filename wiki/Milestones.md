@@ -66,6 +66,7 @@ Die Pseudonymisierung gehört in diesen Milestone, weil alles, was den MCP-Endpu
 - [x] Archivsuche als Job mit Regex, Fortschritt und Abbruch, in GUI und MCP
 - [x] Ältere Zeiträume nachindexieren mit Ablaufdatum
 - [x] Neuindexierung im Index-Fenster nach einer Skriptänderung, `log-guy reindex`, Angebot im Skript-Editor nach dem Aktivieren
+- [ ] Pseudonymisierung im Archiv mit Schlüssel pro Datei, `log-guy archive pseudonymize` für bestehende Dateien, siehe [Lifecycle-Filter](Lifecycle-Filter.md#pseudonymisierung-im-archiv)
 
 ### M5 Meldungen
 
@@ -105,6 +106,7 @@ Später: LDAP, Live-Modus in der GUI.
 | Agent | eigener Container neben der Anwendung, Log-Verzeichnis lesend gemountet, notfalls auf dem Host |
 | Index-Fenster | 7 Tage |
 | IP-Adressen | im Archiv sofort gekürzt, Originale 7 Tage in `hot/` |
+| Nutzer, Mailadressen | im Archiv sofort durch Tokens pro Datei ersetzt, Schlüssel nur so lange wie das Original in `hot/` |
 | Backup | nur `archive/`, `state/`, `audit/` und `/etc/log-guy/`, nie `hot/` |
 | Archiv | ohne Löschfrist, eine Frist ist nicht Teil von log-guy |
 

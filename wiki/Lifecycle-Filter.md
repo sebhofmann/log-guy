@@ -1,6 +1,6 @@
 # Lifecycle-Filter
 
-Lifecycle-Filter bestimmen, wie die Logs im Archiv aussehen. Sie laufen, während der Archiv-Schreiber die Zeilen aus `hot/` nach `archive/` kopiert. Festgelegt ist: IP-Adressen werden gekürzt. Die Originale bleiben 7 Tage in `hot/` und verschwinden dann, zur selben Zeit wie der Tag aus dem Index.
+Lifecycle-Filter bestimmen, wie die Logs im Archiv aussehen. Sie laufen, während der Archiv-Schreiber die Zeilen aus `hot/` nach `archive/` kopiert. Festgelegt ist: IP-Adressen werden gekürzt, Nutzer, Mailadressen und die übrigen Werte der Pseudonymisierung werden pro Datei pseudonymisiert, siehe [Pseudonymisierung im Archiv](#pseudonymisierung-im-archiv). Die Originale bleiben 7 Tage in `hot/` und verschwinden dann, zur selben Zeit wie der Tag aus dem Index.
 
 Jeder Filter ist ein JavaScript-Modul in `scripts/lifecycle/`.
 
@@ -63,6 +63,22 @@ Regeln für Backfill und Änderungen:
 - Auch Dateien aus dem Backfill, die älter als 7 Tage sind, gehen zuerst nach `hot/`, denn der Archiv-Schreiber liest nur aus `hot/`. Der nächtliche Job entfernt sie, sobald sie vollständig archiviert sind und ihr letztes Event älter als 7 Tage ist. Das hält den Weg ins Archiv einheitlich, kostet aber bis zur nächsten Nacht Platz in `hot/`.
 - Den Fingerabdruck des Originals behält die Archivdatei. Ein späterer Backfill derselben `.gz` wird daran erkannt und abgelehnt, auch wenn die Datei längst nicht mehr in `hot/` liegt.
 - Ein geänderter Filter gilt für neue Daten. Für die letzten 7 Tage kann `log-guy archive refilter` das Archiv aus `hot/` neu schreiben. Ältere Archivdateien lassen sich nur noch weiter filtern, nicht mehr zurück zum Original.
+
+### Pseudonymisierung im Archiv
+
+Umgesetzt: noch nicht, siehe [Milestones](Milestones.md#m4-archiv).
+
+Das Archiv hat keine Löschfrist. Gekürzte IP-Adressen reichen dafür nicht, Loginnamen und Mailadressen nennen eine Person direkt. Der Archiv-Schreiber ersetzt sie deshalb durch Tokens, die nur innerhalb einer Logdatei gleich sind. Innerhalb eines Tages sieht man so weiter, dass drei Fehler vom selben Nutzer kamen. Über Dateien hinweg lässt sich nichts verknüpfen, und niemand kann einen Token auf den Klarwert zurückführen oder gezielt nach einem bekannten Nutzer im Archiv suchen. Das ist bewusst so, eine Suche nach einem bestimmten Nutzer geht nur in den 7 Tagen in `hot/` und im Index.
+
+- **Welche Werte:** dieselben wie bei der Pseudonymisierung für MCP und `read_pseudonymized`, also die aktiven Pseudonymisierungs-Skripte der Anwendung (siehe [MCP und Pseudonymisierung](MCP-und-Pseudonymisierung.md)). Sie laufen nach den Lifecycle-Filtern über jede Zeile als `{app, message}`. Kategorien in `log-guy.archive.pseudonymize.keep` bleiben stehen, Vorgabe `[IP]`, weil `ip-kuerzen` die Adressen schon kürzt und das Netz für die Fehlersuche nützlich bleibt.
+- **Token:** `[Kategorie#xxxxxxxx]`, z.B. `[Nutzer#3f9a1c2e]`, mit den ersten 32 Bit von HMAC-SHA256 über Kategorie und Wert. Das Format unterscheidet sich von den Sitzungs-Pseudonymen wie `$Nutzer1`. `ps()` erkennt Tokens als schon pseudonymisiert und lässt sie unverändert, sie erscheinen in GUI, API und MCP für alle Nutzer so, wie sie im Archiv stehen.
+- **Schlüssel pro Datei:** 256 Bit aus `SecureRandom`, erzeugt beim Anlegen der Datei in `hot/` und dort in ihrer `.meta.json` abgelegt. Er wird mit der Datei aus `hot/` gelöscht. Danach gibt es ihn nirgends mehr. `hot/` gehört nicht zum Backup, der Schlüssel landet also nie in einer Sicherung. Solange er existiert, liegt daneben ohnehin das Original im Klartext.
+- **Gleiche Tokens überall, wo `hot/` wie das Archiv gefiltert wird:** Die Kontextansicht und `log-guy archive refilter` nehmen denselben Schlüssel aus `hot/`, ihre Tokens passen deshalb zu denen im Archiv.
+- **Fehler:** Wirft ein Pseudonymisierungs-Skript oder läuft es zu lange, kommt wie bei einem Filterfehler der Platzhalter mit Offset ins Archiv. Lässt sich ein Skript nicht laden, hält der Archiv-Schreiber an, bis es repariert ist.
+- **Fingerabdruck und Längen bleiben:** Fingerabdruck, `sourceLength` und die Offsets im Original (`src`, `srcEnd`) beziehen sich weiter auf das Original. Nur Inhalt, `raw`-Offsets und `length` der gefilterten Fassung ändern sich, wie schon beim Kürzen der IPs. In `filters` der `.meta.json` steht die Pseudonymisierung als `pseudonym@fassung`.
+- **Bestehende Archivdateien:** `log-guy archive pseudonymize` schreibt Archivdateien ohne diesen Eintrag neu, auch solche ohne Original in `hot/`. Weil nur ersetzt wird, genügt die gefilterte Fassung als Quelle. Der Schlüssel dafür ist zufällig und wird nach der Datei verworfen. Neu geschrieben wird wie bei `refilter` über `archive/.refilter/`.
+- **Grenzen:** Was die Regeln nicht erkennen, etwa Namen im Freitext, bleibt im Klartext. Wird nach dem Zurückspielen eines Backups eine offene Datei weiter eingeliefert, entsteht in `hot/` ein neuer Schlüssel, und die Tokens wechseln mitten in der Datei. Ältere Stände des Backup-Ziels, etwa Snapshots von restic, enthalten bis zu ihrem Ablauf noch den Klartext, das liegt außerhalb von log-guy.
+- **Index:** Was aus `hot/` indexiert wird, hat in den 7 Tagen Klarwerte. Was aus dem Archiv nachgeladen wird, hat Tokens, auch in Feldern und Facetten.
 
 Gesichert werden nur `archive/` und `/etc/log-guy/`, nie `hot/`. Fällt `hot/` aus, fehlen nur die ungekürzten Originale der letzten 7 Tage. Die gefilterte Fassung steht vollständig im Archiv, und der Index lässt sich daraus neu aufbauen.
 

@@ -106,6 +106,8 @@ Wirft das Pseudonymisierungs-Skript einen Fehler oder läuft es zu lange, verlä
 
 ### Grenzen
 
+Im Archiv stehen statt der Klarwerte schon Tokens pro Datei, siehe [Pseudonymisierung im Archiv](Lifecycle-Filter.md#pseudonymisierung-im-archiv). Die Pseudonymisierung beim Lesen betrifft dort nur noch, was die Tokens nicht abdecken, etwa gekürzte IP-Adressen.
+
 Regeln finden nur bekannte Muster. Namen im Freitext, Suchbegriffe, Dokumenttitel in URLs, Referer, User-Agents oder IDs wie ORCID können durchrutschen. Mit Zeitstempeln lassen sich Personen manchmal auch ohne Namen zuordnen. Das ist Pseudonymisierung, keine Anonymisierung.
 
 Die Sperre für Klarwerte gilt nur auf den Feldern aus `meta.fields`. Eine Freitextsuche wie `message:mueller` prüft log-guy nicht, weil sich Klarwerte im Freitext nicht von harmlosen Suchbegriffen unterscheiden lassen. Ein LLM kann so durch die Trefferzahl erfahren, ob ein Wort in den Logs vorkommt, bekommt die Treffer aber pseudonymisiert.
