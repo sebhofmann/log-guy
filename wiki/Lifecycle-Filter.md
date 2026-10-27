@@ -14,7 +14,7 @@ Jeder Filter ist ein JavaScript-Modul in `scripts/lifecycle/`.
 // scripts/lifecycle/ip-kuerzen.js
 export const meta = { apps: ["*"] };
 
-// maskIp ist eingebaut: IPv4 letztes Oktett auf 0, IPv6 auf /48
+// maskIp ist eingebaut: IPv4 letztes Oktett auf 0, IPv6 auf /32
 export function line(text) {
     return maskIp(text);
 }
@@ -72,6 +72,8 @@ Das Archiv hat keine Löschfrist. Gekürzte IP-Adressen reichen dafür nicht, Lo
 
 - **Welche Werte:** dieselben wie bei der Pseudonymisierung für MCP und `read_pseudonymized`, also die aktiven Pseudonymisierungs-Skripte der Anwendung (siehe [MCP und Pseudonymisierung](MCP-und-Pseudonymisierung.md)). Sie laufen nach den Lifecycle-Filtern über jede Zeile als `{app, message}`. Kategorien in `log-guy.archive.pseudonymize.keep` bleiben stehen, Vorgabe `[IP]`, weil `ip-kuerzen` die Adressen schon kürzt und das Netz für die Fehlersuche nützlich bleibt.
 - **Token:** `[Kategorie#xxxxxxxx]`, z.B. `[Nutzer#3f9a1c2e]`, mit den ersten 32 Bit von HMAC-SHA256 über Kategorie und Wert. Das Format unterscheidet sich von den Sitzungs-Pseudonymen wie `$Nutzer1`. `ps()` erkennt Tokens als schon pseudonymisiert und lässt sie unverändert, sie erscheinen in GUI, API und MCP für alle Nutzer so, wie sie im Archiv stehen.
+- **Ziel: Das Archiv darf so, wie es ist, an ein LLM.** Zeilen aus `archive/` laufen deshalb beim Lesen nicht noch einmal durch die Pseudonymisierung, weder für MCP noch für `read_pseudonymized`. Die gekürzten IP-Adressen bleiben sichtbar, damit man z.B. Zugriffe aus dem DFN erkennt. Die Archivsuche sucht für alle Nutzer direkt in der archivierten Zeile, die Prüfung gegen eine zweite, pseudonymisierte Fassung entfällt. Innerhalb einer Datei sehen zwei MCP-Sitzungen denselben Token, über Dateien hinweg nicht.
+- **Geänderte Regeln:** Weil beim Lesen nichts mehr ergänzt wird, gilt eine neue oder geänderte Pseudonymisierungs-Regel für das Archiv erst nach `log-guy archive pseudonymize --all`. Der Skript-Editor bietet das nach dem Aktivieren eines Pseudonymisierungs-Skripts an, wie die Neuindexierung nach einer Parser-Änderung. Schon ersetzte Tokens bleiben dabei stehen.
 - **Schlüssel pro Datei:** 256 Bit aus `SecureRandom`, erzeugt beim Anlegen der Datei in `hot/` und dort in ihrer `.meta.json` abgelegt. Er wird mit der Datei aus `hot/` gelöscht. Danach gibt es ihn nirgends mehr. `hot/` gehört nicht zum Backup, der Schlüssel landet also nie in einer Sicherung. Solange er existiert, liegt daneben ohnehin das Original im Klartext.
 - **Gleiche Tokens überall, wo `hot/` wie das Archiv gefiltert wird:** Die Kontextansicht und `log-guy archive refilter` nehmen denselben Schlüssel aus `hot/`, ihre Tokens passen deshalb zu denen im Archiv.
 - **Fehler:** Wirft ein Pseudonymisierungs-Skript oder läuft es zu lange, kommt wie bei einem Filterfehler der Platzhalter mit Offset ins Archiv. Lässt sich ein Skript nicht laden, hält der Archiv-Schreiber an, bis es repariert ist.

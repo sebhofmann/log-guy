@@ -67,6 +67,7 @@ Die Pseudonymisierung gehört in diesen Milestone, weil alles, was den MCP-Endpu
 - [x] Ältere Zeiträume nachindexieren mit Ablaufdatum
 - [x] Neuindexierung im Index-Fenster nach einer Skriptänderung, `log-guy reindex`, Angebot im Skript-Editor nach dem Aktivieren
 - [ ] Pseudonymisierung im Archiv mit Schlüssel pro Datei, `log-guy archive pseudonymize` für bestehende Dateien, siehe [Lifecycle-Filter](Lifecycle-Filter.md#pseudonymisierung-im-archiv)
+- [ ] `maskIp` kürzt IPv6 auf `/32` statt `/48`, bestehendes Archiv nachkürzen
 
 ### M5 Meldungen
 
@@ -105,8 +106,8 @@ Später: LDAP, Live-Modus in der GUI.
 | Skriptsprache | JavaScript mit GraalJS |
 | Agent | eigener Container neben der Anwendung, Log-Verzeichnis lesend gemountet, notfalls auf dem Host |
 | Index-Fenster | 7 Tage |
-| IP-Adressen | im Archiv sofort gekürzt, Originale 7 Tage in `hot/` |
-| Nutzer, Mailadressen | im Archiv sofort durch Tokens pro Datei ersetzt, Schlüssel nur so lange wie das Original in `hot/` |
+| IP-Adressen | im Archiv sofort gekürzt, IPv4 auf `/24`, IPv6 auf `/32`, Originale 7 Tage in `hot/` |
+| Nutzer, Mailadressen | im Archiv sofort durch Tokens pro Datei ersetzt, Schlüssel nur so lange wie das Original in `hot/`. Das Archiv geht ohne weitere Pseudonymisierung an das MCP. |
 | Backup | nur `archive/`, `state/`, `audit/` und `/etc/log-guy/`, nie `hot/` |
 | Archiv | ohne Löschfrist, eine Frist ist nicht Teil von log-guy |
 

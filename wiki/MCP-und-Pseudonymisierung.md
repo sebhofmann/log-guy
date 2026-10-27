@@ -82,7 +82,7 @@ Eingebaute Funktionen für Pseudonymisierungs-Skripte:
 | `replaceIps(text, fn)` | ersetzt IPv6 und IPv4, eingebettetes IPv4 in IPv6 zählt als eine Adresse. Uhrzeiten wie `12:00:01` und Versionsnummern bleiben. |
 | `replaceEmails(text, fn)` | ersetzt Mailadressen mit Domain und Endung, `user@localhost` bleibt |
 | `findIps(text)`, `findEmails(text)` | listen die Adressen auf |
-| `maskIp(text)` | kürzt IPv4 auf `a.b.c.0` und IPv6 auf die ersten 48 Bit, auch in Parsern und Regeln nutzbar |
+| `maskIp(text)` | kürzt IPv4 auf `a.b.c.0` und IPv6 auf die ersten 32 Bit, den Block des Providers, auch in Parsern und Regeln nutzbar |
 
 Das Skript bekommt das Event als einfaches Objekt mit `app`, `host`, `ts`, `message` und den Feldern. Es ändert das Objekt oder gibt ein neues zurück. Kontextzeilen und Zeilen aus dem Server-Log laufen als `{app, message}` durch, Facettenwerte als `{app, message: "", <feld>: wert}`.
 
@@ -106,7 +106,7 @@ Wirft das Pseudonymisierungs-Skript einen Fehler oder läuft es zu lange, verlä
 
 ### Grenzen
 
-Im Archiv stehen statt der Klarwerte schon Tokens pro Datei, siehe [Pseudonymisierung im Archiv](Lifecycle-Filter.md#pseudonymisierung-im-archiv). Die Pseudonymisierung beim Lesen betrifft dort nur noch, was die Tokens nicht abdecken, etwa gekürzte IP-Adressen.
+Im Archiv stehen statt der Klarwerte schon Tokens pro Datei, und das Archiv geht ohne weitere Pseudonymisierung an das MCP, siehe [Pseudonymisierung im Archiv](Lifecycle-Filter.md#pseudonymisierung-im-archiv). Die Pseudonymisierung beim Lesen gilt damit für den Index und für Zeilen aus `hot/`, also die letzten 7 Tage.
 
 Regeln finden nur bekannte Muster. Namen im Freitext, Suchbegriffe, Dokumenttitel in URLs, Referer, User-Agents oder IDs wie ORCID können durchrutschen. Mit Zeitstempeln lassen sich Personen manchmal auch ohne Namen zuordnen. Das ist Pseudonymisierung, keine Anonymisierung.
 
