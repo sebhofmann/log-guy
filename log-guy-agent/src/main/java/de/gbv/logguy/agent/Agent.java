@@ -54,7 +54,8 @@ public class Agent implements AutoCloseable {
         Set<Path> watched = new HashSet<>();
         for (AgentConfig.Source source : config.sources()) {
             if (source.live() != null) {
-                tailers.add(new LiveTailer(client, source.app(), source.live(), config.chunkSize()));
+                tailers.add(new LiveTailer(client, source.app(), source.live(), config.chunkSize(),
+                    config.rotationGrace()));
                 Path dir = source.live().toAbsolutePath().getParent();
                 if (watched.add(dir)) {
                     try {
@@ -67,7 +68,8 @@ public class Agent implements AutoCloseable {
                 }
             }
             if (source.rotated() != null) {
-                scanners.add(new RotatedScanner(sender, source.app(), source.rotated()));
+                scanners.add(new RotatedScanner(sender, source.app(), source.rotated(), config.rotationGrace(),
+                    config.rotatedScanInterval(), config.rotatedRetryMax()));
             }
         }
     }

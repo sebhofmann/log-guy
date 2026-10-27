@@ -6,9 +6,12 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 
@@ -28,6 +31,10 @@ class LiveTailerTest {
 
     private final byte[] sample = TestLogs.mycoreSample();
 
+    private final TestClock clock = new TestClock();
+
+    private final Duration grace = server.config(List.of()).rotationGrace();
+
     LiveTailerTest() throws IOException {
     }
 
@@ -38,7 +45,8 @@ class LiveTailerTest {
 
     private LiveTailer tailer(Path live) {
         AgentConfig config = server.config(List.of());
-        return new LiveTailer(new IngestClient(config), "digibib", live, config.chunkSize());
+        return new LiveTailer(new IngestClient(config), "digibib", live, config.chunkSize(), config.rotationGrace(),
+            clock);
     }
 
     private void append(Path file, int from, int to) throws IOException {
@@ -64,7 +72,7 @@ class LiveTailerTest {
     }
 
     @Test
-    void rotationByRenameClosesTheOldStream() throws Exception {
+    void rotationByRenameClosesTheOldStreamAfterTheGracePeriod() throws Exception {
         Path live = dir.resolve("mycore-app.log");
         try (LiveTailer tailer = tailer(live)) {
             append(live, 0, 50_000);
@@ -77,10 +85,57 @@ class LiveTailerTest {
             tailer.poll();
             String old = Fingerprint.of(sample);
             assertArrayEquals(Arrays.copyOf(sample, 60_000), server.content(old));
-            assertTrue(server.closed.get(old));
-            tailer.poll();
+            assertFalse(server.closed.get(old), "the old file may still grow");
             String current = Fingerprint.of(Arrays.copyOfRange(sample, 60_000, 90_000));
             assertArrayEquals(Arrays.copyOfRange(sample, 60_000, 90_000), server.content(current));
+            assertFalse(server.closed.get(current));
+
+            clock.advance(grace);
+            tailer.poll();
+            assertTrue(server.closed.get(old));
+            assertArrayEquals(Arrays.copyOf(sample, 60_000), server.content(old));
+            assertFalse(server.closed.get(current));
+        }
+    }
+
+    @Test
+    void writerOnTheOldDescriptorAfterRenameIsFollowed() throws Exception {
+        Path live = dir.resolve("access.log");
+        Path rotated = dir.resolve("access.log.1");
+        String old = Fingerprint.of(sample);
+        try (LiveTailer tailer = tailer(live);
+            FileChannel writer = FileChannel.open(live, StandardOpenOption.CREATE, StandardOpenOption.WRITE,
+                StandardOpenOption.APPEND)) {
+            writer.write(ByteBuffer.wrap(sample, 0, 30_000));
+            tailer.poll();
+            // logrotate renames the file and creates a new one, httpd keeps writing to the old descriptor
+            Files.move(live, rotated);
+            Files.write(live, new byte[0]);
+            writer.write(ByteBuffer.wrap(sample, 30_000, 10_000));
+            tailer.poll();
+            assertArrayEquals(Arrays.copyOf(sample, 40_000), server.content(old));
+            assertFalse(server.closed.get(old));
+
+            clock.advance(grace.dividedBy(2));
+            writer.write(ByteBuffer.wrap(sample, 40_000, 10_000));
+            tailer.poll();
+            clock.advance(grace.dividedBy(2));
+            writer.write(ByteBuffer.wrap(sample, 50_000, 10_000));
+            tailer.poll();
+            assertArrayEquals(Arrays.copyOf(sample, 60_000), server.content(old));
+            assertFalse(server.closed.get(old), "the grace period starts again with every write");
+
+            // the reload reopens the log, the old file stops growing
+            append(live, 60_000, 70_000);
+            clock.advance(grace.minusSeconds(1));
+            tailer.poll();
+            assertFalse(server.closed.get(old));
+            clock.advance(Duration.ofSeconds(1));
+            tailer.poll();
+            assertArrayEquals(Arrays.copyOf(sample, 60_000), server.content(old));
+            assertTrue(server.closed.get(old));
+            String current = Fingerprint.of(Arrays.copyOfRange(sample, 60_000, 70_000));
+            assertArrayEquals(Arrays.copyOfRange(sample, 60_000, 70_000), server.content(current));
             assertFalse(server.closed.get(current));
         }
     }

@@ -15,8 +15,8 @@ import de.gbv.logguy.common.Fingerprint;
 import de.gbv.logguy.common.StreamStatus;
 
 /**
- * Sends a complete file, plain or gzip compressed, and closes its stream. Only what the server does not have yet is
- * sent.
+ * Sends a file, plain or gzip compressed, and closes its stream if the file is complete. Only what the server does not
+ * have yet is sent.
  */
 public class FileSender {
 
@@ -63,6 +63,24 @@ public class FileSender {
      * @throws InterruptedException if interrupted
      */
     public Optional<StreamStatus> send(Path path, String app) throws IOException, InterruptedException {
+        return send(path, app, true);
+    }
+
+    /**
+     * Sends the rest of a file up to its current end.
+     *
+     * @param path the file
+     * @param app the application
+     * @param close whether the file is complete and its stream is closed at the end. A file that a process may still
+     *     write to stays open.
+     * @return the final status, empty for an empty file
+     * @throws IOException on errors, worth a retry
+     * @throws IngestClient.RejectedException if the server refuses the file, worth a retry once the token or the
+     *     server configuration has changed
+     * @throws InterruptedException if interrupted
+     */
+    public Optional<StreamStatus> send(Path path, String app, boolean close) throws IOException,
+        InterruptedException {
         Optional<String> fingerprint = fingerprint(path);
         if (fingerprint.isEmpty()) {
             return Optional.empty();
@@ -81,7 +99,9 @@ public class FileSender {
                 while (true) {
                     int length = in.readNBytes(buffer, 0, chunkSize);
                     if (length == 0) {
-                        status = client.close(fp, position, app, path);
+                        if (close) {
+                            status = client.close(fp, position, app, path);
+                        }
                         if (sent > 0) {
                             LOGGER.info("sent {} bytes of {}, {} bytes in total", sent, path, position);
                         }

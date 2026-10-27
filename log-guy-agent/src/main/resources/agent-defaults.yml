@@ -6,4 +6,8 @@ rotated-scan-interval: PT60S
 connect-timeout: PT10S
 request-timeout: PT60S
 retry-delay: PT5S
+# a rotated file is closed once it has not changed for this long, .gz files right away
+rotation-grace: PT5M
+# longest wait before a refused rotated file is tried again, the wait starts at rotated-scan-interval
+rotated-retry-max: PT1H
 sources: []

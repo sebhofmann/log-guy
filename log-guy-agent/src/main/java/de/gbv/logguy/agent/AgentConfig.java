@@ -37,11 +37,15 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  * @param connectTimeout connect timeout
  * @param requestTimeout timeout of one request
  * @param retryDelay wait time after an error
+ * @param rotationGrace how long a rotated file must stay unchanged before its stream is closed, because a process may
+ *     still write to it until it reopens its log. Compressed files are closed right away.
+ * @param rotatedRetryMax longest wait before a rotated file is sent again after the server refused it. The wait
+ *     starts at {@code rotated-scan-interval} and doubles with every refusal.
  * @param sources the log files
  */
 public record AgentConfig(URI server, String token, String host, int chunkSize, Duration sendInterval,
     Duration rotatedScanInterval, Duration connectTimeout, Duration requestTimeout, Duration retryDelay,
-    List<Source> sources) {
+    Duration rotationGrace, Duration rotatedRetryMax, List<Source> sources) {
 
     /** Default location of the configuration file. */
     public static final Path DEFAULT_FILE = Path.of("/etc/log-guy-agent/agent.yml");
@@ -142,7 +146,8 @@ public record AgentConfig(URI server, String token, String host, int chunkSize, 
         return new AgentConfig(URI.create(server.toString().replaceAll("/+$", "")), token, host,
             Integer.parseInt(require(values, "chunk-size").toString()), duration(values, "send-interval"),
             duration(values, "rotated-scan-interval"), duration(values, "connect-timeout"),
-            duration(values, "request-timeout"), duration(values, "retry-delay"), List.copyOf(sources));
+            duration(values, "request-timeout"), duration(values, "retry-delay"),
+            duration(values, "rotation-grace"), duration(values, "rotated-retry-max"), List.copyOf(sources));
     }
 
     private static Duration duration(Map<String, Object> values, String key) {

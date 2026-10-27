@@ -31,6 +31,9 @@ class FakeServer implements AutoCloseable {
 
     volatile int requests;
 
+    /** Answers every stream request with 403, like a token that may not write the application. */
+    volatile boolean reject;
+
     private final HttpServer server;
 
     FakeServer() throws IOException {
@@ -42,7 +45,7 @@ class FakeServer implements AutoCloseable {
     AgentConfig config(List<AgentConfig.Source> sources) {
         return new AgentConfig(URI.create("http://127.0.0.1:" + server.getAddress().getPort()), TOKEN, "app1", 4096,
             Duration.ofMillis(100), Duration.ofSeconds(1), Duration.ofSeconds(5), Duration.ofSeconds(5),
-            Duration.ofMillis(10), sources);
+            Duration.ofMillis(10), Duration.ofMinutes(5), Duration.ofMinutes(1), sources);
     }
 
     byte[] content(String fingerprint) {
@@ -58,6 +61,10 @@ class FakeServer implements AutoCloseable {
         }
         if (exchange.getRequestURI().getPath().equals(IngestProtocol.STREAMS_PATH)) {
             send(exchange, 200, "{\"name\":\"agent-app1\",\"host\":\"app1\",\"apps\":[\"digibib\"]}");
+            return;
+        }
+        if (reject) {
+            send(exchange, 403, "{}");
             return;
         }
         String[] parts = exchange.getRequestURI().getPath().substring(IngestProtocol.STREAMS_PATH.length() + 1)

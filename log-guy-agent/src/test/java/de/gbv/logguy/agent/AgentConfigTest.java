@@ -38,6 +38,8 @@ class AgentConfigTest {
         assertEquals("mir", config.host());
         assertEquals(Duration.ofSeconds(2), config.sendInterval());
         assertEquals(Duration.ofSeconds(60), config.rotatedScanInterval());
+        assertEquals(Duration.ofMinutes(5), config.rotationGrace());
+        assertEquals(Duration.ofHours(1), config.rotatedRetryMax());
         assertEquals(List.of(
             new AgentConfig.Source("mir", Path.of("/logs/mir/mycore-app.log"), "/logs/mir/*/mycore-app-*.log.gz"),
             new AgentConfig.Source("apache", null, "/logs/apache/*.gz")), config.sources());

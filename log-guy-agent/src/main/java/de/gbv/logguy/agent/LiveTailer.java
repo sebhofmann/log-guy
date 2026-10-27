@@ -7,6 +7,12 @@ import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -17,10 +23,11 @@ import de.gbv.logguy.common.StreamStatus;
 /**
  * Follows the live file of a source like {@code tail -F}.
  * <p>
- * The open file handle keeps pointing to the same inode. When the path points to another inode, the file was rotated:
- * the old one is read to its end, its stream is closed, and the new file is opened. A file that became shorter was
- * truncated in place ({@code copytruncate}), a new stream starts at offset 0. The copy belongs to the old stream and
- * comes with the rotated files.
+ * The open file handle keeps pointing to the same inode. When the path points to another inode, the file was rotated
+ * and the new file is opened. The old file stays open: a process may still write to it until it reopens its log, e.g.
+ * Apache httpd until the reload after {@code logrotate}. Its stream is closed once it has not grown for
+ * {@code rotation-grace}. A file that became shorter was truncated in place ({@code copytruncate}), a new stream starts
+ * at offset 0. The copy belongs to the old stream and comes with the rotated files.
  */
 public class LiveTailer implements AutoCloseable {
 
@@ -34,17 +41,15 @@ public class LiveTailer implements AutoCloseable {
 
     private final int chunkSize;
 
+    private final Duration rotationGrace;
+
+    private final Clock clock;
+
     private final ByteBuffer buffer;
 
-    private FileChannel channel;
+    private Followed current;
 
-    private Object inode;
-
-    private String fingerprint;
-
-    private long position;
-
-    private boolean finished;
+    private final List<Followed> rotated = new ArrayList<>();
 
     /**
      * Creates the tailer.
@@ -53,23 +58,39 @@ public class LiveTailer implements AutoCloseable {
      * @param app the application
      * @param path the live file
      * @param chunkSize largest chunk
+     * @param rotationGrace how long a rotated file must stop growing before its stream is closed
      */
-    public LiveTailer(IngestClient client, String app, Path path, int chunkSize) {
+    public LiveTailer(IngestClient client, String app, Path path, int chunkSize, Duration rotationGrace) {
+        this(client, app, path, chunkSize, rotationGrace, Clock.systemUTC());
+    }
+
+    LiveTailer(IngestClient client, String app, Path path, int chunkSize, Duration rotationGrace, Clock clock) {
         this.client = client;
         this.app = app;
         this.path = path;
         this.chunkSize = chunkSize;
+        this.rotationGrace = rotationGrace;
+        this.clock = clock;
         this.buffer = ByteBuffer.allocate(chunkSize);
     }
 
     /**
-     * Checks whether enough new bytes for a full chunk are there.
+     * Checks whether enough new bytes for a full chunk are there, in the live file or in a rotated file that is still
+     * followed.
      *
      * @return true if a full chunk is waiting
      */
     public boolean hasFullChunk() {
+        if (hasFullChunk(current)) {
+            return true;
+        }
+        return rotated.stream().anyMatch(this::hasFullChunk);
+    }
+
+    private boolean hasFullChunk(Followed file) {
         try {
-            return channel != null && fingerprint != null && channel.size() - position >= chunkSize;
+            return file != null && file.fingerprint != null && !file.finished
+                && file.channel.size() - file.position >= chunkSize;
         } catch (IOException e) {
             return false;
         }
@@ -82,53 +103,91 @@ public class LiveTailer implements AutoCloseable {
      * @throws InterruptedException if interrupted
      */
     public void poll() throws IOException, InterruptedException {
-        if (channel == null && !open()) {
+        pollRotated();
+        if (current == null && (current = open()) == null) {
             return;
         }
-        Object current = currentInode();
-        boolean rotated = current == null || !current.equals(inode);
-        long size = channel.size();
-        if (!rotated && size < position) {
-            LOGGER.info("{} was truncated from {} to {} bytes, starting a new stream", path, position, size);
-            fingerprint = null;
-            position = 0;
-            finished = false;
-        }
-        if (fingerprint == null && !startStream(size, rotated)) {
-            if (rotated) {
-                closeChannel();
+        Object inode = currentInode();
+        if (inode == null || !inode.equals(current.inode)) {
+            LOGGER.info("{} rotated, following the old file until it has not grown for {}", path, rotationGrace);
+            current.lastSize = current.channel.size();
+            current.lastGrowth = clock.instant();
+            rotated.add(current);
+            current = null;
+            pollRotated();
+            if ((current = open()) == null) {
+                return;
             }
+        }
+        long size = current.channel.size();
+        if (size < current.position) {
+            LOGGER.info("{} was truncated from {} to {} bytes, starting a new stream", path, current.position, size);
+            current.fingerprint = null;
+            current.position = 0;
+            current.finished = false;
+        }
+        if (current.fingerprint == null && !startStream(current, size, false)) {
             return;
         }
-        if (!finished) {
-            sendUntil(size);
-        }
-        if (rotated) {
-            // the old file is complete once the path points elsewhere, read what came in the meantime
-            sendUntil(channel.size());
-            if (!finished) {
+        sendUntil(current, size);
+    }
+
+    /**
+     * Sends what came to the rotated files and closes their streams once they have not grown for the grace period.
+     */
+    private void pollRotated() throws IOException, InterruptedException {
+        Instant now = clock.instant();
+        for (Iterator<Followed> it = rotated.iterator(); it.hasNext();) {
+            Followed file = it.next();
+            long size = file.channel.size();
+            if (size != file.lastSize) {
+                file.lastSize = size;
+                file.lastGrowth = now;
+            }
+            boolean quiet = !file.lastGrowth.plus(rotationGrace).isAfter(now);
+            if (file.fingerprint == null && !startStream(file, size, quiet)) {
+                if (quiet) {
+                    file.channel.close();
+                    it.remove();
+                }
+                continue;
+            }
+            sendUntil(file, size);
+            if (!quiet && !file.finished) {
+                continue;
+            }
+            if (file.channel.size() != size) {
+                // written while sending, wait for the next grace period
+                file.lastSize = file.channel.size();
+                file.lastGrowth = now;
+                continue;
+            }
+            if (!file.finished) {
                 try {
-                    client.close(fingerprint, position, app, path);
+                    client.close(file.fingerprint, file.position, app, path);
+                    LOGGER.info("{} rotated, stream {} closed at {} bytes", path, file.fingerprint, file.position);
                 } catch (IngestClient.ConflictException e) {
                     LOGGER.info("{}: close refused, {}; the rotated file delivers the rest", path, e.getMessage());
                 }
-                LOGGER.info("{} rotated, stream {} closed at {} bytes", path, fingerprint, position);
             }
-            closeChannel();
+            file.channel.close();
+            it.remove();
         }
     }
 
-    private boolean open() throws IOException {
+    private Followed open() throws IOException {
+        FileChannel channel;
         try {
             channel = FileChannel.open(path, StandardOpenOption.READ);
         } catch (NoSuchFileException e) {
-            return false;
+            return null;
         }
-        inode = Files.readAttributes(path, "unix:ino").get("ino");
-        fingerprint = null;
-        position = 0;
-        finished = false;
-        return true;
+        try {
+            return new Followed(channel, Files.readAttributes(path, "unix:ino").get("ino"));
+        } catch (IOException e) {
+            channel.close();
+            throw e;
+        }
     }
 
     private Object currentInode() throws IOException {
@@ -139,52 +198,58 @@ public class LiveTailer implements AutoCloseable {
         }
     }
 
-    private boolean startStream(long size, boolean rotated) throws IOException, InterruptedException {
-        if (size == 0 || size < Fingerprint.PREFIX_BYTES && !rotated) {
+    /**
+     * Starts the stream of a file once its fingerprint can be computed.
+     *
+     * @param complete true if the file will not grow anymore, a file below the fingerprint prefix is then sent anyway
+     */
+    private boolean startStream(Followed file, long size, boolean complete) throws IOException,
+        InterruptedException {
+        if (size == 0 || size < Fingerprint.PREFIX_BYTES && !complete) {
             return false;
         }
         ByteBuffer prefix = ByteBuffer.allocate((int) Math.min(size, Fingerprint.PREFIX_BYTES));
-        while (prefix.hasRemaining() && channel.read(prefix, prefix.position()) > 0) {
+        while (prefix.hasRemaining() && file.channel.read(prefix, prefix.position()) > 0) {
             // read until the prefix is complete
         }
-        fingerprint = Fingerprint.of(prefix.array(), prefix.position());
-        StreamStatus status = client.status(fingerprint).orElse(new StreamStatus(fingerprint, 0, false));
-        position = status.length();
-        finished = status.closed();
-        LOGGER.info("following {} as stream {} from offset {}", path, fingerprint, position);
+        file.fingerprint = Fingerprint.of(prefix.array(), prefix.position());
+        StreamStatus status = client.status(file.fingerprint).orElse(new StreamStatus(file.fingerprint, 0, false));
+        file.position = status.length();
+        file.finished = status.closed();
+        LOGGER.info("following {} as stream {} from offset {}", path, file.fingerprint, file.position);
         return true;
     }
 
-    private void sendUntil(long size) throws IOException, InterruptedException {
-        while (!finished && position < size) {
+    private void sendUntil(Followed file, long size) throws IOException, InterruptedException {
+        while (!file.finished && file.position < size) {
             buffer.clear();
-            buffer.limit((int) Math.min(chunkSize, size - position));
-            int read = channel.read(buffer, position);
+            buffer.limit((int) Math.min(chunkSize, size - file.position));
+            int read = file.channel.read(buffer, file.position);
             if (read <= 0) {
                 return;
             }
             StreamStatus status;
             try {
-                status = client.send(fingerprint, position, buffer.array(), buffer.position(), app, path);
+                status = client.send(file.fingerprint, file.position, buffer.array(), buffer.position(), app, path);
             } catch (IngestClient.ConflictException e) {
                 LOGGER.info("{}: {}, continuing there", path, e.getMessage());
                 status = e.getStatus();
             }
-            position = status.length();
-            finished = status.closed();
-        }
-    }
-
-    private void closeChannel() throws IOException {
-        if (channel != null) {
-            channel.close();
-            channel = null;
+            file.position = status.length();
+            file.finished = status.closed();
         }
     }
 
     @Override
     public void close() throws IOException {
-        closeChannel();
+        if (current != null) {
+            current.channel.close();
+            current = null;
+        }
+        for (Followed file : rotated) {
+            file.channel.close();
+        }
+        rotated.clear();
     }
 
     /**
@@ -194,5 +259,30 @@ public class LiveTailer implements AutoCloseable {
      */
     public Path path() {
         return path;
+    }
+
+    /**
+     * An open file and the state of its stream.
+     */
+    private static final class Followed {
+
+        private final FileChannel channel;
+
+        private final Object inode;
+
+        private String fingerprint;
+
+        private long position;
+
+        private boolean finished;
+
+        private long lastSize;
+
+        private Instant lastGrowth;
+
+        private Followed(FileChannel channel, Object inode) {
+            this.channel = channel;
+            this.inode = inode;
+        }
     }
 }

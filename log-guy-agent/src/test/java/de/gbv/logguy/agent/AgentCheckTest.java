@@ -81,7 +81,9 @@ class AgentCheckTest {
     void wrongToken() throws Exception {
         AgentConfig good = server.config(List.of());
         AgentConfig config = new AgentConfig(good.server(), "wrong", "app1", good.chunkSize(), good.sendInterval(),
-            good.rotatedScanInterval(), good.connectTimeout(), good.requestTimeout(), good.retryDelay(), List.of());
+            good.rotatedScanInterval(), good.connectTimeout(), good.requestTimeout(), good.retryDelay(),
+            good.rotationGrace(),
+            good.rotatedRetryMax(), List.of());
         String report = check(config, 1);
         assertTrue(report.contains("FEHLER  Der Server lehnt das Token ab: server answered 401"), report);
     }

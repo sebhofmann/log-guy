@@ -17,7 +17,7 @@ sources:
     rotated: /logs/digibib/*/mycore-app-*.log.gz
 ```
 
-Weitere Werte mit ihren Vorgaben stehen in `agent-defaults.yml` im JAR: `chunk-size` (1 MB), `send-interval` (1 s), `rotated-scan-interval` (60 s), `connect-timeout`, `request-timeout` und `retry-delay`.
+Weitere Werte mit ihren Vorgaben stehen in `agent-defaults.yml` im JAR: `chunk-size` (1 MB), `send-interval` (1 s), `rotated-scan-interval` (60 s), `connect-timeout`, `request-timeout`, `retry-delay`, `rotation-grace` (5 min) und `rotated-retry-max` (1 h).
 
 Statt der Datei geht alles auch über Umgebungsvariablen, praktisch im Compose-Projekt der Anwendung. `LOG_GUY_<SCHLÜSSEL>` setzt den Schlüssel aus `agent.yml`, mit `_` statt `-`. Das Token kann direkt in `LOG_GUY_TOKEN` stehen. Quellen werden durchnummeriert und ersetzen die Quellen aus der Datei:
 
@@ -41,9 +41,10 @@ services:
 Vorrang von unten nach oben: Vorgaben im JAR, `agent.yml`, Umgebung, Kommandozeile. Leere Variablen zählen nicht.
 
 - Er liest die Live-Datei wie `tail -F` mit und schickt neue Bytes jede Sekunde oder sobald 1 MB zusammen ist.
-- Rotation erkennt er über den Inode. Die umbenannte Datei liest er bis zum Ende, bevor er zur neuen wechselt.
+- Rotation erkennt er über den Inode. Dann öffnet er sofort die neue Datei, verfolgt die umbenannte aber weiter, bis sie `rotation-grace` lang nicht mehr gewachsen ist. Erst dann schließt er ihren Stream, siehe unten.
 - Pro Datei merkt er sich im Speicher den Offset, den log-guy zuletzt bestätigt hat. Ist log-guy nicht erreichbar, macht er später ab diesem Offset weiter, denn die Daten stehen ja noch in der Datei. Nach einem Neustart fragt er log-guy per `GET`, wie weit die Datei schon da ist. Eine eigene Zustandsdatei braucht der Agent deshalb nicht.
-- Außerdem beobachtet er die rotierten Dateien unter `rotated`. Fehlt log-guy von einer davon noch etwas, schickt er den Rest aus der `.gz`. Vollständig übertragene Dateien merkt er sich mit Pfad, Größe und Änderungszeit und liest sie bis zum Neustart nicht erneut.
+- Außerdem beobachtet er die rotierten Dateien unter `rotated`. Fehlt log-guy von einer davon noch etwas, schickt er den Rest aus der `.gz`. Eine `.gz` schließt er danach sofort. Eine unkomprimierte rotierte Datei wie `access.log.1` schickt er nur bis zum aktuellen Ende und schließt sie erst, wenn ihre Änderungszeit älter als `rotation-grace` ist. Dateien, deren Stream geschlossen ist, merkt er sich mit Pfad, Größe und Änderungszeit und liest sie bis zum Neustart nicht erneut.
+- Eine rotierte Datei, die er nicht lesen kann, versucht er bei jedem Durchlauf erneut. Lehnt log-guy sie ab, etwa weil das Token die Anwendung nicht schreiben darf oder ungültig ist, versucht er es nach `rotated-scan-interval` erneut und verdoppelt die Wartezeit bei jeder weiteren Ablehnung bis höchstens `rotated-retry-max`. Ändert sich die Datei, versucht er es sofort. Den Fehler meldet er einmal im Log, den Erfolg danach mit `can be sent again`. Als erledigt gilt eine Datei erst, wenn log-guy ihren Stream geschlossen hat.
 
 ### Betrieb des Agenten
 
@@ -53,7 +54,7 @@ Der Agent läuft als eigener Container neben der Anwendung und bekommt dasselbe 
 - Frisch geschriebene Daten liegen noch im Page Cache. Der Agent liest sie also aus dem RAM, die Last entspricht einem `tail -f`.
 - Bei NFS, CIFS oder Docker Desktop kommen `inotify`-Ereignisse nicht zuverlässig an. Der Agent prüft deshalb zusätzlich jede Sekunde Größe und Inode der Datei.
 - Der Agent braucht Leserechte. Die MIR-Logs gehören mit Modus `rw-r-----` und Verzeichnissen mit `rwxr-x---` dem Nutzer, unter dem MIR im Container läuft. Maßgeblich ist die UID und GID im Container: Im MIR-Image ist das 501. Der Agent-Container läuft deshalb unter seiner eigenen UID 10001 und bekommt die Gruppe dazu, z.B. `docker run --group-add 501 -v ./mir-logs:/logs/digibib:ro log-guy-agent`. Gleichwertig ist `--user 501`. Mit Rootless Docker erscheint dieselbe Datei auf dem Host als UID 100500, `--user 100500` schlägt dort mit `chown /dev/stdout: invalid argument` fehl.
-- Fehlt das Recht auf eine Datei oder ein Monatsverzeichnis, meldet der Agent das einmal im Log und macht mit den übrigen Dateien weiter. Sobald sich die Rechte ändern, holt er die Datei nach.
+- Fehlt das Recht auf eine Datei oder ein Monatsverzeichnis, meldet der Agent das einmal im Log und macht mit den übrigen Dateien weiter. Sobald sich die Rechte ändern, holt er die Datei nach, ohne Neustart.
 - Das Image `log-guy-agent` baut auf `eclipse-temurin` mit JRE 25 auf und startet mit `-Xmx64m` und Serial GC.
 
 ### Ausrollen
@@ -118,6 +119,7 @@ Weil der Name keine Rolle spielt, macht auch logrotate keine Probleme:
 
 - Aus `access.log.1` wird bei der nächsten Rotation `access.log.2.gz`. Beide haben denselben Fingerabdruck, die Datei wird also nicht erneut übertragen.
 - Mit `delaycompress` liegt eine Datei erst unkomprimiert und dann als `.gz` vor. Auch das ist derselbe Fingerabdruck.
+- Mit Umbenennen und anschließendem Reload, dem klassischen `logrotate`-Ablauf für Apache httpd und nginx, schreibt der Prozess bis zum Reload weiter in die umbenannte Datei. Bei `apachectl graceful` tun das die alten Kindprozesse sogar, bis ihre laufenden Requests fertig sind. Der Agent liest deshalb die umbenannte Datei über den offenen Dateideskriptor weiter und schließt ihren Stream erst, wenn sie `rotation-grace` lang (Vorgabe 5 min) nicht gewachsen ist. Jeder Zuwachs startet die Frist neu. Für den `RotatedScanner` gilt dasselbe über die Änderungszeit der Datei, so geht auch nach einem Neustart des Agenten nichts verloren. Wäre der Stream zu früh geschlossen, lehnte log-guy die späteren Zeilen mit `409` ab und sie fehlten dauerhaft. Bei Log4j (MIR, Solr) schreibt nach der Rotation niemand mehr in die alte Datei, dort verzögert die Frist nur das Schließen. Die `.gz` schließt den Stream ohnehin sofort.
 - Mit `copytruncate` wird die Live-Datei kopiert und geleert statt umbenannt. Der Agent sieht, dass sie kleiner geworden ist, und beginnt einen neuen Stream. Die Kopie gehört zum alten Fingerabdruck. Den alten Stream schließt der Agent dabei nicht, denn Bytes zwischen dem letzten Senden und dem Leeren stehen nur noch in der Kopie. Sie kommen über `rotated`, danach wird der alte Stream geschlossen.
 
 ### Altbestand

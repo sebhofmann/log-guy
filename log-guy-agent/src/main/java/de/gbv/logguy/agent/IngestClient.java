@@ -179,7 +179,8 @@ public class IngestClient {
     }
 
     /**
-     * The server refused the request for good, e.g. the token may not write the application. A retry does not help.
+     * The server refused the request, e.g. the token may not write the application. A retry only helps once the
+     * token or the configuration of the server has changed.
      */
     public static class RejectedException extends IOException {
 
