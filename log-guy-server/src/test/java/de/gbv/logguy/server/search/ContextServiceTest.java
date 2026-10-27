@@ -107,7 +107,7 @@ class ContextServiceTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        runtime = new ScriptRuntime(Duration.ofMillis(200));
+        runtime = new ScriptRuntime(Duration.ofMillis(200), Duration.ofSeconds(5));
         Path scriptDir = dataDir.resolve("scripts");
         Files.createDirectories(scriptDir.resolve("lifecycle"));
         Files.writeString(scriptDir.resolve("lifecycle/passwort.js"), PASSWORD_FILTER);
@@ -115,7 +115,9 @@ class ContextServiceTest {
         LogGuyProperties properties = new LogGuyProperties(dataDir, ZoneId.of("Europe/Berlin"),
             Map.of("digibib", new AppProperties(null, "mycore-log4j")), List.of(), List.of(), null,
             new HotProperties(DataSize.ofKilobytes(16), Duration.ofSeconds(60), Duration.ofSeconds(5), 3),
-            new ScriptProperties(scriptDir, Duration.ofMillis(200), DataSize.ofKilobytes(256), 1000, 100), null,
+            new ScriptProperties(
+                scriptDir, Duration.ofMillis(200), Duration.ofSeconds(5), 100, DataSize.ofKilobytes(256), 1000, 100),
+            null,
             null, new SearchProperties(Duration.ofHours(24), 100, 1000, 300, 8, 10, 100, 20, 500,
                 DataSize.ofKilobytes(512)),
             null, null, null,
