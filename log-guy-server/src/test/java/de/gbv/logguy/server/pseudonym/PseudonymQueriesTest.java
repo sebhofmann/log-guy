@@ -8,6 +8,8 @@ import java.util.Map;
 import java.util.Set;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import de.gbv.logguy.server.search.SearchException;
 
@@ -44,5 +46,33 @@ class PseudonymQueriesTest {
         assertThrows(SearchException.class,
             () -> PseudonymQueries.filters(Map.of("login", List.of("mueller")), PROTECTED, session));
         assertEquals("message:login", PseudonymQueries.query("message:login", PROTECTED, session));
+    }
+
+    /** The cases from the issues #2 and #5: protected fields hidden from the check by escapes or missing spaces. */
+    @ParameterizedTest
+    @ValueSource(strings = { "lo\\gin:mueller", "logi\\n:mueller", "\\_query_:\"login:mueller\"",
+        "(*:*)login:mueller", "\"x\"login:mueller", "level:[A TO Z]login:mueller", "level:{A TO Z}login:mueller",
+        "(*:*)_query_:\"{!join from=x to=y}a\"", "a^2login:mueller", "a~2login:mueller", "/x/login:mueller",
+        "/* c */login:mueller", "login :mueller", "login\n:mueller", "login /* c */ : mueller", "x\u3000login:mueller",
+        "filter(login:mueller)", "+login:mueller", "!login:mueller", "login:\"mueller\"", "login:mu\\eller",
+        "login:$Nutzer1~2", "login:$Nutzer1^2~1", "login:$Nutzer1~", "login:/mueller/", "login:[a TO z]",
+        "login:filter(mueller)", "login:*", "login:", "ip:$Nutzer1*" })
+    void rejectsHiddenClearValues(String query) {
+        Pseudonyms session = new Pseudonyms();
+        session.pseudonym("Nutzer", "mueller");
+        assertThrows(SearchException.class, () -> PseudonymQueries.query(query, PROTECTED, session));
+    }
+
+    @Test
+    void acceptsPseudonymsInEveryForm() {
+        Pseudonyms session = new Pseudonyms();
+        session.pseudonym("Nutzer", "mue\"ller");
+        assertEquals("(*:*)login:\"mue\\\"ller\"", PseudonymQueries.query("(*:*)login:$Nutzer1", PROTECTED, session));
+        assertEquals("login : \"mue\\\"ller\"^2", PseudonymQueries.query("login : \"$Nutzer1\"^2", PROTECTED,
+            session));
+        assertEquals("login:\"mue\\\"ller\"", PseudonymQueries.query("login:$Nutz\\er1", PROTECTED, session));
+        // pseudonyms in a phrase or as a whole term of another field, but not inside other terms
+        assertEquals("message:\"by mue\\\"ller\" \"mue\\\"ller\" x$Nutzer1",
+            PseudonymQueries.query("message:\"by $Nutzer1\" $Nutzer1 x$Nutzer1", PROTECTED, session));
     }
 }

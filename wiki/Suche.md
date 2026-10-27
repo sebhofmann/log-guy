@@ -15,7 +15,15 @@ Es gibt zwei Suchwege: Die Solr-Suche über das Index-Fenster antwortet in Milli
 - Gemeinsame Parameter: `apps` (kommagetrennt, leer heißt alle erlaubten, `@produktiv` steht für die erlaubten Anwendungen der Anwendungsgruppe), `q`, `from` und `to` als ISO-8601-Zeitpunkt und Feldfilter `f.<feld>=<wert>`, wiederholbar. Mehrere Werte eines Feldes sind mit ODER verknüpft, verschiedene Felder mit UND. Die Facette eines Feldes ignoriert den eigenen Filter, damit die GUI weitere Werte zur Auswahl anbieten kann.
 - Fehler kommen als JSON `{"error": "..."}` mit deutscher Meldung: 400 für eine falsche Anfrage, 403 ohne Recht, 404 wenn die Datei nicht mehr in hot/ liegt, 502 wenn Solr nicht erreichbar ist.
 - Mehrere Wörter in `q` sind mit UND verknüpft (`q.op=AND`), wie man es von einer Logsuche erwartet.
-- `q` ist Solr-Syntax mit den deklarierten Feldnamen, z.B. `message:(connection AND refused) AND import_id:4711`. log-guy setzt die Namen in Solr-Felder wie `import_id_s` um. Lokale Parameter wie `{!join}` lehnt es ab.
+- `q` ist Solr-Syntax mit den deklarierten Feldnamen, z.B. `message:(connection AND refused) AND import_id:4711`. log-guy setzt die Namen in Solr-Felder wie `import_id_s` um. Dafür zerlegt `QueryLexer` die Anfrage genau so, wie der Lexer des Solr-Standardparsers (`QueryParser.jj` in Solr 9) sie zerlegt. Solr liest jeden Begriff vor einem Doppelpunkt als Feldnamen, auch ohne Leerzeichen davor (`(*:*)login:x`, `"x"login:x`, `[A TO Z]login:x`, `a^2login:x`, `/x/login:x`) und mit Leerzeichen oder Kommentaren `/* … */` zwischen Name und Doppelpunkt. Jeder solche Name muss ein deklariertes Feld sein und wird umgesetzt, sonst antwortet log-guy mit 400. Abgelehnt werden außerdem:
+  - Backslash-Escapes im Feldnamen wie `lo\gin:x`, weil Solr sie entfernt,
+  - Feldnamen mit Unterstrich am Anfang, das sind Solr-interne Felder wie `_query_` und `_val_`,
+  - ein Doppelpunkt ohne Feldnamen davor, ein Doppelpunkt im Suchbegriff wird als `\:` geschrieben,
+  - das Feld `*` außer in `*:*`,
+  - lokale Parameter wie `{!join}`,
+  - alles, was Solr schon beim Zerlegen ablehnt, etwa ein offenes `"` oder ein `]` ohne Bereich.
+
+  Ein Integrationstest prüft das gegen ein echtes Solr: Zwei Events unterscheiden sich nur in einem nicht deklarierten Feld, keine umgesetzte Anfrage aus 3.000 zufällig zusammengesetzten darf genau eines davon finden.
 - log-guy setzt immer einen Filter `app:(...)` mit den Anwendungen, die der Nutzer sehen darf. Der Client kann ihn nicht entfernen.
 - Eine Anwendungsgruppe wird bei der Anfrage in ihre Mitglieder aufgelöst, das Feld `app` reicht also, ein eigenes Gruppenfeld im Index gibt es nicht. So wirkt eine geänderte Gruppe ohne Neuindexierung, auch auf alte Events. Eine Gruppe ohne erlaubtes Mitglied ergibt 400. `/api/v1/fields` liefert zusätzlich `groups` mit den lesbaren Mitgliedern jeder Gruppe und `selected` mit den aufgelösten gewählten Anwendungen. Die GUI zeigt die Gruppen als eigene Facette, siehe [GUI](GUI.md).
 - Ohne `from` und `to` gilt: die letzten 24 Stunden.
