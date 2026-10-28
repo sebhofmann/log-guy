@@ -5,9 +5,11 @@ import java.util.List;
 import java.util.Map;
 
 import org.springframework.ai.mcp.server.webmvc.transport.WebMvcStreamableServerTransportProvider;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
+import org.springframework.core.Ordered;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
@@ -74,7 +76,25 @@ public class McpConfig {
      */
     @Bean
     public McpSessions mcpSessions(LogGuyProperties properties, Clock clock) {
-        return new McpSessions(properties.mcp().sessionIdleTimeout(), properties.mcp().maxSessions(), clock);
+        McpProperties mcp = properties.mcp();
+        return new McpSessions(mcp.sessionIdleTimeout(), mcp.maxSessions(), mcp.maxSessionsPerToken(), clock);
+    }
+
+    /**
+     * Applies the session limits when a client initializes a session. Runs after the security filter chain.
+     *
+     * @param properties configuration, for the path of the endpoint
+     * @param sessions the sessions
+     * @return the registration
+     */
+    @Bean
+    public FilterRegistrationBean<McpSessionFilter> mcpSessionFilter(LogGuyProperties properties,
+        McpSessions sessions) {
+        FilterRegistrationBean<McpSessionFilter> registration = new FilterRegistrationBean<>(
+            new McpSessionFilter(sessions));
+        registration.addUrlPatterns(properties.mcp().path(), properties.mcp().path() + "/*");
+        registration.setOrder(Ordered.LOWEST_PRECEDENCE);
+        return registration;
     }
 
     /**

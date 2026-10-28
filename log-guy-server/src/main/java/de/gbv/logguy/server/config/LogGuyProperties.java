@@ -381,11 +381,12 @@ public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppPropert
      * @param path path of the endpoint
      * @param sessionIdleTimeout a session and its pseudonyms are dropped after this time without a request
      * @param maxSessions open sessions at most, over all tokens
+     * @param maxSessionsPerToken open sessions of one token at most, so a single client cannot take all sessions
      * @param maxEvents events per tool call at most
      * @param maxText characters per text at most, longer texts are cut
      */
-    public record McpProperties(String path, Duration sessionIdleTimeout, int maxSessions, int maxEvents,
-        int maxText) {
+    public record McpProperties(String path, Duration sessionIdleTimeout, int maxSessions,
+        int maxSessionsPerToken, int maxEvents, int maxText) {
     }
 
     /**

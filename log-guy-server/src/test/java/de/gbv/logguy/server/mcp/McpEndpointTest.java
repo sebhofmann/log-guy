@@ -109,6 +109,9 @@ class McpEndpointTest {
     @Autowired
     HotStore hot;
 
+    @Autowired
+    McpSessions sessions;
+
     private String id;
 
     @BeforeEach
@@ -155,6 +158,18 @@ class McpEndpointTest {
         assertEquals(401, post("/mcp", "lg_mcp_wrong"));
         assertEquals(401, post("/api/v1/fields", MCP_TOKEN));
         assertThrows(RuntimeException.class, () -> client(API_TOKEN));
+    }
+
+    /**
+     * The session is counted when the client initializes it, before any tool call, so the limits hold for the
+     * transport as well.
+     */
+    @Test
+    void sessionIsCountedOnInitialize() {
+        int before = sessions.size();
+        try (McpSyncClient client = client(ADMIN_MCP_TOKEN)) {
+            assertEquals(before + 1, sessions.size());
+        }
     }
 
     @Test

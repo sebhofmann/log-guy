@@ -25,12 +25,13 @@ log-guy:
   mcp:
     path: /mcp
     session-idle-timeout: 2h   # danach sind Sitzung und Pseudonyme weg
-    max-sessions: 100
+    max-sessions: 100            # über alle Tokens
+    max-sessions-per-token: 10   # ein Client kann nicht alle Sitzungen belegen
     max-events: 50
     max-text: 2000
 ```
 
-Eine MCP-Sitzung gehört genau zu dem Token, das sie begonnen hat. Ein anderes Token, auch desselben Nutzers, kann sie nicht weiterverwenden. Über `max-sessions` hinaus lehnt log-guy neue Sitzungen ab, bis alte abgelaufen sind. Für die Kommandozeile (`cli`) ist der MCP-Server abgeschaltet.
+Eine MCP-Sitzung gehört genau zu dem Token, das sie begonnen hat. Ein anderes Token, auch desselben Nutzers, kann sie nicht weiterverwenden. Über `max-sessions` hinaus lehnt log-guy neue Sitzungen ab, bis alte abgelaufen sind. Zusätzlich hat jedes Token höchstens `max-sessions-per-token` Sitzungen. Ein Client, der für jeden Aufruf neu initialisiert, bekommt dann `429 too many MCP sessions for token …`, bis eine seiner eigenen Sitzungen abgelaufen ist. Andere Tokens merken davon nichts. Geprüft wird schon beim `initialize`, bevor der Transport die Sitzung anlegt, sodass die Grenzen auch für den Transport gelten. Für die Kommandozeile (`cli`) ist der MCP-Server abgeschaltet.
 
 ### Regeln in JavaScript
 

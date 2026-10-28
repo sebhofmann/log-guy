@@ -191,6 +191,7 @@ log-guy:
     path: /mcp
     session-idle-timeout: 2h
     max-sessions: 100
+    max-sessions-per-token: 10
     max-events: 50
     max-text: 2000
   server-log:
