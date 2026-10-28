@@ -15,6 +15,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -30,6 +31,7 @@ import de.gbv.logguy.common.Fingerprint;
 import de.gbv.logguy.common.TestLogs;
 import de.gbv.logguy.server.hot.HotFile;
 import de.gbv.logguy.server.hot.HotStore;
+import de.gbv.logguy.server.pseudonym.Pseudonyms;
 import de.gbv.logguy.server.security.SecurityConfig;
 import de.gbv.logguy.server.security.TokenRegistry;
 import io.modelcontextprotocol.client.McpClient;
@@ -267,6 +269,25 @@ class McpEndpointTest {
             assertFalse(Boolean.TRUE.equals(result.isError()), text(result));
             assertFalse(IPV4.matcher(text(result)).find(), text(result));
             assertTrue(text(result).contains("\"events\""), text(result));
+        }
+    }
+
+    @Test
+    void archiveSearchRejectsSessionPseudonyms() throws Exception {
+        try (McpSyncClient client = client(ADMIN_MCP_TOKEN)) {
+            String output = text(client.callTool(new CallToolRequest("test_script", Map.of("kind", "parser",
+                "name", "mycore-log4j", "app", "digibib", "text", new String(SAMPLE).lines().limit(50)
+                    .reduce((a, b) -> a + "\n" + b).orElseThrow()))));
+            Matcher pseudonym = Pseudonyms.PSEUDONYM.matcher(output);
+            assertTrue(pseudonym.find(), output);
+            CallToolResult result = client.callTool(new CallToolRequest("archive_search_start",
+                Map.of("query", "user " + pseudonym.group(), "last", "1d")));
+            assertTrue(result.isError(), text(result));
+            assertTrue(text(result).contains("[Nutzer#3f9a1c2e]"), text(result));
+            // the same form without a pseudonym of the session is ordinary text, e.g. a Java proxy class
+            result = client.callTool(new CallToolRequest("archive_search_start",
+                Map.of("query", "$Proxy12", "last", "1d")));
+            assertFalse(Boolean.TRUE.equals(result.isError()), text(result));
         }
     }
 

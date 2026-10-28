@@ -270,7 +270,8 @@ public class McpTools {
                   "description": "Anwendungen, leer für alle mit Recht archive"},
                 "hosts": {"type": "array", "items": {"type": "string"}, "description": "Hosts, leer für alle"},
                 "query": {"type": "string", "description": "Text, mit regex: true ein regulärer Ausdruck in RE2-Syntax.\
-                 Pseudonyme wie $Nutzer1 werden zurückübersetzt."},
+                 Gesucht wird im archivierten Text, Nutzer und Mailadressen stehen dort als Token pro Datei wie\
+                 [Nutzer#3f9a1c2e]. Sitzungs-Pseudonyme wie $Nutzer1 aus search_logs findet die Archivsuche nicht."},
                 "regex": {"type": "boolean"},
                 "ignoreCase": {"type": "boolean"},
                 "context": {"type": "integer", "minimum": 0, "description": "Zeilen vor und nach jedem Treffer"},
@@ -302,8 +303,17 @@ public class McpTools {
         if (last != null) {
             from = (to == null ? Instant.now() : to).minus(duration(last));
         }
+        String query = required(args, "query");
+        Matcher pseudonym = Pseudonyms.PSEUDONYM.matcher(query);
+        while (pseudonym.find()) {
+            if (call.session().isPseudonym(pseudonym.group())) {
+                // the archive has tokens per file, a session pseudonym never matches and the search would find nothing
+                throw new SearchException(pseudonym.group() + " ist ein Pseudonym dieser Sitzung, das Archiv kennt "
+                    + "es nicht. Im Archiv stehen Nutzer und Mailadressen als Token pro Datei wie [Nutzer#3f9a1c2e].");
+            }
+        }
         ArchiveSearchJob job = archiveSearch.start(call.user(), owner(call),
-            new ArchiveSearchRequest(strings(args, "apps"), strings(args, "hosts"), from, to, required(args, "query"),
+            new ArchiveSearchRequest(strings(args, "apps"), strings(args, "hosts"), from, to, query,
                 bool(args, "regex"), bool(args, "ignoreCase"), integer(args, "context").orElse(null)));
         return job.status();
     }
