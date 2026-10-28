@@ -1,6 +1,7 @@
 package de.gbv.logguy.server.security;
 
 import java.io.IOException;
+import java.time.Clock;
 import java.util.Set;
 
 import org.springframework.context.annotation.Bean;
@@ -18,10 +19,12 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.RequestAuthorizationContext;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy;
 
 import de.gbv.logguy.common.IngestProtocol;
+import de.gbv.logguy.server.audit.AuditLog;
 import de.gbv.logguy.server.config.AppRegistry;
 import de.gbv.logguy.server.config.LogGuyProperties;
 import de.gbv.logguy.server.config.LogGuyProperties.TokenKind;
@@ -70,6 +73,18 @@ public class SecurityConfig {
     @Bean
     public PasswordEncoder loginPasswordEncoder() {
         return passwordEncoder();
+    }
+
+    /**
+     * Counts failed logins per client address.
+     *
+     * @param settings the limits of the login form
+     * @param clock clock for failures and waits
+     * @return the throttle
+     */
+    @Bean
+    public LoginThrottle loginThrottle(LoginProperties settings, Clock clock) {
+        return new LoginThrottle(settings, clock);
     }
 
     /**
@@ -202,14 +217,20 @@ public class SecurityConfig {
 
     /**
      * The GUI with login form. Health and static files are public, the actuator endpoints need an administrator.
+     * Failed logins are counted per client address, see {@link LoginThrottle}.
      *
      * @param http the builder
      * @param currentUser resolves the user
+     * @param throttle counts failed logins per client address
+     * @param audit the audit log, for logins
+     * @param login the limits of the login form
      * @return the filter chain
      */
     @Bean
     @Order(4)
-    public SecurityFilterChain webChain(HttpSecurity http, CurrentUser currentUser) {
+    public SecurityFilterChain webChain(HttpSecurity http, CurrentUser currentUser, LoginThrottle throttle,
+        AuditLog audit, LoginProperties login) {
+        LoginHandler handler = new LoginHandler(throttle, audit, login);
         AuthorizationManager<RequestAuthorizationContext> admin = (authentication, context) -> {
             try {
                 return new AuthorizationDecision(currentUser.get().isAdmin());
@@ -226,7 +247,11 @@ public class SecurityConfig {
                 .access(admin)
                 .anyRequest()
                 .hasRole("USER"))
-            .formLogin(form -> form.loginPage("/login").defaultSuccessUrl("/", false))
+            .addFilterBefore(new LoginThrottleFilter(throttle), UsernamePasswordAuthenticationFilter.class)
+            .formLogin(form -> form.loginPage("/login")
+                .usernameParameter(LoginHandler.USERNAME_PARAMETER)
+                .successHandler(handler)
+                .failureHandler(handler))
             .logout(logout -> logout.logoutUrl("/logout").logoutSuccessUrl("/login?logout"))
             .headers(headers -> headers
                 .contentSecurityPolicy(csp -> csp.policyDirectives(

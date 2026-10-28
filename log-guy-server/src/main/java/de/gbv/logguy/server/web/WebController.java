@@ -1,5 +1,6 @@
 package de.gbv.logguy.server.web;
 
+import java.time.Duration;
 import java.util.Map;
 
 import org.springframework.context.annotation.Profile;
@@ -10,9 +11,12 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.servlet.ModelAndView;
 
+import jakarta.servlet.http.HttpServletRequest;
+
 import de.gbv.logguy.server.config.LogGuyProperties.Right;
 import de.gbv.logguy.server.security.CurrentUser;
 import de.gbv.logguy.server.security.LogGuyUser;
+import de.gbv.logguy.server.security.LoginThrottle;
 
 /**
  * Pages of the GUI. The pages only contain the frame, the data comes from the API via {@code fetch}.
@@ -23,13 +27,17 @@ public class WebController {
 
     private final CurrentUser currentUser;
 
+    private final LoginThrottle loginThrottle;
+
     /**
      * Creates the controller.
      *
      * @param currentUser resolves the user
+     * @param loginThrottle counts failed logins, for the wait shown on the login page
      */
-    public WebController(CurrentUser currentUser) {
+    public WebController(CurrentUser currentUser, LoginThrottle loginThrottle) {
         this.currentUser = currentUser;
+        this.loginThrottle = loginThrottle;
     }
 
     /**
@@ -38,13 +46,18 @@ public class WebController {
      * @param csrf the CSRF token
      * @param error set after a failed login
      * @param logout set after a logout
+     * @param request the request, for the client address
      * @return the page
      */
     @GetMapping("/login")
     public ModelAndView login(CsrfToken csrf, @RequestParam(required = false) String error,
-        @RequestParam(required = false) String logout) {
-        return new ModelAndView("login",
-            Map.of("page", new PageContext(null, csrf, null), "error", error != null, "logout", logout != null));
+        @RequestParam(required = false) String logout, HttpServletRequest request) {
+        // whole minutes, rounded up, so the page never says 0
+        long waitMinutes = loginThrottle.blocked(request.getRemoteAddr())
+            .map(wait -> wait.plus(Duration.ofMinutes(1)).minusNanos(1).toMinutes())
+            .orElse(0L);
+        return new ModelAndView("login", Map.of("page", new PageContext(null, csrf, null), "error", error != null,
+            "logout", logout != null, "waitMinutes", waitMinutes));
     }
 
     /**

@@ -5,6 +5,7 @@ import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.not;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestBuilders.formLogin;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -19,6 +20,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -103,6 +106,48 @@ class WebSecurityTest {
 
     @Autowired
     StatusService statusService;
+
+    private MvcResult login(String address, String password) throws Exception {
+        return mvc.perform(post("/login").param("username", "anna").param("password", password).with(csrf())
+            .with(request -> {
+                request.setRemoteAddr(address);
+                return request;
+            })).andReturn();
+    }
+
+    @Test
+    void failedLoginsAreLimitedPerAddress() throws Exception {
+        for (int i = 0; i < 4; i++) {
+            assertEquals("/login?error", login("10.9.9.9", "falsch").getResponse().getRedirectedUrl());
+        }
+        // the fifth failure starts the wait, then even the right password is not checked
+        login("10.9.9.9", "falsch");
+        MvcResult blocked = login("10.9.9.9", PASSWORD);
+        assertEquals("/login", blocked.getResponse().getRedirectedUrl());
+        assertNull(blocked.getRequest().getSession(false));
+        mvc.perform(get("/login").with(request -> {
+            request.setRemoteAddr("10.9.9.9");
+            return request;
+        })).andExpect(content().string(containsString("Zu viele Fehlversuche")));
+
+        // another address logs in as the same user
+        assertEquals("/", login("10.9.9.10", PASSWORD).getResponse().getRedirectedUrl());
+
+        String audit;
+        try (var files = Files.list(dataDir.resolve("audit"))) {
+            audit = files.map(file -> {
+                try {
+                    return Files.readString(file);
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            }).reduce("", String::concat);
+        }
+        assertTrue(audit.contains("\"user\":\"anna\",\"token\":null,\"via\":\"gui\",\"action\":\"login.failure\","
+            + "\"target\":\"10.9.9.9\""), audit);
+        assertTrue(audit.contains("\"action\":\"login.blocked\",\"target\":\"10.9.9.9\""), audit);
+        assertTrue(audit.contains("\"action\":\"login.success\",\"target\":\"10.9.9.10\""), audit);
+    }
 
     @Test
     void apiNeedsTokenOrSession() throws Exception {

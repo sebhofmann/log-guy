@@ -36,6 +36,16 @@ gg:
 
 server:
   port: 8080
+  # log-guy runs behind nginx: the client address comes from X-Forwarded-For, but only if the request comes from
+  # one of the internal proxies. Tomcat trusts all private networks by default, then any client of the internal
+  # network could fake its address and get around the login limit. Only the loopback address is trusted here, an
+  # nginx on another host is entered with its address, e.g. "10.1.2.3/32".
+  forward-headers-strategy: native
+  tomcat:
+    remoteip:
+      internal-proxies: 127.0.0.0/8, ::1/128
+      remote-ip-header: X-Forwarded-For
+      protocol-header: X-Forwarded-Proto
   servlet:
     session:
       timeout: 8h
@@ -62,6 +72,16 @@ log-guy:
   apps: {}
   users: []
   tokens: []
+  login:
+    # failed logins of one client address before it has to wait, the name does not count
+    max-failures: 5
+    # failures are forgotten after this time without a new failure
+    window: 15m
+    # the first wait, it doubles with every further failure up to max-delay
+    delay: 30s
+    max-delay: 15m
+    # longer names of failed logins are cut in the audit log
+    max-name-length: 100
   ingest:
     max-chunk-size: 8MB
     max-concurrent: 32

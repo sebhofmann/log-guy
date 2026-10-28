@@ -31,6 +31,7 @@ M1 ist erfüllt mit dem Backfill von `prod-logs/` und der Live-Datei einer lokal
 ### M2 Suche und GUI
 
 - [x] Nutzer mit Argon2-Passwörtern, Anmeldung, Session-Cookie
+- [x] Fehlversuche bei der Anmeldung pro Client-Adresse bremsen, Anmeldungen im Audit-Log, Client-Adresse hinter nginx
 - [x] Rechte `read` und `admin` pro Anwendung, erzwungener Filter auf `app`
 - [x] Such-API: `search`, `histogram`, `facets`, `fields`, `context`
 - [x] JTE-Seiten, Logfenster mit virtuellem Scrollen und `cursorMark`

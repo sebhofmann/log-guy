@@ -94,6 +94,49 @@ log-guy:
 
 Name und Passwort, danach ein Session-Cookie mit `HttpOnly`, `Secure` und `SameSite=Strict`, gültig 8 Stunden ohne Aktivität. Die GUI ruft die API mit dieser Session und einem CSRF-Token auf, API-Tokens brauchen kein CSRF-Token. Ohne Anmeldung antwortet `/api/**` mit 401, die Seiten leiten auf `/login` um. Sessions liegen im RAM, nach einem Neustart meldet man sich neu an. Die Anmeldung steckt hinter einer Schnittstelle, sodass LDAP später als zweite Umsetzung dazukommen kann.
 
+Jede Prüfung eines Passworts kostet einen Argon2-Hash mit 16 MB und spürbar CPU. Damit niemand den Server mit Anmeldeversuchen auslastet, zählt log-guy Fehlversuche pro Client-Adresse, nicht pro Name. So kann niemand einen anderen Nutzer aussperren, und wer selbst von einer anderen Adresse kommt, meldet sich weiter an. Nach `max-failures` Fehlversuchen (Vorgabe 5) muss die Adresse warten, zuerst `delay` (30 s), mit jedem weiteren Fehlversuch doppelt so lange bis höchstens `max-delay` (15 min). Während der Wartezeit prüft log-guy das Passwort gar nicht, sondern leitet sofort auf `/login` zurück, und die Seite nennt die restlichen Minuten. Die Wartezeit endet von selbst, eine erfolgreiche Anmeldung setzt die Adresse zurück, und nach `window` (15 min) ohne neuen Fehlversuch ist die Adresse vergessen. Eine globale Grenze gibt es bewusst nicht, sonst könnte eine einzige spammende Anwendung alle aussperren. Die Zählung liegt nur im RAM.
+
+```yaml
+log-guy:
+  login:
+    max-failures: 5
+    window: 15m
+    delay: 30s
+    max-delay: 15m
+    max-name-length: 100   # längere Namen von Fehlversuchen werden im Audit-Log gekürzt
+```
+
+Ins Audit-Log kommen `login.success`, `login.failure` mit dem eingegebenen Namen und `login.blocked`, wenn eine Wartezeit beginnt, jeweils mit der Client-Adresse als Ziel.
+
+#### Betrieb hinter nginx
+
+log-guy ist nur aus dem internen Netz erreichbar, davor steht nginx. Die Client-Adresse für die Bremse kommt dann aus `X-Forwarded-For`, aber nur, wenn die Anfrage von einem vertrauenswürdigen Proxy kommt. Tomcat vertraut ohne Einstellung allen privaten Netzen (10/8, 172.16/12, 192.168/16 und weitere). Im internen Netz könnte dann jeder Client seine Adresse selbst setzen und die Bremse umgehen. Die `application.yml` im JAR vertraut deshalb nur Loopback:
+
+```yaml
+server:
+  forward-headers-strategy: native
+  tomcat:
+    remoteip:
+      internal-proxies: 127.0.0.0/8, ::1/128
+      remote-ip-header: X-Forwarded-For
+      protocol-header: X-Forwarded-Proto
+```
+
+Läuft nginx auf einem anderen Host oder log-guy in einem Container, trägt der Betrieb unter `internal-proxies` die Adresse ein, mit der nginx bei log-guy ankommt, z. B. `10.1.2.3/32`. nginx muss die Adresse des Clients setzen und darf einen mitgeschickten Header nicht weiterreichen:
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    # die Treffer einer Archivsuche kommen bis zu 11 Minuten lang als Stream
+    proxy_read_timeout 15m;
+}
+```
+
+`$remote_addr` statt `$proxy_add_x_forwarded_for` sorgt dafür, dass ein Client keine eigene Adresse vorschalten kann.
+
 ### Zustand ohne Datenbank
 
 | Was | Wo |
@@ -106,8 +149,8 @@ Name und Passwort, danach ein Session-Cookie mit `HttpOnly`, `Secure` und `SameS
 | Steuer-Token für `log-guy reload`, `log-guy archive refilter`, `log-guy archive pseudonymize`, `log-guy reindex` und `log-guy hot close` | `state/control.token`, bei jedem Start neu, wird nicht gesichert |
 | Meldungen | `state/alerts.ndjson` |
 | gelöschte und gesperrte Dateien | `state/deleted.json` |
-| Audit-Log | `audit/*.ndjson`, Skript-Änderungen, Reloads, MCP-Aufrufe, Löschen, Sperren aufheben, Herunterladen und Neuindexieren |
-| Sessions, Pseudonym-Zuordnungen, Suchjobs | nur im RAM |
+| Audit-Log | `audit/*.ndjson`, Anmeldungen, Skript-Änderungen, Reloads, MCP-Aufrufe, Löschen, Sperren aufheben, Herunterladen und Neuindexieren |
+| Sessions, Pseudonym-Zuordnungen, Suchjobs, Fehlversuche bei der Anmeldung | nur im RAM |
 | eigenes Log von log-guy | `/var/lib/log-guy/logs/`, täglich rotiert, die letzten Einträge zusätzlich im RAM |
 
 [Zur Übersicht](README.md)
