@@ -1,6 +1,7 @@
 package de.gbv.logguy.server.alert;
 
 import java.time.Duration;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
@@ -12,14 +13,18 @@ import org.apache.logging.log4j.Logger;
 
 /**
  * Sends notifications in the background and tries again after a failure, so a slow or unreachable mail server or
- * webhook does not hold up the alerts.
+ * webhook does not hold up the alerts. Every attempt runs in its own virtual thread, so a target that hangs does not
+ * hold up the other targets either. The scheduler only starts the attempts and the retries.
  */
 public class Deliveries implements AutoCloseable {
 
     private static final Logger LOGGER = LogManager.getLogger();
 
-    private final ScheduledExecutorService executor =
-        Executors.newSingleThreadScheduledExecutor(Thread.ofVirtual().name("notify").factory());
+    private final ScheduledExecutorService scheduler =
+        Executors.newSingleThreadScheduledExecutor(Thread.ofVirtual().name("notify-schedule").factory());
+
+    private final ExecutorService workers =
+        Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("notify-", 0).factory());
 
     private final int attempts;
 
@@ -88,7 +93,17 @@ public class Deliveries implements AutoCloseable {
 
     private void schedule(String label, Delivery delivery, int attempt, Duration delay) {
         try {
-            executor.schedule(() -> run(label, delivery, attempt), delay.toMillis(), TimeUnit.MILLISECONDS);
+            scheduler.schedule(() -> start(label, delivery, attempt), delay.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (RejectedExecutionException e) {
+            pending.decrementAndGet();
+            failed.incrementAndGet();
+            LOGGER.error("notification {} dropped, the server is stopping", label);
+        }
+    }
+
+    private void start(String label, Delivery delivery, int attempt) {
+        try {
+            workers.execute(() -> run(label, delivery, attempt));
         } catch (RejectedExecutionException e) {
             pending.decrementAndGet();
             failed.incrementAndGet();
@@ -121,9 +136,10 @@ public class Deliveries implements AutoCloseable {
      */
     @Override
     public void close() {
-        executor.shutdownNow();
+        scheduler.shutdownNow();
+        workers.shutdown();
         try {
-            if (!executor.awaitTermination(10, TimeUnit.SECONDS)) {
+            if (!scheduler.awaitTermination(10, TimeUnit.SECONDS) || !workers.awaitTermination(10, TimeUnit.SECONDS)) {
                 LOGGER.warn("notifications still running at shutdown");
             }
         } catch (InterruptedException e) {

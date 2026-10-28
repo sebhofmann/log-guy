@@ -198,7 +198,9 @@ public class ServerConfig {
     @Bean
     public Notifier mailNotifier(LogGuyProperties properties, ObjectProvider<MailSender> sender,
         NotificationTexts texts, Deliveries deliveries) {
-        return new MailNotifier(sender.getIfAvailable(), properties.notifications().from(),
+        MailSender mail = sender.getIfAvailable();
+        MailNotifier.applyTimeouts(mail, properties.notifications().timeout());
+        return new MailNotifier(mail, properties.notifications().from(),
             properties.notifications().mail(),
             texts, deliveries);
     }

@@ -186,6 +186,7 @@ log-guy:
     #     headers: { Authorization: "Bearer ..." }
     attempts: 5
     retry-delay: 1m
+    # limit for one webhook call and for connecting, reading and writing to the SMTP server
     timeout: 10s
   mcp:
     path: /mcp

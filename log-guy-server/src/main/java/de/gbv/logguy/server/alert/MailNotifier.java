@@ -1,5 +1,7 @@
 package de.gbv.logguy.server.alert;
 
+import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -8,6 +10,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.mail.MailSender;
 import org.springframework.mail.SimpleMailMessage;
+import org.springframework.mail.javamail.JavaMailSenderImpl;
 
 import de.gbv.logguy.server.config.LogGuyProperties.MailTarget;
 
@@ -50,6 +53,26 @@ public class MailNotifier implements Notifier {
         this.deliveries = deliveries;
         if (sender == null && !targets.isEmpty()) {
             LOGGER.error("mail targets {} are configured, but spring.mail.host is not set", targets.keySet());
+        }
+    }
+
+    /**
+     * Gives the SMTP connection timeouts, so a mail server that accepts the connection and then does not answer
+     * cannot block a delivery forever. JavaMail waits without limit by default. Timeouts set in
+     * {@code spring.mail.properties} are kept.
+     *
+     * @param sender the SMTP connection, may be {@code null}
+     * @param timeout limit for connecting, reading and writing
+     */
+    public static void applyTimeouts(MailSender sender, Duration timeout) {
+        if (!(sender instanceof JavaMailSenderImpl impl)) {
+            return;
+        }
+        String millis = String.valueOf(timeout.toMillis());
+        for (String protocol : List.of("smtp", "smtps")) {
+            for (String key : List.of("connectiontimeout", "timeout", "writetimeout")) {
+                impl.getJavaMailProperties().putIfAbsent("mail." + protocol + "." + key, millis);
+            }
         }
     }
 

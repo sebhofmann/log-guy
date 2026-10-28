@@ -4,7 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
@@ -18,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mail.MailSendException;
 import org.springframework.mail.MailSender;
 import org.springframework.mail.SimpleMailMessage;
+import org.springframework.mail.javamail.JavaMailSenderImpl;
 
 import com.sun.net.httpserver.HttpServer;
 
@@ -151,6 +154,45 @@ class NotifierTest {
             notifier.send(notification(List.of("webhook:chat")));
             awaitSettled(deliveries);
             assertEquals(new Deliveries.Stats(2, 1, 0), deliveries.stats());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    /**
+     * A mail server that accepts the connection and never answers runs into the SMTP timeout, and a webhook sent
+     * after the mail arrives while the mail still hangs.
+     */
+    @Test
+    void hangingMailServerDoesNotHoldUpWebhooks() throws Exception {
+        List<String> bodies = new CopyOnWriteArrayList<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+        server.createContext("/hook", exchange -> {
+            bodies.add(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        });
+        server.start();
+        String url = "http://localhost:" + server.getAddress().getPort() + "/hook";
+        try (ServerSocket smtp = new ServerSocket(0, 50, InetAddress.getLoopbackAddress());
+            Deliveries deliveries = new Deliveries(1, Duration.ZERO);
+            WebhookNotifier webhook = new WebhookNotifier(Map.of("chat", new WebhookTarget(url, Map.of(), null)),
+                TEXTS, deliveries, JSON, Duration.ofSeconds(5))) {
+            JavaMailSenderImpl sender = new JavaMailSenderImpl();
+            sender.setHost(smtp.getInetAddress().getHostAddress());
+            sender.setPort(smtp.getLocalPort());
+            MailNotifier.applyTimeouts(sender, Duration.ofSeconds(3));
+            new MailNotifier(sender, "a@b.c", Map.of("it", new MailTarget(List.of("it@example.org"), null)), TEXTS,
+                deliveries).send(notification(List.of("mail:it")));
+            webhook.send(notification(List.of("webhook:chat")));
+
+            for (int i = 0; i < 80 && deliveries.stats().sent() == 0; i++) {
+                Thread.sleep(25);
+            }
+            assertEquals(1, bodies.size());
+            assertEquals(new Deliveries.Stats(1, 0, 1), deliveries.stats());
+            awaitSettled(deliveries);
+            assertEquals(new Deliveries.Stats(1, 1, 0), deliveries.stats());
         } finally {
             server.stop(0);
         }
