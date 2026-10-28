@@ -232,6 +232,88 @@ class RotatedScannerTest {
         assertEquals(before, server.requests, "complete files are not read again");
     }
 
+    /**
+     * Debian's logrotate for Apache httpd: {@code rotate 14}, {@code compress}, {@code delaycompress} and a graceful
+     * reload. Every rotation shifts all numbers by one, the files keep their fingerprints.
+     */
+    @Test
+    void numberedRotationWithDelaycompressSendsEachFileOnce() throws Exception {
+        Duration grace = server.config(List.of()).rotationGrace();
+        RotatedScanner scanner = scanner(dir + "/access.log.*");
+        Path live = dir.resolve("access.log");
+        List<byte[]> days = List.of(Arrays.copyOfRange(sample, 0, 30_000), Arrays.copyOfRange(sample, 30_000, 70_000),
+            Arrays.copyOfRange(sample, 70_000, 90_000), Arrays.copyOfRange(sample, 90_000, 150_000));
+        for (byte[] day : days) {
+            Files.write(live, Arrays.copyOf(day, day.length - 1000));
+            Files.setLastModifiedTime(live, FileTime.from(clock.instant()));
+            logrotate(14);
+            // old children write to the renamed file until their requests are done
+            Files.write(dir.resolve("access.log.1"), Arrays.copyOfRange(day, day.length - 1000, day.length),
+                StandardOpenOption.APPEND);
+            Files.setLastModifiedTime(dir.resolve("access.log.1"), FileTime.from(clock.instant()));
+            scanner.scan();
+            clock.advance(grace.plusSeconds(1));
+            scanner.scan();
+            clock.advance(Duration.ofDays(1));
+        }
+        assertEquals(days.size(), server.streams.size());
+        for (byte[] day : days) {
+            String fp = Fingerprint.of(day);
+            assertArrayEquals(day, server.content(fp));
+            assertTrue(server.closed.get(fp));
+        }
+        assertTrue(Files.exists(dir.resolve("access.log.3.gz")));
+        assertTrue(scanner.failed().isEmpty());
+    }
+
+    /**
+     * A rotated file below the fingerprint prefix, e.g. a quiet {@code error.log.1}, may still grow until the reload is
+     * done. Its fingerprint is hashed over the whole content, so it must not be sent before it is complete.
+     */
+    @Test
+    void smallUncompressedFileWaitsUntilItIsComplete() throws Exception {
+        Duration grace = server.config(List.of()).rotationGrace();
+        Path file = dir.resolve("error.log.1");
+        byte[] content = Arrays.copyOf(sample, 600);
+        Files.write(file, Arrays.copyOf(content, 400));
+        Files.setLastModifiedTime(file, FileTime.from(clock.instant()));
+        RotatedScanner scanner = scanner(dir + "/error.log.*");
+        scanner.scan();
+        assertTrue(server.streams.isEmpty(), "the fingerprint of a growing small file is not final");
+
+        // the parent logs the graceful restart to the old descriptor
+        Files.write(file, Arrays.copyOfRange(content, 400, 600), StandardOpenOption.APPEND);
+        Files.setLastModifiedTime(file, FileTime.from(clock.instant().plusSeconds(1)));
+        clock.advance(grace.plusSeconds(2));
+        scanner.scan();
+        assertEquals(1, server.streams.size());
+        assertArrayEquals(content, server.content(Fingerprint.of(content)));
+        assertTrue(server.closed.get(Fingerprint.of(content)));
+    }
+
+    /**
+     * Rotates like logrotate with {@code compress} and {@code delaycompress}: shifts the numbers, compresses the former
+     * {@code .1} and renames the live file to {@code .1}.
+     */
+    private void logrotate(int keep) throws IOException {
+        Files.deleteIfExists(dir.resolve("access.log." + keep + ".gz"));
+        for (int i = keep - 1; i >= 2; i--) {
+            Path from = dir.resolve("access.log." + i + ".gz");
+            if (Files.exists(from)) {
+                Files.move(from, dir.resolve("access.log." + (i + 1) + ".gz"));
+            }
+        }
+        Path first = dir.resolve("access.log.1");
+        if (Files.exists(first)) {
+            Path second = dir.resolve("access.log.2");
+            Files.move(first, second);
+            gzip(dir.resolve("access.log.2.gz"), Files.readAllBytes(second));
+            Files.delete(second);
+        }
+        Files.move(dir.resolve("access.log"), first);
+        Files.createFile(dir.resolve("access.log"));
+    }
+
     @Test
     void backfillSendsEachFileOnce() throws Exception {
         AgentConfig config = server.config(List.of());

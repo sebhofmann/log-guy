@@ -17,6 +17,7 @@ import java.util.Set;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import de.gbv.logguy.common.Fingerprint;
 import de.gbv.logguy.common.StreamStatus;
 
 /**
@@ -25,7 +26,8 @@ import de.gbv.logguy.common.StreamStatus;
  * <p>
  * A {@code .gz} file is complete, its stream is closed right away. An uncompressed rotated file, e.g.
  * {@code access.log.1}, may still be written by a process that has not reopened its log yet. It is sent up to its
- * current end and only closed once it has not been modified for {@code rotation-grace}.
+ * current end and only closed once it has not been modified for {@code rotation-grace}. A file below the
+ * fingerprint prefix, e.g. a quiet {@code error.log.1}, is only sent then, because its fingerprint covers all of it.
  * <p>
  * A file the agent may not read is tried again with every scan. A file that is broken, e.g. a truncated {@code .gz},
  * is only tried again once it changes. A file the server refuses, e.g. because the token may not write the
@@ -106,6 +108,10 @@ public class RotatedScanner {
             }
             boolean close = file.getFileName().toString().endsWith(".gz")
                 || !attributes.lastModifiedTime().toInstant().plus(rotationGrace).isAfter(now);
+            if (!close && attributes.size() < Fingerprint.PREFIX_BYTES) {
+                // a small file is fingerprinted over all of it, so it waits until nothing writes to it anymore
+                continue;
+            }
             try {
                 boolean closed = sender.send(file, app, close).map(StreamStatus::closed).orElse(close);
                 if (failed.remove(file) != null) {
