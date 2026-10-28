@@ -3,7 +3,9 @@ package de.gbv.logguy.server.web;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.not;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestBuilders.formLogin;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.response.SecurityMockMvcResultMatchers.authenticated;
@@ -17,8 +19,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
 
 import org.apache.logging.log4j.LogManager;
 import org.junit.jupiter.api.Test;
@@ -34,9 +40,13 @@ import org.springframework.test.web.servlet.MvcResult;
 
 import com.jayway.jsonpath.JsonPath;
 
+import de.gbv.logguy.common.Fingerprint;
+import de.gbv.logguy.server.hot.HotStore;
 import de.gbv.logguy.server.security.ControlToken;
 import de.gbv.logguy.server.security.SecurityConfig;
 import de.gbv.logguy.server.security.TokenRegistry;
+import de.gbv.logguy.server.status.StatusService;
+import de.gbv.logguy.server.status.StatusService.AbandonedFile;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -87,6 +97,12 @@ class WebSecurityTest {
 
     @Autowired
     MockMvc mvc;
+
+    @Autowired
+    HotStore hot;
+
+    @Autowired
+    StatusService statusService;
 
     @Test
     void apiNeedsTokenOrSession() throws Exception {
@@ -241,6 +257,49 @@ class WebSecurityTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.mayDelete").value(true));
         mvc.perform(get("/api/v1/files/unknown/content").session(admin)).andExpect(status().isNotFound());
+    }
+
+    /**
+     * An open file without data for longer than {@code hot-days} shows up as abandoned and can be closed with the
+     * control token. A file with recent data is closed only with {@code force}.
+     */
+    @Test
+    void closesAbandonedHotFile() throws Exception {
+        String token = ControlToken.read(dataDir);
+        Instant now = Instant.now();
+        byte[] old = "2026-01-01 10:00:00,000 INFO  App: abandoned\n".getBytes(StandardCharsets.UTF_8);
+        byte[] fresh = "2026-01-01 10:00:00,000 INFO  App: fresh\n".getBytes(StandardCharsets.UTF_8);
+        String abandoned = Fingerprint.of(old);
+        String recent = Fingerprint.of(fresh);
+        hot.getOrCreate(abandoned, "app1", "digibib").append(0, old, old.length, "/logs/mir.log",
+            now.minus(Duration.ofDays(30)));
+        hot.getOrCreate(recent, "app1", "digibib").append(0, fresh, fresh.length, "/logs/mir.log", now);
+
+        List<AbandonedFile> list = statusService.abandoned(now);
+        assertEquals(List.of(abandoned), list.stream().map(AbandonedFile::fingerprint).toList());
+        assertEquals(List.of("/logs/mir.log"), list.getFirst().paths());
+
+        mvc.perform(post(SecurityConfig.HOT_CLOSE_PATH).param("fingerprint", abandoned)
+            .header("Authorization", "Bearer " + API_TOKEN)).andExpect(status().isUnauthorized());
+        mvc.perform(post(SecurityConfig.HOT_CLOSE_PATH).param("fingerprint", "unknown")
+            .header("Authorization", "Bearer " + token)).andExpect(status().isNotFound());
+        mvc.perform(post(SecurityConfig.HOT_CLOSE_PATH).param("fingerprint", recent)
+            .header("Authorization", "Bearer " + token))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error").value(containsString("force")));
+        mvc.perform(post(SecurityConfig.HOT_CLOSE_PATH).param("fingerprint", abandoned)
+            .header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.length").value(old.length));
+        assertTrue(hot.find(abandoned).orElseThrow().meta().closed());
+        assertTrue(statusService.abandoned(now).isEmpty());
+        mvc.perform(post(SecurityConfig.HOT_CLOSE_PATH).param("fingerprint", abandoned)
+            .header("Authorization", "Bearer " + token))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error").value(containsString("schon abgeschlossen")));
+        mvc.perform(post(SecurityConfig.HOT_CLOSE_PATH).param("fingerprint", recent).param("force", "true")
+            .header("Authorization", "Bearer " + token)).andExpect(status().isOk());
+        assertTrue(hot.find(recent).orElseThrow().meta().closed());
     }
 
     @Test

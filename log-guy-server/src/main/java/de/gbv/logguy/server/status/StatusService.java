@@ -12,6 +12,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -42,6 +43,7 @@ import de.gbv.logguy.server.archive.ArchiveWriter;
 import de.gbv.logguy.server.index.Indexer;
 import de.gbv.logguy.server.index.Indexer.Backlog;
 import de.gbv.logguy.server.ingest.IngestService;
+import de.gbv.logguy.server.retention.HotCleaner;
 import de.gbv.logguy.server.solr.SolrService;
 import de.gbv.logguy.server.solr.SolrService.ReplicaInfo;
 import tools.jackson.databind.json.JsonMapper;
@@ -129,7 +131,8 @@ public class StatusService {
             LOGGER.warn("Solr status failed", e);
             solrView = new SolrView(false, e.getMessage(), -1, List.of());
         }
-        return new StatusView(now, system(), storageProblems(), indexerView(), archiveView(), deliveries.stats(),
+        return new StatusView(now, system(), storageProblems(), abandoned(now), indexerView(), archiveView(),
+            deliveries.stats(),
             agents(),
             apps(counts),
             solrView);
@@ -148,6 +151,28 @@ public class StatusService {
             }
         }
         return problems;
+    }
+
+    /**
+     * Open files in {@code hot/} that received nothing for longer than {@code hot-days}. Probably no agent will close
+     * them anymore, e.g. because the application moved to another host or its log volume was created anew. Until
+     * an administrator closes them, original and key stay in {@code hot/}.
+     *
+     * @param now the current time
+     * @return the files, oldest first
+     */
+    public List<AbandonedFile> abandoned(Instant now) {
+        Instant limit = HotCleaner.limit(properties, now);
+        List<AbandonedFile> abandoned = new ArrayList<>();
+        for (HotFile file : store.files()) {
+            FileMeta meta = file.meta();
+            if (!meta.closed() && meta.lastReceived().isBefore(limit)) {
+                abandoned.add(new AbandonedFile(meta.fingerprint(), meta.host(), meta.app(), file.relativePath(),
+                    meta.paths(), meta.lastReceived(), file.length()));
+            }
+        }
+        abandoned.sort(Comparator.comparing(AbandonedFile::lastReceived));
+        return abandoned;
     }
 
     private SystemView system() {
@@ -280,6 +305,7 @@ public class StatusService {
      * @param generated when it was collected
      * @param system the server
      * @param storage files in {@code hot/} and {@code archive/} that were repaired with loss on load or are damaged
+     * @param abandoned open files in {@code hot/} without data for longer than {@code hot-days}
      * @param indexer the indexer
      * @param archive the archive writer
      * @param notifications mails and webhooks since the start
@@ -288,7 +314,7 @@ public class StatusService {
      * @param solr the Solr collection
      */
     public record StatusView(Instant generated, SystemView system, List<StorageProblem> storage,
-        IndexerView indexer, ArchiveView archive, Deliveries.Stats notifications,
+        List<AbandonedFile> abandoned, IndexerView indexer, ArchiveView archive, Deliveries.Stats notifications,
         List<AgentView> agents, List<AppView> apps, SolrView solr) {
     }
 
@@ -300,6 +326,21 @@ public class StatusService {
      * @param problem what is wrong
      */
     public record StorageProblem(String store, String path, String problem) {
+    }
+
+    /**
+     * An open file in {@code hot/} without data for longer than {@code hot-days}, see {@link #abandoned(Instant)}.
+     *
+     * @param fingerprint fingerprint of the file
+     * @param host host the file comes from
+     * @param app application the file belongs to
+     * @param file path of the file below {@code hot/}
+     * @param paths paths of the file on the host
+     * @param lastReceived when the last byte arrived
+     * @param length bytes stored
+     */
+    public record AbandonedFile(String fingerprint, String host, String app, String file, List<String> paths,
+        Instant lastReceived, long length) {
     }
 
     /**

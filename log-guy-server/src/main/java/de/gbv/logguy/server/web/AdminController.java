@@ -27,6 +27,10 @@ import de.gbv.logguy.server.audit.Actor.Via;
 import de.gbv.logguy.server.audit.AuditLog;
 import de.gbv.logguy.server.config.ConfigReloader;
 import de.gbv.logguy.server.config.ConfigReloader.Report;
+import de.gbv.logguy.server.hot.FileMeta;
+import de.gbv.logguy.server.hot.GapException;
+import de.gbv.logguy.server.hot.HotFile;
+import de.gbv.logguy.server.hot.HotStore;
 import de.gbv.logguy.server.reindex.ReindexException;
 import de.gbv.logguy.server.reindex.ReindexJob;
 import de.gbv.logguy.server.reindex.ReindexJob.Plan;
@@ -68,6 +72,8 @@ public class AdminController {
 
     private final ReindexService reindex;
 
+    private final HotStore hot;
+
     /**
      * Creates the controller.
      *
@@ -78,10 +84,11 @@ public class AdminController {
      * @param archiveWriter the archive writer, missing if the archive is disabled
      * @param audit the audit log
      * @param reindex the reindex jobs
+     * @param hot the originals
      */
     public AdminController(CurrentUser currentUser, StatusService status, ServerLog serverLog,
         ConfigReloader reloader, ObjectProvider<ArchiveWriter> archiveWriter, AuditLog audit,
-        ReindexService reindex) {
+        ReindexService reindex, HotStore hot) {
         this.currentUser = currentUser;
         this.status = status;
         this.serverLog = serverLog;
@@ -89,6 +96,7 @@ public class AdminController {
         this.archiveWriter = archiveWriter;
         this.audit = audit;
         this.reindex = reindex;
+        this.hot = hot;
     }
 
     private Actor actor(Authentication authentication) {
@@ -210,6 +218,51 @@ public class AdminController {
         ReindexJob.Status result = job.status();
         return ResponseEntity.status(result.state() == State.DONE && result.failed().isEmpty() ? HttpStatus.OK
             : HttpStatus.UNPROCESSABLE_CONTENT).body(result);
+    }
+
+    /**
+     * Closes an open file in {@code hot/} at the length received so far, for administrators on the status page and
+     * for {@code log-guy hot close} with the control token. Meant for abandoned files that no agent will close
+     * anymore. Archive writer and indexer finish the file, then it leaves {@code hot/} with its key like a rotated
+     * file. If the agent sends more later, it gets the answer for a closed file and stops.
+     *
+     * @param fingerprint the fingerprint of the file
+     * @param force also a file that received data within {@code hot-days}
+     * @param authentication the caller
+     * @return the closed file, 404 if it is unknown, 409 if it is closed already or not abandoned
+     * @throws IOException if writing the file fails
+     */
+    @PostMapping(SecurityConfig.HOT_CLOSE_PATH)
+    @ResponseBody
+    public ResponseEntity<Map<String, Object>> closeHotFile(@RequestParam String fingerprint,
+        @RequestParam(defaultValue = "false") boolean force, Authentication authentication) throws IOException {
+        HotFile file = hot.find(fingerprint).orElse(null);
+        if (file == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(Map.of("error", "Keine Datei mit diesem Fingerabdruck in hot/: " + fingerprint));
+        }
+        FileMeta meta = file.meta();
+        if (meta.closed()) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Map.of("error", "Die Datei ist schon abgeschlossen: " + file.relativePath()));
+        }
+        Instant now = hot.now();
+        boolean abandoned = status.abandoned(now).stream().anyMatch(a -> a.fingerprint().equals(fingerprint));
+        if (!abandoned && !force) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Die Datei hat innerhalb von "
+                + "hot-days noch Daten bekommen, zuletzt " + meta.lastReceived() + ". Abschließen nur mit force."));
+        }
+        long length = file.length();
+        try {
+            file.close(length, null, now);
+        } catch (GapException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Map.of("error", "Während des Abschließens kamen Daten an, bitte erneut versuchen."));
+        }
+        audit.log(actor(authentication), "hot.close", fingerprint, Map.of("host", meta.host(), "app", meta.app(),
+            "file", file.relativePath(), "length", length, "lastReceived", meta.lastReceived().toString(),
+            "force", force));
+        return ResponseEntity.ok(Map.of("fingerprint", fingerprint, "file", file.relativePath(), "length", length));
     }
 
     /**

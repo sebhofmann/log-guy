@@ -1,6 +1,6 @@
 // The status page: system, indexer, archive, agents, applications and Solr. Reloads itself regularly.
 
-import { getJson } from './api.js';
+import { getJson, sendJson } from './api.js';
 import { element, formatNumber, formatTime } from './format.js';
 
 const REFRESH = 15000;
@@ -26,6 +26,7 @@ function render(status) {
     content.replaceChildren(
         system(status.system),
         storage(status.storage),
+        abandoned(status.abandoned, status.generated),
         indexer(status.indexer),
         archive(status.archive),
         notifications(status.notifications),
@@ -144,6 +145,49 @@ function storage(problems) {
         + 'Dateien stehen hier bis zum nächsten Start, Einzelheiten im Server-Log.');
     const rows = problems.map(p => [`${p.store}/`, p.path, p.problem]);
     return section('Speicher', note, table(['Bereich', 'Datei', 'Problem'], rows));
+}
+
+// Open files in hot/ without data for longer than hot-days. Closing one lets it leave hot/ with its key.
+function abandoned(list, now) {
+    if (list.length === 0) {
+        return section('Verwaiste Dateien', element('p', null, 'Keine offenen Dateien in hot/, die länger als '
+            + 'hot-days nichts mehr bekommen haben.'));
+    }
+    const note = element('p', 'error', `${formatNumber(list.length)} offene Dateien in hot/ haben länger als `
+        + 'hot-days nichts mehr bekommen. Vermutlich schließt sie kein Agent mehr ab, etwa weil die Anwendung '
+        + 'umgezogen ist. Bis dahin bleiben Original und Schlüssel in hot/. Abschließen beendet die Datei bei der '
+        + 'empfangenen Länge, danach verlässt sie hot/ wie eine rotierte Datei.');
+    const rows = list.map(f => [
+        f.host,
+        f.app,
+        f.paths.length > 0 ? f.paths[f.paths.length - 1] : f.file,
+        ago(f.lastReceived, now),
+        bytes(f.length),
+        closeButton(f),
+    ]);
+    return section('Verwaiste Dateien', note,
+        table(['Host', 'Anwendung', 'Datei', 'Zuletzt empfangen', 'Größe', ''], rows, [4]));
+}
+
+function closeButton(file) {
+    const node = element('button', 'danger', 'Abschließen');
+    node.type = 'button';
+    node.title = file.fingerprint;
+    node.addEventListener('click', async () => {
+        if (!confirm(`${file.file} von ${file.host} bei ${bytes(file.length)} abschließen? Liefert der Agent `
+            + 'später doch weiter, nimmt log-guy nichts mehr an.')) {
+            return;
+        }
+        node.disabled = true;
+        try {
+            await sendJson('POST', `/admin/hot/close?fingerprint=${encodeURIComponent(file.fingerprint)}`);
+            render(await getJson('/admin/api/status'));
+        } catch (e) {
+            node.disabled = false;
+            info.replaceChildren(element('span', 'error', e.message));
+        }
+    });
+    return node;
 }
 
 function indexer(i) {

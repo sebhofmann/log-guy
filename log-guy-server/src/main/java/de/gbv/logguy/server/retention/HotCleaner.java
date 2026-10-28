@@ -69,8 +69,20 @@ public class HotCleaner {
      * @return the start of the oldest day that stays
      */
     public Instant limit() {
+        return limit(properties, clock.instant());
+    }
+
+    /**
+     * Files whose last event is before this instant may leave {@code hot/}: the start of the day {@code hot-days}
+     * ago in {@code log-guy.zone}.
+     *
+     * @param properties configuration
+     * @param now the current time
+     * @return the start of the oldest day that stays
+     */
+    public static Instant limit(LogGuyProperties properties, Instant now) {
         ZoneId zone = properties.zone();
-        LocalDate first = LocalDate.ofInstant(clock.instant(), zone).minusDays(properties.archive().hotDays());
+        LocalDate first = LocalDate.ofInstant(now, zone).minusDays(properties.archive().hotDays());
         return first.atStartOfDay(zone).toInstant();
     }
 

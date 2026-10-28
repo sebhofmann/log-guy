@@ -164,6 +164,23 @@ public class Commands {
     }
 
     /**
+     * Lets the running server close an abandoned file in {@code hot/}, one that no agent will close anymore.
+     *
+     * @param context the command context
+     * @param fingerprint the fingerprint of the file, shown on the status page
+     * @param force also a file that received data within {@code hot-days}
+     */
+    @Command(name = { "hot", "close" },
+        description = "Close an abandoned file in hot/ at the length received so far, so it can leave hot/")
+    public void hotClose(CommandContext context,
+        @Argument(index = 0, description = "fingerprint of the file, see the status page") String fingerprint,
+        @Option(longName = "force", description = "also a file that received data within hot-days",
+            defaultValue = "false") boolean force) {
+        control(context, SecurityConfig.HOT_CLOSE_PATH + "?fingerprint="
+            + URLEncoder.encode(fingerprint, StandardCharsets.UTF_8) + "&force=" + force);
+    }
+
+    /**
      * Lets the running server index a time range of an application again: files of {@code hot/} with the current
      * parser, the part before the index window from the archive with an expiry date.
      *
