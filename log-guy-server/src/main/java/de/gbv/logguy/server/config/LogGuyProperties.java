@@ -39,7 +39,7 @@ public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppPropert
     List<TokenProperties> tokens, List<UserProperties> users, IngestProperties ingest, HotProperties hot,
     ScriptProperties scripts, SolrProperties solr, IndexerProperties indexer, SearchProperties search,
     RetentionProperties retention, ServerLogProperties serverLog, McpProperties mcp, ArchiveProperties archive,
-    ReindexProperties reindex, AlertProperties alerts, NotifyProperties notifications, BackupProperties backup) {
+    ReindexProperties reindex, AlertProperties alerts, NotifyProperties notifications) {
 
     /**
      * Normalizes missing collections to empty ones.
@@ -51,7 +51,6 @@ public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppPropert
         notifications = notifications == null
             ? new NotifyProperties(null, null, null, null, 1, Duration.ZERO, Duration.ofSeconds(10))
             : notifications;
-        backup = backup == null ? new BackupProperties(null, "-", null) : backup;
     }
 
     /**
@@ -343,26 +342,6 @@ public record LogGuyProperties(Path dataDir, ZoneId zone, Map<String, AppPropert
      */
     public record SearchProperties(Duration defaultRange, int defaultRows, int maxRows, int maxBars, int splitLimit,
         int facetLimit, int maxFacetLimit, int contextLines, int maxContextLines, DataSize contextBytes) {
-    }
-
-    /**
-     * The backup of {@code archive/}, {@code state/}, {@code audit/} and the configuration into a directory, from
-     * where a backup tool copies it further. {@code hot/} is not part of it.
-     *
-     * @param dir target directory, {@code null} switches the backup off
-     * @param cron when it runs, a Spring cron expression in the zone of log-guy, {@code -} only on request
-     * @param configDir the configuration directory with {@code application.yml} and scripts, {@code null} to skip it
-     */
-    public record BackupProperties(Path dir, String cron, Path configDir) {
-
-        /**
-         * Whether a backup directory is set.
-         *
-         * @return {@code true} if backups are switched on
-         */
-        public boolean enabled() {
-            return dir != null && !dir.toString().isBlank();
-        }
     }
 
     /**

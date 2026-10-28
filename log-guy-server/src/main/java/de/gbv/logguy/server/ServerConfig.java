@@ -30,7 +30,6 @@ import de.gbv.logguy.server.alert.NotificationTexts;
 import de.gbv.logguy.server.alert.Notifier;
 import de.gbv.logguy.server.alert.WebhookNotifier;
 import de.gbv.logguy.server.archive.ArchiveStore;
-import de.gbv.logguy.server.backup.BackupService;
 import de.gbv.logguy.server.files.DeletedFiles;
 import de.gbv.logguy.server.files.FileService;
 import de.gbv.logguy.server.files.FilesProperties;
@@ -468,16 +467,15 @@ public class ServerConfig {
      * @param solr the index, for deleting the events of a file
      * @param reindex loads events from the archive, holds off a file while it is deleted
      * @param deleted the blocked files
-     * @param backup the backup, for deleting the copies of deleted files
      * @param clock clock for the time of a deletion
      * @return the service
      */
     @Bean
     public FileService fileService(FilesProperties settings, HotStore hot, ArchiveStore archive,
         ObjectProvider<ArchiveWriter> writer, ObjectProvider<Indexer> indexer, SolrService solr,
-        ReindexService reindex, DeletedFiles deleted, BackupService backup, Clock clock) {
+        ReindexService reindex, DeletedFiles deleted, Clock clock) {
         return new FileService(settings, hot, archive, writer.getIfAvailable(), indexer.getIfAvailable(), solr,
-            reindex, deleted, backup, clock);
+            reindex, deleted, clock);
     }
 
     /**
@@ -535,39 +533,6 @@ public class ServerConfig {
     }
 
     /**
-     * The backup of archive, state, audit log and configuration.
-     *
-     * @param properties configuration
-     * @param archive the archive
-     * @param json mapper for the report
-     * @param clock clock for the report
-     * @return the service
-     */
-    @Bean
-    public BackupService backupService(LogGuyProperties properties, ArchiveStore archive, JsonMapper json,
-        Clock clock) {
-        return new BackupService(properties, archive, json, clock);
-    }
-
-    /**
-     * Runs the backup at {@code log-guy.backup.cron} in the zone of log-guy, never if the cron is {@code -} or no
-     * backup directory is set.
-     *
-     * @param properties configuration
-     * @param backup the backup
-     * @return the scheduling
-     */
-    @Bean
-    public SchedulingConfigurer backupSchedule(LogGuyProperties properties, BackupService backup) {
-        return (ScheduledTaskRegistrar registrar) -> {
-            if (backup.enabled() && !Scheduled.CRON_DISABLED.equals(properties.backup().cron())) {
-                registrar.addTriggerTask(backup::scheduled,
-                    new CronTrigger(properties.backup().cron(), properties.zone()));
-            }
-        };
-    }
-
-    /**
      * Indexing again from {@code hot/} and loading older days from {@code archive/}.
      *
      * @param properties configuration
@@ -619,7 +584,6 @@ public class ServerConfig {
      * @param writer the archive writer if it runs
      * @param ingest the stream API
      * @param deliveries the queue of mails and webhooks
-     * @param backup the backup
      * @param solr connection to Solr
      * @param clock clock for the last hour
      * @param json mapper for facet requests
@@ -630,11 +594,11 @@ public class ServerConfig {
     public StatusService statusService(LogGuyProperties properties, AppRegistry apps, HotStore store,
         ObjectProvider<Indexer> indexer,
         ArchiveStore archive, ObjectProvider<ArchiveWriter> writer, IngestService ingest, Deliveries deliveries,
-        BackupService backup, SolrService solr, Clock clock, JsonMapper json, ObjectProvider<BuildProperties> build) {
+        SolrService solr, Clock clock, JsonMapper json, ObjectProvider<BuildProperties> build) {
         BuildProperties info = build.getIfAvailable();
         return new StatusService(properties, apps, store, indexer.getIfAvailable(), archive, writer.getIfAvailable(),
             ingest,
-            deliveries, backup, solr, clock, json,
+            deliveries, solr, clock, json,
             info == null ? null : info.getVersion());
     }
 

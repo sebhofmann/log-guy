@@ -143,7 +143,7 @@ class ConfigReloadTest {
             Map.of("digibib", new AppProperties(7, "mycore-log4j")),
             List.of(new TokenProperties("agent", TokenKind.INGEST, null, List.of("digibib"), null, INGEST_HASH,
                 false)),
-            List.of(), null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+            List.of(), null, null, null, null, null, null, null, null, null, null, null, null, null);
         IllegalStateException e = assertThrows(IllegalStateException.class, () -> new ServerConfig(properties));
         assertTrue(e.getMessage().contains("ingest token needs a valid host"),
             e.getMessage());

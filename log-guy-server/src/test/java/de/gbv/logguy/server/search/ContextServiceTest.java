@@ -128,7 +128,7 @@ class ContextServiceTest {
             null, null, null,
             new ArchiveProperties(true, 2, Duration.ofMillis(50), 3, 7, "[line {filter} {offset}]", "[field {filter}]",
                 null, new ArchivePseudonymizeProperties(List.of("IP"))),
-            null, null, null, null);
+            null, null, null);
         HotStore hot = new HotStore(properties, JSON, Clock.systemUTC());
         fingerprint = Fingerprint.of(LOG);
         HotFile file = hot.getOrCreate(fingerprint, "app1", "digibib");

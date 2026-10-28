@@ -85,7 +85,7 @@ M5 ist erfüllt mit einer Regel „Connection Pool voll“ auf nachgestellten Hi
 - [ ] Agent-Container für alle Anwendungen ausrollen, Rechte auf die Log-Verzeichnisse. Vorbereitet sind `log-guy-agent check`, die Rechtetabelle und das Compose-Beispiel in [Einsammeln](Einsammeln.md#ausrollen). Offen ist das Ausrollen selbst, es braucht Zugang zu den Produktivhosts.
 - [x] Parser für die übrigen Logformate, per LLM oder von Hand: `apache-error` und `solr`, siehe [Parser-Skripte](Parser-Skripte.md)
 - [x] Solr absichern: eigener Nutzer, `timeAllowed`, `cpuAllowed`, Circuit Breakers
-- [x] Backups von `archive/`, `state/`, `audit/` und `/etc/log-guy/`
+- [x] Backups von `archive/`, `state/`, `audit/` und `/etc/log-guy/`: das Backup-Werkzeug sichert die Verzeichnisse direkt, siehe [Speicherung](Speicherung.md#backup)
 - [x] Log-Browser: Dateien ansehen, durchsuchen, herunterladen, neu indexieren, löschen und sperren, Recht `delete`, siehe [Speicherung](Speicherung.md#dateien-ansehen-und-löschen)
 
 Später: LDAP, Live-Modus in der GUI.
@@ -108,7 +108,7 @@ Später: LDAP, Live-Modus in der GUI.
 | Index-Fenster | 7 Tage |
 | IP-Adressen | im Archiv sofort gekürzt, IPv4 auf `/24`, IPv6 auf `/32`, Originale 7 Tage in `hot/` |
 | Nutzer, Mailadressen | im Archiv sofort durch Tokens pro Datei ersetzt, Schlüssel nur so lange wie das Original in `hot/`. Das Archiv geht ohne weitere Pseudonymisierung an das MCP. |
-| Backup | nur `archive/`, `state/`, `audit/` und `/etc/log-guy/`, nie `hot/` |
+| Backup | nur `archive/`, `state/`, `audit/` und `/etc/log-guy/`, nie `hot/`, direkt durch das Backup-Werkzeug |
 | Archiv | ohne Löschfrist, eine Frist ist nicht Teil von log-guy |
 
 [Zur Übersicht](README.md)

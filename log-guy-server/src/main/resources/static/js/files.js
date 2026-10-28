@@ -344,8 +344,8 @@ function actions(file, may, source, message) {
         const block = checkbox('Erneutes Einliefern sperren', true);
         const remove = button('Löschen', 'danger', async () => {
             const text = block.input.checked
-                ? 'Die Datei aus hot/, dem Archiv, dem Backup und dem Index löschen und für die Agenten sperren?'
-                : 'Die Datei aus hot/, dem Archiv, dem Backup und dem Index löschen? Ohne Sperre liefert der Agent '
+                ? 'Die Datei aus hot/, dem Archiv und dem Index löschen und für die Agenten sperren?'
+                : 'Die Datei aus hot/, dem Archiv und dem Index löschen? Ohne Sperre liefert der Agent '
                     + 'sie neu ein, falls er sie noch hat.';
             if (!window.confirm(text)) {
                 return;

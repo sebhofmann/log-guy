@@ -29,7 +29,6 @@ import de.gbv.logguy.server.archive.ArchiveFile;
 import de.gbv.logguy.server.archive.ArchiveMeta;
 import de.gbv.logguy.server.archive.ArchiveStore;
 import de.gbv.logguy.server.archive.ArchiveWriter;
-import de.gbv.logguy.server.backup.BackupService;
 import de.gbv.logguy.server.hot.FileMeta;
 import de.gbv.logguy.server.hot.HotFile;
 import de.gbv.logguy.server.hot.HotStore;
@@ -66,8 +65,6 @@ public class FileService {
 
     private final DeletedFiles deleted;
 
-    private final BackupService backup;
-
     private final Clock clock;
 
     /**
@@ -81,11 +78,10 @@ public class FileService {
      * @param sink the index, for deleting the events of a file
      * @param reindex loads events from the archive, {@code null} if it does not run
      * @param deleted the blocked files
-     * @param backup the backup, for deleting the copies of deleted files
      * @param clock clock for the time of a deletion
      */
     public FileService(FilesProperties settings, HotStore hot, ArchiveStore archive, ArchiveWriter writer,
-        Indexer indexer, DocumentSink sink, ReindexService reindex, DeletedFiles deleted, BackupService backup,
+        Indexer indexer, DocumentSink sink, ReindexService reindex, DeletedFiles deleted,
         Clock clock) {
         this.settings = settings;
         this.hot = hot;
@@ -95,7 +91,6 @@ public class FileService {
         this.sink = sink;
         this.reindex = reindex;
         this.deleted = deleted;
-        this.backup = backup;
         this.clock = clock;
     }
 
@@ -582,7 +577,6 @@ public class FileService {
         String fingerprint = info.fingerprint();
         boolean hotDeleted = false;
         boolean archiveDeleted = false;
-        String archivePath = null;
         if (writer != null) {
             writer.hold(fingerprint);
         }
@@ -594,7 +588,6 @@ public class FileService {
             }
             Optional<ArchiveFile> archiveFile = archive.find(fingerprint);
             if (archiveFile.isPresent()) {
-                archivePath = archiveFile.get().relativePath();
                 archive.delete(archiveFile.get());
                 archiveDeleted = true;
             }
@@ -612,9 +605,6 @@ public class FileService {
         } catch (Exception e) {
             LOGGER.error("cannot delete the events of {} from the index", fingerprint, e);
             indexError = e.getMessage() == null ? e.toString() : e.getMessage();
-        }
-        if (archivePath != null && backup != null) {
-            backup.forget(archivePath);
         }
         LOGGER.info("{} deleted {}/{}/{}{}", user, info.host(), info.app(), fingerprint, block ? ", blocked" : "");
         return new DeleteResult(fingerprint, hotDeleted, archiveDeleted, block, indexError);

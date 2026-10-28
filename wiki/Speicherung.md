@@ -49,14 +49,15 @@ Der Log-Browser in der GUI und die API `/api/v1/files` machen sichtbar, was log-
 - Die Suche in der Datei arbeitet wie die Archivsuche mit RE2/J ohne ANSI-Farben, liefert aber höchstens `search-hits` Treffer oder liest `search-bytes`, dann hört sie auf und meldet, bis wohin sie gekommen ist.
 - „Neu indexieren“ plant für eine Datei den Teil im Index-Fenster aus `hot/`, sofern der Indexer läuft, und den älteren Teil aus dem Archiv mit Ablaufdatum, wie beim Laden eines Zeitraums. Was schon im Index steht, lädt er nicht noch einmal.
 
-Löschen nimmt eine Datei überall heraus: Original in `hot/`, gefilterte Fassung in `archive/`, die Kopie im Backup und ihre Events in Solr, auch die aus dem Archiv geladenen. Die Reihenfolge:
+Löschen nimmt eine Datei überall heraus: Original in `hot/`, gefilterte Fassung in `archive/` und ihre Events in Solr, auch die aus dem Archiv geladenen. Die Reihenfolge:
 
 1. Mit Sperre: Eintrag in `state/deleted.json`, atomar geschrieben, bevor etwas gelöscht wird.
 2. Aufträge, die Events aus dem Archiv laden, lassen die Datei ab jetzt aus. Lädt der Auftrag gerade aus ihr, wartet das Löschen, bis der Stapel, der gerade an Solr geht, angekommen ist, den Rest der Datei verwirft der Auftrag. So schreibt er nach Schritt 5 keine Events zurück in den Index. Ein wartender Auftrag überspringt die Datei, ohne sie als Fehler zu melden.
 3. Der Archiv-Schreiber wird für diese Datei angehalten, ein laufender Durchgang wird abgewartet.
 4. In `hot/` und `archive/` jeweils zuerst `.meta.json`, dann Frames, `.idx` und Reste, wie beim nächtlichen Löschen. Nach einem Absturz dazwischen lädt log-guy die Reste beim Start nicht.
 5. Der Indexer vergisst die Datei, sobald gerade kein Thread an ihr arbeitet, dann löscht log-guy die Events per `id:<fingerprint>:*`. Ist Solr nicht erreichbar, gilt die Datei trotzdem als gelöscht und die Antwort nennt den Fehler unter `indexError`.
-6. Die Kopie im Backup wird sofort gelöscht, läuft gerade ein Backup, an dessen Ende. Ältere Stände des Backup-Ziels, etwa Snapshots, sind nicht Teil von log-guy.
+
+Was schon in einem Backup steht, bleibt dort, bis das Backup-Werkzeug den Stand verwirft. Das ist nicht Teil von log-guy.
 
 Gesperrt heißt: Fragt ein Agent nach der Datei oder schickt sie erneut, z.B. nach dem Verlust seines Zustands, antwortet log-guy mit „abgeschlossen“ und der Länge zum Zeitpunkt des Löschens, und der Agent hört auf. Ohne Sperre würde der Agent eine noch vorhandene Datei von vorn neu einliefern. Läuft während des Löschens mit Sperre noch ein Append, scheitert er an der gelöschten Datei, und log-guy antwortet ebenfalls mit „abgeschlossen“. Wird die Sperre aufgehoben, nimmt log-guy die Datei wieder an. Löschen und Aufheben stehen mit Nutzer, Host, Pfaden und Tag im Audit-Log.
 
@@ -64,26 +65,26 @@ Einstellungen unter `log-guy.files`: `page-lines` (500), `page-size` (1 MB), `ma
 
 ### Backup
 
-Gesichert werden `archive/`, `state/`, `audit/` und das Konfigurationsverzeichnis `/etc/log-guy/` mit den Skripten, nie `hot/`. Die Dateien in `hot/` liefern die Agenten nach einem Verlust erneut, soweit sie noch auf den Anwendungsservern liegen.
+Gesichert werden `archive/`, `state/`, `audit/` und das Konfigurationsverzeichnis `/etc/log-guy/` mit den Skripten, nie `hot/`. Die Dateien in `hot/` liefern die Agenten nach einem Verlust erneut, soweit sie noch auf den Anwendungsservern liegen. log-guy legt dafür kein eigenes Backup-Verzeichnis an: Ein Backup-Werkzeug wie restic oder borg sichert die Verzeichnisse direkt im laufenden Betrieb. Wann und wie, ist Sache des Betriebs.
 
-Ein Backup-Werkzeug wie restic oder borg darf `archive/` nicht direkt im laufenden Betrieb lesen: An eine Datei werden ständig Frames angehängt, und beim Neuschreiben mit geänderten Filtern (`log-guy archive refilter` und `log-guy archive pseudonymize`) ersetzt log-guy `.log.zst`, `.idx` und `.meta.json` nacheinander. Eine Kopie mitten darin passt nicht zusammen, und ist das Original aus `hot/` schon gelöscht, lässt sie sich nicht mehr reparieren. log-guy legt deshalb selbst eine stimmige Kopie in einem Backup-Verzeichnis an, das Backup-Werkzeug sichert dieses Verzeichnis weiter:
+Warum das im laufenden Betrieb geht:
 
-```yaml
-log-guy:
-  backup:
-    dir: /var/backups/log-guy    # leer schaltet das Backup ab
-    cron: "0 30 3 * * *"         # nach der Aufbewahrung um 02:30, "-" nur mit log-guy backup
-    config-dir: /etc/log-guy
-```
+- **Anhängen an `archive/`:** Ein Frame geht zuerst in die `.log.zst`, dann in die `.idx`, zuletzt wird die `.meta.json` atomar ersetzt. Beim Laden repariert log-guy jede Zwischenstufe: Indexzeilen ohne Daten fallen weg, Daten ohne Indexzeile werden abgeschnitten, die Meta-Daten werden neu gezählt. Eine Kopie mitten im Anhängen sieht deshalb aus wie ein Absturz. Es fehlt höchstens, was während des Backups dazukam, und das sichert der nächste Lauf.
+- **Abgeschlossene Dateien** in `archive/` ändern sich nicht mehr.
+- **Gelöschte Dateien:** Beim Löschen geht die `.meta.json` zuerst. Erwischt das Backup nur noch `.log.zst` oder `.idx`, lädt log-guy diese Reste nach dem Zurückspielen nicht.
+- **`state/`:** `deleted.json` und `state/index/<fingerprint>` werden über eine `.tmp`-Datei atomar ersetzt. An `alerts.ndjson` wird angehängt. Endet die Kopie in einer halben Zeile, fällt diese beim Laden weg, und die Datei wird beim Start ohnehin neu geschrieben.
+- **`audit/`** wird nur angehängt. Eine halbe letzte Zeile in einer zurückgespielten Datei bleibt dort stehen.
+- `archive/.refilter/` und `state/control.token` müssen nicht gesichert werden. Das Steuer-Token entsteht bei jedem Start neu, `.refilter/` ist ein Arbeitsverzeichnis von `refilter` und `pseudonymize`.
+- `/etc/log-guy/` enthält die Passwort-Hashes und Token aus `application.yml` und das Solr-Passwort, das Backup-Ziel muss entsprechend geschützt sein.
 
-- `archive/`: Pro Datei öffnet log-guy die `.log.zst` unter der Sperre der Datei und merkt sich die Frames, die es in diesem Moment gibt. Kopiert wird nur bis zum Ende dieser Frames. Danach angehängte Frames kommen beim nächsten Lauf, und auch eine gleichzeitig ersetzte Datei bleibt lesbar, weil der geöffnete Dateideskriptor den alten Inhalt festhält. Sind die Frames der Kopie der Anfang der aktuellen Frames, hängt log-guy nur die neuen an, sonst schreibt es die Kopie neu und löscht vorher deren `.meta.json`. Die Reihenfolge ist wie im Archiv: `.log.zst`, `.idx`, `.meta.json`. Ein abgebrochenes Backup repariert log-guy beim Laden deshalb wie einen Absturz.
-- `state/`, `audit/` und die Konfiguration werden gespiegelt. Kopiert wird, was sich nach Größe oder Änderungszeit unterscheidet, gelöscht wird, was es nicht mehr gibt. Bei `.ndjson` fällt eine noch unvollständige letzte Zeile weg. `state/control.token` und Dateien auf `.tmp` bleiben draußen.
-- Am Ende schreibt log-guy `backup.json` mit Zeiten, Zahlen und Fehlern. Die Status-Seite zeigt den letzten Lauf, `log-guy backup` startet einen Lauf sofort und gibt den Bericht aus. Der Lauf steht im Audit-Log.
-- Das Backup-Verzeichnis muss außerhalb von Daten- und Konfigurationsverzeichnis liegen, sonst startet log-guy nicht. Es enthält die Passwort-Hashes und Token aus `application.yml` und das Solr-Passwort, nur log-guy und das Backup-Werkzeug dürfen es lesen.
+Nicht im laufenden Betrieb sichern lässt sich das Neuschreiben mit `log-guy archive refilter` und `log-guy archive pseudonymize`: Dabei ersetzt log-guy `.meta.json`, `.log.zst` und `.idx` nacheinander, eine Kopie mitten darin passt nicht zusammen. Danach ist ein älteres Backup außerdem nicht mehr brauchbar, weil es die alten, schwächer gefilterten Daten enthält. Ablauf im Betrieb:
 
-Gemessen im e2e mit dem Archiv aus dem Backfill von `prod-logs/` auf ext4 und NVMe: Der erste Lauf kopierte 698 Archivdateien mit 3,98 GB und 719 weitere Dateien in 4,9 s, der zweite Lauf ohne neue Daten brauchte 0,18 s. Die Prüfsummen aller 2094 Dateien in `archive/` und in der Kopie stimmten überein.
+1. Backup anhalten.
+2. `log-guy archive refilter` bzw. `log-guy archive pseudonymize` laufen lassen.
+3. Ein neues, vollständiges Backup anlegen.
+4. Die alten Backups löschen, weil sie die alten Daten noch enthalten.
 
-Zurückspielen: log-guy anhalten, `archive/`, `state/` und `audit/` aus dem Backup in das Datenverzeichnis kopieren, `config/` nach `/etc/log-guy/`, log-guy starten. Ausprobiert mit einer zweiten Instanz auf der Kopie: Sie lud 698 Dateien ohne Reparatur, und eine Archivsuche über drei Monate digibib fand wie das Original 5197 Treffer in 92 Dateien. Danach schicken die Agenten, was `hot/` fehlt. Laut Code gilt: Für abgeschlossene Dateien antwortet log-guy aus dem Archiv, offene Dateien setzt der Archiv-Schreiber bei der archivierten Länge fort. Was nach dem letzten Backup archiviert wurde und auf den Anwendungsservern nicht mehr liegt, ist verloren. Nicht ausprobiert ist bisher das erneute Senden durch einen Agenten nach dem Zurückspielen.
+Zurückspielen: log-guy anhalten, `archive/`, `state/` und `audit/` aus dem Backup in das Datenverzeichnis kopieren, die Konfiguration nach `/etc/log-guy/`, log-guy starten. Beim Start repariert log-guy Archivdateien, die mitten im Anhängen gesichert wurden. Danach schicken die Agenten, was `hot/` fehlt. Laut Code gilt: Für abgeschlossene Dateien antwortet log-guy aus dem Archiv, offene Dateien setzt der Archiv-Schreiber bei der archivierten Länge fort. Was nach dem letzten Backup archiviert wurde und auf den Anwendungsservern nicht mehr liegt, ist verloren. Nicht ausprobiert ist bisher das erneute Senden durch einen Agenten nach dem Zurückspielen.
 
 ### Indexer
 

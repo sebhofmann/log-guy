@@ -33,7 +33,7 @@ class ConfigCheckerTest {
     private static LogGuyProperties properties(List<TokenProperties> tokens, List<UserProperties> users) {
         return new LogGuyProperties(Path.of("/tmp"), ZoneId.of("Europe/Berlin"),
             Map.of("digibib", new AppProperties(7, "mycore-log4j"), "digibib-apache", new AppProperties(7, null)),
-            tokens, users, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+            tokens, users, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     @Test
@@ -60,7 +60,7 @@ class ConfigCheckerTest {
             new GrantProperties(List.of("@produktiv"), Set.of(Right.READ)),
             new GrantProperties(List.of("@test"), Set.of(Right.READ)))));
         List<String> errors = ConfigChecker.check(new LogGuyProperties(Path.of("/tmp"), ZoneId.of("Europe/Berlin"),
-            apps, null, users, null, null, null, null, null, null, null, null, null, null, null, null, null, null));
+            apps, null, users, null, null, null, null, null, null, null, null, null, null, null, null, null));
         assertEquals(List.of("application rolf: invalid group bad group",
             "user anna: pattern @test matches no application"), errors);
     }
@@ -123,8 +123,7 @@ class ConfigCheckerTest {
 
     private static LogGuyProperties retention(String cron) {
         return new LogGuyProperties(Path.of("/tmp"), ZoneId.of("Europe/Berlin"), Map.of(), List.of(), List.of(), null,
-            null, null, null, null, null, new RetentionProperties(cron, true), null, null, null, null, null, null,
-            null);
+            null, null, null, null, null, new RetentionProperties(cron, true), null, null, null, null, null, null);
     }
 
     @Test
@@ -143,6 +142,6 @@ class ConfigCheckerTest {
 
     private static LogGuyProperties notifications(NotifyProperties notifications) {
         return new LogGuyProperties(Path.of("/tmp"), ZoneId.of("Europe/Berlin"), Map.of(), List.of(), List.of(), null,
-            null, null, null, null, null, null, null, null, null, null, null, notifications, null);
+            null, null, null, null, null, null, null, null, null, null, null, notifications);
     }
 }

@@ -118,7 +118,7 @@ class FileServiceTest {
             null,
             null, null, null, null, null,
             new ArchiveProperties(true, 2, Duration.ofMillis(50), 3, 7, "[x]", "[f {filter}]", null, null), null, null,
-            null, null);
+            null);
         hot = new HotStore(properties, JSON, Clock.systemUTC());
         archive = new ArchiveStore(properties, JSON);
         ParserRegistry parsers = new ParserRegistry(properties, runtime);
@@ -146,7 +146,7 @@ class FileServiceTest {
         deleted = new DeletedFiles(properties.stateDir(), JSON);
         FilesProperties settings = new FilesProperties(50, DataSize.ofKilobytes(16), DataSize.ofKilobytes(64), 5,
             DataSize.ofKilobytes(64), 10);
-        service = new FileService(settings, hot, archive, null, null, sink, null, deleted, null, Clock.systemUTC());
+        service = new FileService(settings, hot, archive, null, null, sink, null, deleted, Clock.systemUTC());
     }
 
     @AfterEach

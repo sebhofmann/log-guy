@@ -97,8 +97,9 @@ class ArchiveSearchTest {
             List.of(), List.of(), null, null, null, null, null, null, null, null, null,
             new ArchiveProperties(true, 1, Duration.ofSeconds(1), 3, 7, "[x]", "[f {filter}]",
                 new ArchiveSearchProperties(2, 2, Duration.ofDays(1), Duration.ofDays(92), maxHits,
-                    Duration.ofMinutes(10), 0, 5, 200, Duration.ofHours(1)), null),
-            null, null, null, null);
+                    Duration.ofMinutes(10), 0, 5, 200, Duration.ofHours(1)),
+                null),
+            null, null, null);
     }
 
     private static FileMeta meta(String fingerprint, String host, String app) {
@@ -201,8 +202,10 @@ class ArchiveSearchTest {
         assertEquals(0, none.status().files());
         assertEquals(State.DONE, none.status().state());
 
-        SearchException tooLong = assertThrows(SearchException.class, () -> search.start(user, owner(), new ArchiveSearchRequest(List.of(), List.of(), NOW.minus(Duration.ofDays(93)), NOW,
-                "solr", false, false, null)));
+        SearchException tooLong = assertThrows(SearchException.class,
+            () -> search.start(user, owner(),
+                new ArchiveSearchRequest(List.of(), List.of(), NOW.minus(Duration.ofDays(93)), NOW,
+                    "solr", false, false, null)));
         assertTrue(tooLong.getMessage().contains("92 Tage"), tooLong.getMessage());
         // without from the default range of one day applies
         ArchiveSearchJob recent = finished(search.start(user, owner(), new ArchiveSearchRequest(
@@ -218,8 +221,10 @@ class ArchiveSearchTest {
             () -> search.start(user("*", Right.READ), owner(), request("solr", false, null)));
         LogGuyUser digibib = user("digibib", Right.READ, Right.ARCHIVE);
         assertEquals(Set.of("digibib"), search.apps(digibib));
-        SearchException forbidden = assertThrows(SearchException.class, () -> search.start(digibib, owner(), new ArchiveSearchRequest(List.of("secret"), List.of(), DAY1, NOW, "solr", false,
-                false, null)));
+        SearchException forbidden = assertThrows(SearchException.class,
+            () -> search.start(digibib, owner(),
+                new ArchiveSearchRequest(List.of("secret"), List.of(), DAY1, NOW, "solr", false,
+                    false, null)));
         assertTrue(forbidden.getMessage().contains("secret"), forbidden.getMessage());
         assertThrows(SearchException.class,
             () -> search.start(digibib, owner(), request(" ", false, null)));
@@ -254,7 +259,8 @@ class ArchiveSearchTest {
     @Test
     void runningJobStopsWhenTheRightsAreGone() throws Exception {
         reload = before -> Optional.of(user("rolf", Right.READ, Right.ARCHIVE));
-        ArchiveSearchJob job = finished(search.start(user("digibib", Right.READ, Right.ARCHIVE), owner(), request("solr", false, null)));
+        ArchiveSearchJob job =
+            finished(search.start(user("digibib", Right.READ, Right.ARCHIVE), owner(), request("solr", false, null)));
         assertEquals(State.CANCELLED, job.status().state());
         assertEquals(0, job.status().hits());
         assertTrue(job.status().message().contains("Rechte"), job.status().message());
@@ -280,7 +286,8 @@ class ArchiveSearchTest {
         search.close();
         search = new ArchiveSearch(properties(2), new AppRegistry(properties(2)), archive,
             user -> reload.apply(user), Clock.fixed(NOW, ZoneOffset.UTC));
-        ArchiveSearchJob job = finished(search.start(user("digibib", Right.READ, Right.ARCHIVE), owner(), request("2026", false, null)));
+        ArchiveSearchJob job =
+            finished(search.start(user("digibib", Right.READ, Right.ARCHIVE), owner(), request("2026", false, null)));
         assertEquals(State.LIMIT, job.status().state());
         assertEquals(2, job.status().hits());
         assertTrue(job.status().message().contains("Trefferlimit"), job.status().message());

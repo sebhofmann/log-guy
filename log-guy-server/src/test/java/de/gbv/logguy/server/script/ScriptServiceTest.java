@@ -130,7 +130,7 @@ class ScriptServiceTest {
             new ScriptProperties(scripts, Duration.ofMillis(200), LOAD_TIMEOUT, 100, DataSize.ofKilobytes(16), 1000,
                 100),
             null, null,
-            null, null, null, null, null, null, null, null, null);
+            null, null, null, null, null, null, null, null);
         store = new ScriptStore(scripts, Clock.systemUTC(), JSON);
         store.scan();
         apps = new AppRegistry(properties);

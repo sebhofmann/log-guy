@@ -100,7 +100,7 @@ class ArchiveWriterTest {
             new ArchiveProperties(true, 2, Duration.ofMillis(50), 3, 7, PLACEHOLDER, "[f {filter}]", null,
                 new ArchivePseudonymizeProperties(List.of("IP"))),
             null, null,
-            null, null);
+            null);
         scripts = new ScriptStore(scriptDir, Clock.systemUTC(), JSON);
         // the sample has shortened IP addresses already, two full ones show the filter
         String text = new String(TestLogs.mycoreSample(), StandardCharsets.UTF_8);
@@ -175,7 +175,8 @@ class ArchiveWriterTest {
             ArchiveStore archive = new ArchiveStore(properties, JSON);
             LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE);
             assertTrue(filters.errors().isEmpty(), filters.errors().toString());
-            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, pseudonyms(), parsers(), runtime)) {
+            try (ArchiveWriter writer =
+                new ArchiveWriter(properties, hot, archive, filters, pseudonyms(), parsers(), runtime)) {
                 await(() -> archive.find(file.fingerprint()).map(a -> a.meta().closed()).orElse(false));
                 assertEquals(0, writer.backlog());
             }
@@ -228,7 +229,8 @@ class ArchiveWriterTest {
             HotFile file = fill(hot, data, true);
             ArchiveStore archive = new ArchiveStore(properties, JSON);
             LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE);
-            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, pseudonyms(), parsers(), runtime)) {
+            try (ArchiveWriter writer =
+                new ArchiveWriter(properties, hot, archive, filters, pseudonyms(), parsers(), runtime)) {
                 await(() -> archive.find(file.fingerprint()).map(a -> a.meta().closed()).orElse(false));
             }
             List<ArchiveFrame> frames = archive.find(file.fingerprint()).orElseThrow().frames();
@@ -270,7 +272,8 @@ class ArchiveWriterTest {
             HotFile file = fill(hot, sample, true);
             ArchiveStore archive = new ArchiveStore(properties, JSON);
             LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE);
-            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, pseudonyms(), parsers(), runtime)) {
+            try (ArchiveWriter writer =
+                new ArchiveWriter(properties, hot, archive, filters, pseudonyms(), parsers(), runtime)) {
                 await(() -> archive.find(file.fingerprint()).map(a -> a.meta().closed()).orElse(false));
                 assertEquals(1, writer.filterErrors());
                 assertTrue(writer.droppedLines() > 0);
@@ -305,7 +308,8 @@ class ArchiveWriterTest {
             HotFile clean = fill(hot, other, true);
             ArchiveStore archive = new ArchiveStore(properties, JSON);
             LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE);
-            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, pseudonyms(), parsers(), runtime)) {
+            try (ArchiveWriter writer =
+                new ArchiveWriter(properties, hot, archive, filters, pseudonyms(), parsers(), runtime)) {
                 await(() -> archive.find(file.fingerprint()).map(a -> a.meta().closed()).orElse(false)
                     && archive.find(clean.fingerprint()).map(a -> a.meta().closed()).orElse(false));
                 ArchiveFile before = archive.find(file.fingerprint()).orElseThrow();
@@ -343,7 +347,8 @@ class ArchiveWriterTest {
             HotFile open = fill(hot, live, false);
             ArchiveStore archive = new ArchiveStore(properties, JSON);
             LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE);
-            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, pseudonyms(), parsers(), runtime)) {
+            try (ArchiveWriter writer =
+                new ArchiveWriter(properties, hot, archive, filters, pseudonyms(), parsers(), runtime)) {
                 await(() -> archive.find(file.fingerprint()).map(a -> a.meta().closed()).orElse(false));
             }
             Instant to = archive.find(file.fingerprint()).orElseThrow().meta().to();
@@ -382,7 +387,8 @@ class ArchiveWriterTest {
             ArchiveStore archive = new ArchiveStore(properties, JSON);
             LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE);
             assertEquals(1, filters.errors().size());
-            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, pseudonyms(), parsers(), runtime)) {
+            try (ArchiveWriter writer =
+                new ArchiveWriter(properties, hot, archive, filters, pseudonyms(), parsers(), runtime)) {
                 Thread.sleep(300);
                 assertTrue(archive.find(file.fingerprint()).isEmpty());
                 assertEquals(1, writer.pausedBy().size());
@@ -575,7 +581,8 @@ class ArchiveWriterTest {
             file.flushAged(Instant.now().plusSeconds(120));
             ArchiveStore archive = new ArchiveStore(properties, JSON);
             LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE);
-            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, pseudonyms(), parsers(), runtime)) {
+            try (ArchiveWriter writer =
+                new ArchiveWriter(properties, hot, archive, filters, pseudonyms(), parsers(), runtime)) {
                 long framed = file.framedLength();
                 assertTrue(framed < cut);
                 await(() -> archive.find(file.fingerprint()).map(a -> a.meta().sourceLength() == framed)
@@ -598,7 +605,8 @@ class ArchiveWriterTest {
             HotFile file = fill(hot, sample, true);
             ArchiveStore archive = new ArchiveStore(properties, JSON);
             LifecycleFilters filters = new LifecycleFilters(runtime, scripts, JSON, () -> AppGroups.NONE);
-            try (ArchiveWriter writer = new ArchiveWriter(properties, hot, archive, filters, pseudonyms(), parsers(), runtime)) {
+            try (ArchiveWriter writer =
+                new ArchiveWriter(properties, hot, archive, filters, pseudonyms(), parsers(), runtime)) {
                 await(() -> archive.find(file.fingerprint()).map(a -> a.meta().closed()).orElse(false));
             }
             ArchiveFile target = archive.find(file.fingerprint()).orElseThrow();

@@ -38,7 +38,6 @@ import de.gbv.logguy.server.hot.HotFile;
 import de.gbv.logguy.server.hot.HotStore;
 import de.gbv.logguy.server.archive.ArchiveFile;
 import de.gbv.logguy.server.archive.ArchiveStore;
-import de.gbv.logguy.server.backup.BackupService;
 import de.gbv.logguy.server.archive.ArchiveWriter;
 import de.gbv.logguy.server.index.Indexer;
 import de.gbv.logguy.server.index.Indexer.Backlog;
@@ -70,8 +69,6 @@ public class StatusService {
 
     private final Deliveries deliveries;
 
-    private final BackupService backup;
-
     private final SolrService solr;
 
     private final Clock clock;
@@ -91,7 +88,6 @@ public class StatusService {
      * @param writer the archive writer, {@code null} if it is disabled
      * @param ingest the stream API
      * @param deliveries the queue of mails and webhooks
-     * @param backup the backup
      * @param solr connection to Solr
      * @param clock clock for the last hour
      * @param json mapper for facet requests
@@ -99,7 +95,7 @@ public class StatusService {
      */
     public StatusService(LogGuyProperties properties, AppRegistry appRegistry, HotStore store, Indexer indexer,
         ArchiveStore archive,
-        ArchiveWriter writer, IngestService ingest, Deliveries deliveries, BackupService backup, SolrService solr,
+        ArchiveWriter writer, IngestService ingest, Deliveries deliveries, SolrService solr,
         Clock clock, JsonMapper json, String version) {
         this.properties = properties;
         this.appRegistry = appRegistry;
@@ -109,7 +105,6 @@ public class StatusService {
         this.writer = writer;
         this.ingest = ingest;
         this.deliveries = deliveries;
-        this.backup = backup;
         this.solr = solr;
         this.clock = clock;
         this.json = json;
@@ -135,7 +130,6 @@ public class StatusService {
             solrView = new SolrView(false, e.getMessage(), -1, List.of());
         }
         return new StatusView(now, system(), storageProblems(), indexerView(), archiveView(), deliveries.stats(),
-            backup.status(),
             agents(),
             apps(counts),
             solrView);
@@ -294,7 +288,7 @@ public class StatusService {
      * @param solr the Solr collection
      */
     public record StatusView(Instant generated, SystemView system, List<StorageProblem> storage,
-        IndexerView indexer, ArchiveView archive, Deliveries.Stats notifications, BackupService.Status backup,
+        IndexerView indexer, ArchiveView archive, Deliveries.Stats notifications,
         List<AgentView> agents, List<AppView> apps, SolrView solr) {
     }
 

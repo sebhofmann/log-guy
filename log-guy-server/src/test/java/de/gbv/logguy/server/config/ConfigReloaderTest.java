@@ -27,7 +27,7 @@ class ConfigReloaderTest {
     private static LogGuyProperties properties(Map<String, AppProperties> apps, List<TokenProperties> tokens,
         List<UserProperties> users) {
         return new LogGuyProperties(Path.of("/tmp"), ZoneId.of("Europe/Berlin"), apps, tokens, users, null, null,
-            null, null, null, null, null, null, null, null, null, null, null, null);
+            null, null, null, null, null, null, null, null, null, null, null);
     }
 
     private static UserProperties user(String name, String app, Right right) {
@@ -75,7 +75,7 @@ class ConfigReloaderTest {
         assertEquals(List.of(), ConfigReloader.restartNeeded(before,
             properties(Map.of("digibib", new AppProperties(3, null)), List.of())));
         LogGuyProperties zone = new LogGuyProperties(Path.of("/tmp"), ZoneId.of("UTC"), apps, List.of(), List.of(),
-            null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+            null, null, null, null, null, null, null, null, null, null, null, null, null);
         assertEquals(List.of("log-guy.zone"), ConfigReloader.restartNeeded(before, zone));
     }
 

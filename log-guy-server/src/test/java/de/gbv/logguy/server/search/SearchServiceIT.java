@@ -125,7 +125,7 @@ class SearchServiceIT {
             null, null, null,
             new ArchiveProperties(true, 2, Duration.ofMillis(50), 3, 7, "[line {filter} {offset}]",
                 "[field {filter}]", null, new ArchivePseudonymizeProperties(List.of())),
-            null, null, null, null);
+            null, null, null);
         store = new HotStore(properties, JSON, Clock.systemUTC());
         HotFile file = store.getOrCreate(Fingerprint.of(SAMPLE), "app1", "digibib");
         file.append(0, SAMPLE, SAMPLE.length, null, Instant.now());
